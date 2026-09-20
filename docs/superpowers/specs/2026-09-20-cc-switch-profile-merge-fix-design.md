@@ -1,7 +1,7 @@
-# 设计：CC Switch 3P profile 覆盖缺陷本地修复（合并语义）
+# 设计：CC Switch 3P profile 覆盖缺陷本地修复（合并语义 + 显示名可配置）
 
 - 日期：2026-09-20
-- 状态：设计已获用户逐节确认（两节均确认）
+- 状态：设计已获用户逐节确认；用户补充要求「删除 guard」+「左下角显示名可配置且持久化」后修订本版
 - 上游：PR [farion1231/cc-switch#5417](https://github.com/farion1231/cc-switch/pull/5417)（OPEN / MERGEABLE，提交 `e71fe6998`）
 - 分支：`fix/profile-merge`（基于 tag `v3.20.3`，仅本地，不推送）
 
@@ -9,9 +9,15 @@
 
 ## 1. 背景与目标
 
-CC Switch 每次应用/切换 Claude Desktop 供应商时，用 `build_gateway_profile()` 重建的模板**整份覆盖** 3P profile 文件（`src-tauri/src/claude_desktop_config.rs` 中 `write_json_file(&paths.profile_path, &profile)`），对非网关字段（`chatTabEnabled`、`autoModeEnabled`、`managedMcpServers` 等 144 项面板可写设置）毫无概念，重建即丢弃。本机已有 claude3p-profile-guard 守护进程兜底，但根治需改上游源码。
+CC Switch 每次应用/切换 Claude Desktop 供应商时，用 `build_gateway_profile()` 重建的模板**整份覆盖** 3P profile 文件（`src-tauri/src/claude_desktop_config.rs` 中 `write_json_file(&paths.profile_path, &profile)`），对非网关字段（`chatTabEnabled`、`autoModeEnabled`、`managedMcpServers`、`deploymentDisplayName` 等）毫无概念，重建即丢弃。本机 claude3p-profile-guard 守护进程兜底，但其自启静默失效曾导致 9/20 事故，且属补丁式方案。
 
-**目标**：本机编译自用的 CC Switch 安装包，profile 写入改为**合并语义**（读现有 → 自有键覆盖 → 未知键保留），彻底消除覆盖事故。
+**目标**（本机编译自用）：
+
+1. profile 写入改为**合并语义**（读现有 → 自有键覆盖 → 未知键保留），消除覆盖事故；
+2. 左下角显示名（`deploymentDisplayName` / `deploymentDisplaySubtitle` / `endUserAttribution` 三键）纳入 CC Switch 自有字段，**在 CC Switch 设置里可配置**，跨切换/重启持久；
+3. **删除 guard**（停进程、清自启项，脚本目录备份后清理）。
+
+身份行/问候语的 "Jason"（`os.userInfo().username` 兜底）不在范围内——report §2.1 已证实无配置键可改，用户已确认接受。
 
 ## 2. 已确认的关键决策
 
@@ -19,11 +25,15 @@ CC Switch 每次应用/切换 Claude Desktop 供应商时，用 `build_gateway_p
 |---|---|
 | 产出形态 | 本地编译自用（完整安装包部署） |
 | 部署方式 | 构建完整 NSIS 安装包，覆盖安装到现有目录 |
-| 基线 | tag `v3.20.3`（与安装版完全一致）+ PR #5417 补丁 |
+| 基线 | tag `v3.20.3`（与安装版完全一致）+ 两个补丁（见 §3） |
 | 版本号 | `3.20.3-local`（`tauri.conf.json` 与 `src-tauri/Cargo.toml` 同步改，tauri-build 校验两者一致；`package.json` 不动） |
 | 自动更新防覆盖 | 利用仓库既有 `createUpdaterArtifacts: true`：本地构建自动生成本地签名密钥对并嵌入本地公钥 → 官方更新签名校验必然失败 → 官方版无法覆盖本地构建。**不改任何配置** |
+| 构建次数 | **一次构建**包含两个补丁（补丁小、回归面窄；验收分两步执行，见 §8） |
+| guard 处置 | 验收第二步前卸载：备份目录 → 停进程 + 清 HKCU Run 自启项（若 `--uninstall` 会删脚本文件，则改为手动清 Run 键 + kill，保留脚本目录作回退） |
 
-## 3. 补丁内容（与 PR #5417 完全一致）
+## 3. 补丁内容
+
+### 3.1 补丁 A：合并语义（与 PR #5417 完全一致）
 
 单文件 `src-tauri/src/claude_desktop_config.rs`，+101/-1：
 
@@ -42,7 +52,40 @@ CC Switch 每次应用/切换 Claude Desktop 供应商时，用 `build_gateway_p
 
 **应用方式**：`git cherry-pick e71fe6998`；若与 v3.20.3 冲突，按 PR diff 手工应用（本机 `D:\Workspace\Claude Desktop\Code\Tmp\ccswitch_claude_desktop_config.rs` 是 3.20.3 版源码副本，可对照）。
 
-**不改动的部分**：官方供应商恢复路径（`restore_official_at_paths_inner` 删除 profile）、rollback 快照机制、Claude Code / Codex / Gemini 路径、前端代码。
+### 3.2 补丁 B：显示名三键纳入 CC Switch 自有字段（新增功能）
+
+**数据模型**（`src-tauri/src/settings.rs`）：
+
+```rust
+pub struct ClaudeDesktopDisplaySettings {
+    pub name: String,        // deploymentDisplayName
+    pub subtitle: String,    // deploymentDisplaySubtitle
+    pub attribution: bool,   // endUserAttribution
+}
+// AppSettings 新增字段（serde default = None，功能默认关闭、行为不变）：
+pub claude_desktop_display: Option<ClaudeDesktopDisplaySettings>,
+```
+
+**写入路径**：`build_gateway_profile` 增加参数 `display: Option<&ClaudeDesktopDisplaySettings>`；为 `Some` 时把三键注入 profile（与 7 键模板同批写入）。`apply_provider_to_paths_inner` 通过 `crate::settings::get_settings()` 取值传入（既有缓存模式，与其他 config 写入器一致）。为 `None` 时行为与补丁 A 完全一致（磁盘旧值由合并保留）。
+
+**前端 UI**（React + TS，遵循既有 SettingsPage 模式）：
+
+- 新组件 `src/components/settings/ClaudeDesktopDisplaySettings.tsx`：一个「管理 Claude Desktop 显示设置」开关（对应 Option 门控）+ 两个文本输入（显示名/副标题）+ 一个开关（endUserAttribution，默认 false，与用户当前磁盘值一致）；
+- 副标题输入为空时按空串写入（用户可有意清空）；开关启用时显示名必填；
+- 注册进 `SettingsPage.tsx` 既有分栏；
+- i18n 补 zh/en 键（`src/i18n/` 目录）；
+- 设置走既有 `useSettings` hook + `settingsApi`（AppSettings 已整体序列化到前端，无需新命令）。
+
+**测试**（Rust 单测，`claude_desktop_config.rs` tests mod）：
+
+- `claude_desktop_apply_writes_display_settings_when_configured`：settings 为 Some → profile 含三键且值正确；
+- `claude_desktop_apply_omits_display_settings_when_not_configured`：settings 为 None → profile 不含三键（磁盘旧值由合并保留）。
+
+**默认行为保证**：功能默认关闭（None）→ 安装后不改变任何现有行为；磁盘上已恢复的 Chris/Gateway/false 三键由补丁 A 的合并永久保留。
+
+### 3.3 不改动的部分
+
+官方供应商恢复路径（`restore_official_at_paths_inner` 删除 profile）、rollback 快照机制、Claude Code / Codex / Gemini 路径、其余前端与后端代码。
 
 ## 4. 工具链（一次性安装，总下载约 2-4GB）
 
@@ -58,7 +101,8 @@ CC Switch 每次应用/切换 Claude Desktop 供应商时，用 `build_gateway_p
 
 ```bash
 git checkout -b fix/profile-merge v3.20.3   # 已完成
-git cherry-pick e71fe6998                    # 冲突则手工应用
+git cherry-pick e71fe6998                    # 补丁 A；冲突则手工应用
+# 补丁 B（settings.rs / claude_desktop_config.rs / 前端组件 / i18n）
 # 改版本号: src-tauri/tauri.conf.json + src-tauri/Cargo.toml → 3.20.3-local
 cargo test                                   # 在 src-tauri/ 下；先测后装，见 §6
 pnpm install
@@ -77,7 +121,7 @@ cargo test   # 在 src-tauri/ 下；单 crate，非 workspace
 
 通过标准：
 
-- 新增两测试通过（字段保留 / 陈旧模型清理）
+- 补丁 A 两测试 + 补丁 B 两测试全部通过
 - 既有 `claude_desktop_apply_writes_3p_profile_and_meta` 不回归
 - 全量测试套件在补丁分支上通过；若有个别失败，须在干净 `v3.20.3` 上**同样失败**（即预存失败、与本补丁无关）才可豁免
 
@@ -90,14 +134,24 @@ cargo test   # 在 src-tauri/ 下；单 crate，非 workspace
 
 ## 8. 验收口径（逐条实测，不看日志就宣称修好）
 
+**第一步：持久化**（guard 仍在运行，与磁盘值一致故无冲突）：
+
 1. 面板设开关（关 Auto mode）→ 切换供应商 → 值仍在
 2. 切回原供应商 → 路由跟随新供应商、开关值不变
-3. 重启 Claude Desktop → 值不变
+3. 重启 Claude Desktop → 值不变；左下角仍为 Chris / Gateway（三键由合并保留）
 4. 判据：profile 键数不再从 19 骤降到 7
+
+**第二步：卸载 guard 后验证可配置性**（guard 的 overlay 会恢复它记录的值，会与新配置值打架，**必须先卸载再测此步**）：
+
+1. 备份 guard 目录 → 停进程 + 清 HKCU Run 自启项（保留脚本目录作回退）
+2. CC Switch 设置 → 启用「管理 Claude Desktop 显示设置」→ 输入一个**与当前不同的**显示名（如 `Chris-Test`）→ 保存
+3. 切换供应商 → `Chris-Test` 生效且其余字段不变
+4. 重启 Claude Desktop → `Chris-Test` 仍在
+5. 改回 `Chris` → 再次切换 → 跟随新值（证明可配置性，非一次性）
 
 ## 9. 收尾与回滚
 
-- 验收通过后**询问用户**是否卸载 guard（工作区文档定位为「合并后可降为可选/卸载」）
+- guard：卸载后不再守护；若日后需要，脚本目录仍在（备份 + 原目录双份），`--install` 可恢复
 - 回滚：重装官方 3.20.3 安装包；备份 exe 作二次保障
 - 退出策略：上游 PR #5417 合并发版后，升级官方版、放弃本地构建
 
@@ -108,3 +162,4 @@ cargo test   # 在 src-tauri/ 下；单 crate，非 workspace
 - 首次构建耗时长 + 磁盘占用
 - main 上 v3.20.3 之后的 14 个上游提交（Kimi/MiniMax 预设等）**不包含**在本构建中——用户场景（Windows 3P + Zhipu/DeepSeek）不受影响
 - 自建版持有全部供应商密钥并代理全部流量——仅本机自用，勿分发
+- 删除 guard 后失去「Claude Desktop 客户端自身写入/schema 迁移」的兜底——合并语义保证 CC Switch 侧不再覆盖；Desktop 官方行为由官方负责

@@ -71,7 +71,7 @@ pub claude_desktop_display: Option<ClaudeDesktopDisplaySettings>,
 **前端 UI**（React + TS，遵循既有 SettingsPage 模式）：
 
 - 新组件 `src/components/settings/ClaudeDesktopDisplaySettings.tsx`：一个「管理 Claude Desktop 显示设置」开关（对应 Option 门控）+ 两个文本输入（显示名/副标题）+ 一个开关（endUserAttribution，默认 false，与用户当前磁盘值一致）；
-- 副标题输入为空时按空串写入（用户可有意清空）；**显示名为空 = 未配置**（后端不写三键，避免启用开关却不输名字时把显示名抹空）；
+- **显示名为空 = 未配置**（后端不写三键）；**副标题为空 = 未设置**（后端不写该键，磁盘旧值由合并保留）——两者都避免启用开关却未填完整时把现有值抹空；attribution 为可见开关，随名字非空一并写入；
 - 注册进 `SettingsPage.tsx` 既有分栏；
 - i18n 补 zh/en 键（`src/i18n/` 目录）；
 - 设置走既有 `useSettings` hook + `settingsApi`（AppSettings 已整体序列化到前端，无需新命令）。
@@ -80,7 +80,9 @@ pub claude_desktop_display: Option<ClaudeDesktopDisplaySettings>,
 
 - `inject_display_settings_writes_keys_when_configured`：display 为 Some 且 name 非空 → profile 含三键且值正确；
 - `inject_display_settings_omits_keys_when_none`：display 为 None → profile 不含三键（磁盘旧值由合并保留）；
-- `inject_display_settings_omits_keys_when_name_empty`：display 为 Some 但 name 为空 → 不写三键。
+- `inject_display_settings_omits_keys_when_name_empty`：display 为 Some 但 name 为空 → 不写三键；
+- `inject_display_settings_omits_subtitle_when_empty`：name 非空但 subtitle 为空 → 写 name/attribution、不写 subtitle；
+- `claude_desktop_display_deserializes_partial_object`：三个内层字段带 `#[serde(default)]`，残缺对象（缺 subtitle/attribution）可正常反序列化为默认值、不重置整份设置。
 
 **为何不写成经 `apply_provider_to_paths` 的集成测试**：该路径读全局 settings store，测试若要走集成就得调 `update_settings`，而它会写用户**真实的**设置文件，且全局可变状态会在并行测试间互相干扰。故单测覆盖注入逻辑；**接线正确性由 §8 验收第二步覆盖**（在 UI 改显示名 → 切换供应商 → 观察 profile 实际变化）。
 

@@ -27,7 +27,7 @@ CC Switch 每次应用/切换 Claude Desktop 供应商时，用 `build_gateway_p
 | 部署方式 | 构建完整 NSIS 安装包，覆盖安装到现有目录 |
 | 基线 | tag `v3.20.3`（与安装版完全一致）+ 两个补丁（见 §3） |
 | 版本号 | `3.20.3-local`（`tauri.conf.json` 与 `src-tauri/Cargo.toml` 同步改，tauri-build 校验两者一致；`package.json` 不动） |
-| 自动更新防覆盖 | 利用仓库既有 `createUpdaterArtifacts: true`：本地构建自动生成本地签名密钥对并嵌入本地公钥 → 官方更新签名校验必然失败 → 官方版无法覆盖本地构建。**不改任何配置** |
+| 自动更新防覆盖 | **本地构建禁用 updater**：移除 `plugins.updater` 的 `pubkey`/`endpoints` 与 `createUpdaterArtifacts`。`lib.rs` 既有逻辑在配置不完整时优雅跳过 updater 插件（注释原文：「若配置不完整（如缺少 pubkey），跳过 Updater 而不中断应用」）→ 应用不检查更新、无假升级提示、官方版无法覆盖本地构建，且构建无需签名密钥。**为何不是「靠签名天然防覆盖」**：Tauri 的 pubkey 来自 `tauri.conf.json`，构建时不会自动替换（已核实官方 exe 中内嵌该 pubkey）；而 `3.20.3-local` 在 semver 中**低于**正式版 `3.20.3`（预发布 < 正式），保留 updater 反而会主动提示升级到官方版，一点即覆盖修复 |
 | 构建次数 | **一次构建**包含两个补丁（补丁小、回归面窄；验收分两步执行，见 §8） |
 | guard 处置 | 验收第二步前卸载：备份目录 → 停进程 + 清 HKCU Run 自启项（若 `--uninstall` 会删脚本文件，则改为手动清 Run 键 + kill，保留脚本目录作回退） |
 
@@ -83,7 +83,11 @@ pub claude_desktop_display: Option<ClaudeDesktopDisplaySettings>,
 
 **默认行为保证**：功能默认关闭（None）→ 安装后不改变任何现有行为；磁盘上已恢复的 Chris/Gateway/false 三键由补丁 A 的合并永久保留。
 
-### 3.3 不改动的部分
+### 3.3 补丁 C：禁用本地构建的 updater（配置改动）
+
+`src-tauri/tauri.conf.json`：移除 `plugins.updater` 的 `pubkey` 与 `endpoints`、移除 `bundle.createUpdaterArtifacts`。不改任何 Rust 代码——`lib.rs` 既有的 `if let Err(e) = app.handle().plugin(...)` 分支会在配置不完整时记录 warning 并跳过 updater 插件，应用正常运行。
+
+### 3.4 不改动的部分
 
 官方供应商恢复路径（`restore_official_at_paths_inner` 删除 profile）、rollback 快照机制、Claude Code / Codex / Gemini 路径、其余前端与后端代码。
 
@@ -103,15 +107,16 @@ pub claude_desktop_display: Option<ClaudeDesktopDisplaySettings>,
 git checkout -b fix/profile-merge v3.20.3   # 已完成
 git cherry-pick e71fe6998                    # 补丁 A；冲突则手工应用
 # 补丁 B（settings.rs / claude_desktop_config.rs / 前端组件 / i18n）
+# 补丁 C: tauri.conf.json 移除 plugins.updater 的 pubkey/endpoints + createUpdaterArtifacts
 # 改版本号: src-tauri/tauri.conf.json + src-tauri/Cargo.toml → 3.20.3-local
-cargo test                                   # 在 src-tauri/ 下；先测后装，见 §6
 pnpm install
-pnpm tauri build --bundles nsis              # 跳过 MSI（需 WiX），NSIS 自动下载
+cargo test                                   # 在 src-tauri/ 下；先测后构建，见 §6
+pnpm tauri build --bundles nsis              # 跳过 MSI（需 WiX），NSIS 自动下载；无需签名密钥
 ```
 
 - 产物（预期路径，以实际产物为准）：`src-tauri/target/release/bundle/nsis/CC Switch_3.20.3-local_x64-setup.exe`
 - 首次构建 15-40 分钟，磁盘约 4-6GB（target 目录）
-- **构建后验证**：在产物 exe 中检索官方 pubkey 字符串（`dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM4MDI4` 前缀）应**不存在** = 本地公钥已嵌入
+- **构建后验证**：产物 exe 中**不应**再含官方 pubkey 字符串（`dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM4MDI4`）——确认补丁 C 生效、updater 已从本地构建中移除
 
 ## 6. 测试标准（打补丁后、pnpm install / tauri build 之前先跑）
 
@@ -158,7 +163,7 @@ cargo test   # 在 src-tauri/ 下；单 crate，非 workspace
 ## 10. 风险清单（已评估，可接受）
 
 - 本地构建无代码签名 → SmartScreen 可能警告（点「仍要运行」）
-- 「检查更新」显示官方新版本、安装时报签名错（已知表象，非故障）
+- 「检查更新」会失败报错（updater 已被补丁 C 移除），属预期；本地构建的升级方式是按本设计重新构建或重装官方版
 - 首次构建耗时长 + 磁盘占用
 - main 上 v3.20.3 之后的 14 个上游提交（Kimi/MiniMax 预设等）**不包含**在本构建中——用户场景（Windows 3P + Zhipu/DeepSeek）不受影响
 - 自建版持有全部供应商密钥并代理全部流量——仅本机自用，勿分发

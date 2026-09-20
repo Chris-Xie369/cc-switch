@@ -14,9 +14,9 @@
 
 - 版本号统一改为 `3.20.3-local`：`src-tauri/tauri.conf.json` 与 `src-tauri/Cargo.toml` 两处（tauri-build 校验二者一致）；`package.json` 的 version 不动。
 - 分支 `fix/profile-merge` 仅本地，**绝不推送**；除下述列出的文件外不改动任何文件。
-- 自动更新防覆盖靠仓库既有 `createUpdaterArtifacts: true`（本地构建自动生成本地签名密钥并嵌入本地公钥），**不改任何 updater 配置**。
+- 自动更新防覆盖 = **本地构建禁用 updater**（补丁 C，Task 5）：移除 `plugins.updater` 的 `pubkey`/`endpoints` 与 `bundle.createUpdaterArtifacts`，靠 `lib.rs` 既有的「配置不完整则跳过 updater 插件」逻辑生效。**不要**试图靠「本地签名密钥导致官方更新校验失败」来防覆盖——Tauri 的 pubkey 来自配置文件、构建时不会自动替换（已核实）；且 `3.20.3-local` 在 semver 中低于正式版 `3.20.3`，保留 updater 会主动提示升级到官方版。
 - 本机路径（Windows / Git Bash）：仓库在 `D:\Workspace\Project\cc-switch\src\`；Rust crate 在 `src-tauri\`；前端在仓库根。`cargo` 命令在 `src-tauri\` 下执行，`pnpm` 命令在仓库根执行。
-- 自己创建的提交（spec/plan/代码）结尾加 `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`；cherry-pick 的上游提交保留其原有署名，不改。
+- 自己创建的提交（spec/plan/代码）结尾加 `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>`；cherry-pick 的上游提交保留其原有署名，不改。
 - 用户数据在 `%USERPROFILE%\.cc-switch\`（26MB SQLite DB 与供应商配置），安装器不动它，任何步骤都不得删除/迁移。
 
 ---
@@ -26,7 +26,7 @@
 **Files:** 无（系统级安装）
 
 **Interfaces:**
-- Produces: 可用的 `cargo`/`rustc`（Rust 1.95，MSVC 宿主）、`pnpm` 10.x、MSVC 链接器（`link.exe` + Windows SDK）。后续所有 cargo/pnpm 命令依赖于此。
+- Produces: 可用的 `cargo`/`rustc`（Rust 1.95，MSVC 宿主）、`pnpm` 10.x、MSVC 链接器（`link.exe` + Windows SDK）、已装好的 `node_modules`。后续所有 cargo/pnpm 命令依赖于此。
 
 - [ ] **Step 1: 安装 Rust（rustup）**
 
@@ -59,16 +59,20 @@ npm install -g pnpm@10.12.3
 pnpm --version   # 期望 10.x
 ```
 
-- [ ] **Step 5: 验证 MSVC 链接器可用（用最小的 cargo 编译验证，而不是查 PATH）**
+- [ ] **Step 5: 验证 MSVC 链接器可用（用一次性最小 crate 实测链接，而不是查 PATH）**
 
 ```bash
-cd "D:/Workspace/Project/cc-switch/src/src-tauri"
-cargo build --offline 2>&1 | tail -20
-# 期望：能进入编译（可能因缺少依赖元数据报离线错，但若报 "linker `link.exe` not found"
-#       则说明 MSVC 未装好，需回到 Step 3 重装并重启终端）
+cd "$TEMP" && rm -rf ccs-linkprobe && cargo new ccs-linkprobe --bin && cd ccs-linkprobe && cargo build 2>&1 | tail -5
+# 期望：Finished `dev` profile ...（链接成功，约 10 秒）
+# 若报 "linker `link.exe` not found" → MSVC 未装好，回到 Step 3 重装并重启终端
 ```
 
-> 首次 `cargo build`（非 offline）会拉取全部依赖，耗时较长；这一步仅用来确认工具链就位。真正的编译在 Task 5。
+- [ ] **Step 6: 安装前端依赖（Task 4 的 typecheck 与 Task 5 的构建都依赖它）**
+
+```bash
+cd "D:/Workspace/Project/cc-switch/src"
+pnpm install   # 首次约数分钟
+```
 
 ---
 
@@ -239,7 +243,7 @@ git commit -m "feat(claude-desktop): make 3P display name configurable
 注入 deploymentDisplayName / deploymentDisplaySubtitle / endUserAttribution
 三键到 gateway profile；None 时不写、由合并语义保留磁盘旧值。
 
-Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -253,7 +257,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Modify: `src/i18n/locales/en.json`、`src/i18n/locales/zh.json`（各加 6 个键）
 
 **Interfaces:**
-- Consumes: Task 3 的序列化约定——后端 `claude_desktop_display`（camelCase）→ 前端 `claudeDesktopDisplay`，`null` 表示关闭（serde `Option` 反序列化 null → None）。设置保存复用既有 `handleAutoSave`（全量表单保存，无需新命令）。
+- Consumes: Task 1 的 `node_modules`（typecheck 依赖）；Task 3 的序列化约定——后端 `claude_desktop_display`（camelCase）→ 前端 `claudeDesktopDisplay`，`null` 表示关闭（serde `Option` 反序列化 null → None）。设置保存复用既有 `handleAutoSave`（全量表单保存，无需新命令）。
 - Produces: `ClaudeDesktopDisplay` 前端类型；`ClaudeDesktopDisplaySettings` 组件（`value: ClaudeDesktopDisplay | null` + `onChange`）。Task 8 的验收依赖此 UI。
 
 - [ ] **Step 1: 在 types.ts 加类型**
@@ -420,66 +424,82 @@ cd "D:/Workspace/Project/cc-switch/src"
 git add src/types.ts src/components/settings/ClaudeDesktopDisplaySettings.tsx src/components/settings/SettingsPage.tsx src/i18n/locales/en.json src/i18n/locales/zh.json
 git commit -m "feat(ui): add Claude Desktop display settings section
 
-Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 5: 版本号 + 全量测试 + 构建 + pubkey 验证
+### Task 5: 补丁 C（禁用 updater）+ 版本号 + 全量测试 + 构建
 
 **Files:**
-- Modify: `src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`（version → 3.20.3-local）
+- Modify: `src-tauri/tauri.conf.json`（移除 updater 配置 + 版本号改为 3.20.3-local）
+- Modify: `src-tauri/Cargo.toml`（version 改为 3.20.3-local）
 
 **Interfaces:**
-- Consumes: Task 2/3/4 的全部改动。
-- Produces: NSIS 安装包 `src-tauri/target/release/bundle/nsis/CC Switch_3.20.3-local_x64-setup.exe`；验证过「内嵌官方 pubkey 已替换为本地公钥」的产物。Task 6 部署依赖此产物。
+- Consumes: Task 1 的 `node_modules`；Task 2/3/4 的全部改动。
+- Produces: NSIS 安装包 `src-tauri/target/release/bundle/nsis/CC Switch_3.20.3-local_x64-setup.exe`；已确认移除 updater 的产物。Task 6 部署依赖此产物。
 
-- [ ] **Step 1: 改版本号**
+- [ ] **Step 1: 移除 updater 配置并改版本号**
 
-`src-tauri/tauri.conf.json`：`"version": "3.20.3"` → `"version": "3.20.3-local"`。
+`src-tauri/tauri.conf.json` 三处改动：
+
+1. 删除 `bundle` 下的 `"createUpdaterArtifacts": true`（整行；注意保持 JSON 合法——若它是 `bundle` 的最后一个键，需同时去掉前一键行末的逗号）
+2. 删除 `plugins.updater` 整个对象（含 `pubkey` 与 `endpoints`）；若 `plugins` 下再无其他键，一并删除 `plugins`
+3. `"version": "3.20.3"` → `"version": "3.20.3-local"`
+
 `src-tauri/Cargo.toml`：`version = "3.20.3"` → `version = "3.20.3-local"`（`[package]` 段）。
 （`package.json` 不动。）
 
-- [ ] **Step 2: 全量测试**
+- [ ] **Step 2: 校验 JSON 合法且 updater 配置确已移除**
+
+```bash
+cd "D:/Workspace/Project/cc-switch/src"
+python -c "
+import json
+c = json.load(open('src-tauri/tauri.conf.json', encoding='utf-8'))
+assert c['version'] == '3.20.3-local', c['version']
+assert 'updater' not in c.get('plugins', {}), 'updater 配置仍在'
+assert 'createUpdaterArtifacts' not in c.get('bundle', {}), 'createUpdaterArtifacts 仍在'
+print('OK: version=%s, updater 已移除' % c['version'])
+"
+```
+
+- [ ] **Step 3: 全量测试**
 
 ```bash
 cd "D:/Workspace/Project/cc-switch/src/src-tauri"
 cargo test   # 期望：全量 PASS。若有个别失败，须确认在干净 v3.20.3 上同样失败才可豁免（预存失败）
 ```
 
-- [ ] **Step 3: 安装前端依赖**
-
-```bash
-cd "D:/Workspace/Project/cc-switch/src"
-pnpm install   # 首次约数分钟
-```
-
 - [ ] **Step 4: 构建 NSIS 安装包**
 
 ```bash
 cd "D:/Workspace/Project/cc-switch/src"
-pnpm tauri build --bundles nsis   # 首次 15-40 分钟
+pnpm tauri build --bundles nsis   # 首次 15-40 分钟；无 updater 产物，不需要签名密钥
 ```
 
-- [ ] **Step 5: 验证产物存在与 pubkey 已替换**
+- [ ] **Step 5: 验证产物存在且官方 pubkey 已消失**
 
 ```bash
 cd "D:/Workspace/Project/cc-switch/src"
 ls -la "src-tauri/target/release/bundle/nsis/"   # 期望看到 *x64-setup.exe
-# 官方 pubkey 前缀不应再出现在产物二进制中（本地公钥已嵌入）：
-grep -a -o "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM4MDI4" \
-  "src-tauri/target/release/cc-switch.exe" | wc -l
+# 官方 pubkey 前缀不应出现在产物二进制中（updater 配置已移除）：
+grep -a -c "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM4MDI4" \
+  "src-tauri/target/release/cc-switch.exe"
 # 期望输出 0
 ```
 
-- [ ] **Step 6: 提交版本号改动**
+- [ ] **Step 6: 提交**
 
 ```bash
 cd "D:/Workspace/Project/cc-switch/src"
 git add src-tauri/tauri.conf.json src-tauri/Cargo.toml
-git commit -m "chore: bump version to 3.20.3-local
+git commit -m "chore: disable updater in local build, bump to 3.20.3-local
 
-Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
+本地构建移除 plugins.updater 与 createUpdaterArtifacts：lib.rs 在配置不完整时
+跳过 updater 插件，官方更新无法覆盖本地修复。
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
 
 ---

@@ -35,6 +35,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { settingsApi } from "@/lib/api";
 import { LanguageSettings } from "@/components/settings/LanguageSettings";
+import { ClaudeDesktopDisplaySettings } from "@/components/settings/ClaudeDesktopDisplaySettings";
 import { ThemeSettings } from "@/components/settings/ThemeSettings";
 import { WindowSettings } from "@/components/settings/WindowSettings";
 import { AppVisibilitySettings } from "@/components/settings/AppVisibilitySettings";
@@ -255,6 +256,12 @@ export function SettingsPage({
                     <LanguageSettings
                       value={settings.language}
                       onChange={(lang) => handleAutoSave({ language: lang })}
+                    />
+                    <ClaudeDesktopDisplaySettings
+                      value={settings.claudeDesktopDisplay ?? null}
+                      onChange={(v) =>
+                        handleAutoSave({ claudeDesktopDisplay: v })
+                      }
                     />
                     <ThemeSettings />
                     <AppVisibilitySettings

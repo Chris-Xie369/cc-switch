@@ -76,10 +76,12 @@ pub claude_desktop_display: Option<ClaudeDesktopDisplaySettings>,
 - i18n 补 zh/en 键（`src/i18n/` 目录）；
 - 设置走既有 `useSettings` hook + `settingsApi`（AppSettings 已整体序列化到前端，无需新命令）。
 
-**测试**（Rust 单测，`claude_desktop_config.rs` tests mod）：
+**测试**（Rust 单测，`claude_desktop_config.rs` tests mod，直接测 `inject_display_settings`）：
 
-- `claude_desktop_apply_writes_display_settings_when_configured`：settings 为 Some → profile 含三键且值正确；
-- `claude_desktop_apply_omits_display_settings_when_not_configured`：settings 为 None → profile 不含三键（磁盘旧值由合并保留）。
+- `inject_display_settings_writes_keys_when_configured`：display 为 Some → profile 含三键且值正确；
+- `inject_display_settings_omits_keys_when_none`：display 为 None → profile 不含三键（磁盘旧值由合并保留）。
+
+**为何不写成经 `apply_provider_to_paths` 的集成测试**：该路径读全局 settings store，测试若要走集成就得调 `update_settings`，而它会写用户**真实的**设置文件，且全局可变状态会在并行测试间互相干扰。故单测覆盖注入逻辑；**接线正确性由 §8 验收第二步覆盖**（在 UI 改显示名 → 切换供应商 → 观察 profile 实际变化）。
 
 **默认行为保证**：功能默认关闭（None）→ 安装后不改变任何现有行为；磁盘上已恢复的 Chris/Gateway/false 三键由补丁 A 的合并永久保留。
 

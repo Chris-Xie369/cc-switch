@@ -1033,8 +1033,12 @@ fn restore_official_at_paths_inner(paths: &ClaudeDesktopPaths) -> Result<(), App
 
 /// 把 Claude Desktop 左下角显示设置注入 profile（配置了才写）。
 /// 未配置时不动 profile，三键由 merge 语义保留磁盘旧值。
+/// 空 name 视为未配置（前端开关以空串做默认种子），同样不写三键。
 fn inject_display_settings(profile: &mut Value, display: Option<&ClaudeDesktopDisplaySettings>) {
     if let Some(display) = display {
+        if display.name.is_empty() {
+            return;
+        }
         profile["deploymentDisplayName"] = Value::String(display.name.clone());
         profile["deploymentDisplaySubtitle"] = Value::String(display.subtitle.clone());
         profile["endUserAttribution"] = Value::Bool(display.attribution);
@@ -2352,6 +2356,20 @@ mod tests {
     fn inject_display_settings_omits_keys_when_none() {
         let mut profile = json!({ "inferenceProvider": "gateway" });
         inject_display_settings(&mut profile, None);
+        assert!(profile.get("deploymentDisplayName").is_none());
+        assert!(profile.get("deploymentDisplaySubtitle").is_none());
+        assert!(profile.get("endUserAttribution").is_none());
+    }
+
+    #[test]
+    fn inject_display_settings_omits_keys_when_name_empty() {
+        let mut profile = json!({ "inferenceProvider": "gateway" });
+        let display = ClaudeDesktopDisplaySettings {
+            name: "".into(),
+            subtitle: "Gateway".into(),
+            attribution: false,
+        };
+        inject_display_settings(&mut profile, Some(&display));
         assert!(profile.get("deploymentDisplayName").is_none());
         assert!(profile.get("deploymentDisplaySubtitle").is_none());
         assert!(profile.get("endUserAttribution").is_none());

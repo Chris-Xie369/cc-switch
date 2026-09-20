@@ -1034,13 +1034,17 @@ fn restore_official_at_paths_inner(paths: &ClaudeDesktopPaths) -> Result<(), App
 /// 把 Claude Desktop 左下角显示设置注入 profile（配置了才写）。
 /// 未配置时不动 profile，三键由 merge 语义保留磁盘旧值。
 /// 空 name 视为未配置（前端开关以空串做默认种子），同样不写三键。
+/// 空 subtitle 也视为未设置：不写该键，磁盘旧副标题由 merge 语义保留，
+/// 避免用户启用显示名却只填名字时把已有副标题抹空。
 fn inject_display_settings(profile: &mut Value, display: Option<&ClaudeDesktopDisplaySettings>) {
     if let Some(display) = display {
         if display.name.is_empty() {
             return;
         }
         profile["deploymentDisplayName"] = Value::String(display.name.clone());
-        profile["deploymentDisplaySubtitle"] = Value::String(display.subtitle.clone());
+        if !display.subtitle.is_empty() {
+            profile["deploymentDisplaySubtitle"] = Value::String(display.subtitle.clone());
+        }
         profile["endUserAttribution"] = Value::Bool(display.attribution);
     }
 }
@@ -2373,5 +2377,28 @@ mod tests {
         assert!(profile.get("deploymentDisplayName").is_none());
         assert!(profile.get("deploymentDisplaySubtitle").is_none());
         assert!(profile.get("endUserAttribution").is_none());
+    }
+
+    #[test]
+    fn inject_display_settings_omits_subtitle_when_empty() {
+        let mut profile = json!({ "inferenceProvider": "gateway" });
+        let display = ClaudeDesktopDisplaySettings {
+            name: "Chris".into(),
+            subtitle: "".into(),
+            attribution: false,
+        };
+        inject_display_settings(&mut profile, Some(&display));
+        assert_eq!(profile["deploymentDisplayName"], json!("Chris"));
+        assert!(profile.get("deploymentDisplaySubtitle").is_none());
+        assert_eq!(profile["endUserAttribution"], json!(false));
+    }
+
+    #[test]
+    fn claude_desktop_display_deserializes_partial_object() {
+        let v: ClaudeDesktopDisplaySettings =
+            serde_json::from_value(json!({ "name": "Chris" })).expect("partial object");
+        assert_eq!(v.name, "Chris");
+        assert_eq!(v.subtitle, "");
+        assert!(!v.attribution);
     }
 }

@@ -343,8 +343,11 @@ pub struct CodexOfficialHistoryUnifyMigration {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeDesktopDisplaySettings {
+    #[serde(default)]
     pub name: String,
+    #[serde(default)]
     pub subtitle: String,
+    #[serde(default)]
     pub attribution: bool,
 }
 

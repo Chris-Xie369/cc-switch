@@ -10,6 +10,7 @@ use crate::database::Database;
 use crate::database::CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID;
 use crate::error::AppError;
 use crate::provider::{ClaudeDesktopMode, Provider};
+use crate::settings::{get_settings, ClaudeDesktopDisplaySettings};
 
 pub const PROFILE_ID: &str = "00000000-0000-4000-8000-000000157210";
 pub const PROFILE_NAME: &str = "CC Switch";
@@ -976,7 +977,7 @@ fn apply_provider_to_paths_inner(
     provider: &Provider,
     paths: &ClaudeDesktopPaths,
 ) -> Result<(), AppError> {
-    let profile = match provider_mode(provider) {
+    let mut profile = match provider_mode(provider) {
         ClaudeDesktopMode::Direct => {
             let credentials = direct_gateway_credentials(provider)?;
             let model_specs = direct_inference_model_specs(provider)?;
@@ -1002,6 +1003,8 @@ fn apply_provider_to_paths_inner(
         }
     };
 
+    inject_display_settings(&mut profile, get_settings().claude_desktop_display.as_ref());
+
     write_deployment_mode(&paths.normal_config_path, "3p")?;
     write_deployment_mode(&paths.threep_config_path, "3p")?;
     // Merge with the existing profile instead of overwriting it wholesale, so
@@ -1026,6 +1029,16 @@ fn restore_official_at_paths_inner(paths: &ClaudeDesktopPaths) -> Result<(), App
     write_meta(&paths.meta_path, None)?;
 
     Ok(())
+}
+
+/// 把 Claude Desktop 左下角显示设置注入 profile（配置了才写）。
+/// 未配置时不动 profile，三键由 merge 语义保留磁盘旧值。
+fn inject_display_settings(profile: &mut Value, display: Option<&ClaudeDesktopDisplaySettings>) {
+    if let Some(display) = display {
+        profile["deploymentDisplayName"] = Value::String(display.name.clone());
+        profile["deploymentDisplaySubtitle"] = Value::String(display.subtitle.clone());
+        profile["endUserAttribution"] = Value::Bool(display.attribution);
+    }
 }
 
 fn build_gateway_profile(
@@ -1364,6 +1377,7 @@ mod tests {
     use crate::provider::{ClaudeDesktopModelRoute, ProviderMeta};
     use serde_json::json;
     use tempfile::TempDir;
+    use crate::settings::ClaudeDesktopDisplaySettings;
 
     fn test_paths(home: &Path) -> ClaudeDesktopPaths {
         paths_from_dirs(
@@ -2318,5 +2332,28 @@ mod tests {
             None,
         );
         assert!(!is_compatible_direct_provider(&missing_bearer));
+    }
+
+    #[test]
+    fn inject_display_settings_writes_keys_when_configured() {
+        let mut profile = json!({ "inferenceProvider": "gateway" });
+        let display = ClaudeDesktopDisplaySettings {
+            name: "Chris".into(),
+            subtitle: "Gateway".into(),
+            attribution: false,
+        };
+        inject_display_settings(&mut profile, Some(&display));
+        assert_eq!(profile["deploymentDisplayName"], json!("Chris"));
+        assert_eq!(profile["deploymentDisplaySubtitle"], json!("Gateway"));
+        assert_eq!(profile["endUserAttribution"], json!(false));
+    }
+
+    #[test]
+    fn inject_display_settings_omits_keys_when_none() {
+        let mut profile = json!({ "inferenceProvider": "gateway" });
+        inject_display_settings(&mut profile, None);
+        assert!(profile.get("deploymentDisplayName").is_none());
+        assert!(profile.get("deploymentDisplaySubtitle").is_none());
+        assert!(profile.get("endUserAttribution").is_none());
     }
 }

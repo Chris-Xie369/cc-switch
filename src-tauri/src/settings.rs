@@ -338,6 +338,16 @@ pub struct CodexOfficialHistoryUnifyMigration {
     pub codex_config_dir: Option<String>,
 }
 
+/// Claude Desktop 3P 左下角显示设置（deploymentDisplayName / deploymentDisplaySubtitle /
+/// endUserAttribution 三键）。None = 功能关闭，profile 不写这三键（磁盘旧值由合并语义保留）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeDesktopDisplaySettings {
+    pub name: String,
+    pub subtitle: String,
+    pub attribution: bool,
+}
+
 /// 应用设置结构
 ///
 /// 存储设备级别设置，保存在本地 `~/.cc-switch/settings.json`，不随数据库同步。
@@ -411,6 +421,9 @@ pub struct AppSettings {
     pub common_config_confirmed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
+    /// Claude Desktop 3P 左下角显示设置。None = 不接管这三键。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_desktop_display: Option<ClaudeDesktopDisplaySettings>,
 
     // ===== 主页面显示的应用 =====
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -541,6 +554,7 @@ impl Default for AppSettings {
             first_run_notice_confirmed: None,
             common_config_confirmed: None,
             language: None,
+            claude_desktop_display: None,
             visible_apps: None,
             claude_config_dir: None,
             codex_config_dir: None,

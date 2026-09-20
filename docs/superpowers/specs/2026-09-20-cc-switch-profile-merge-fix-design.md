@@ -66,20 +66,21 @@ pub struct ClaudeDesktopDisplaySettings {
 pub claude_desktop_display: Option<ClaudeDesktopDisplaySettings>,
 ```
 
-**写入路径**：`build_gateway_profile` 增加参数 `display: Option<&ClaudeDesktopDisplaySettings>`；为 `Some` 时把三键注入 profile（与 7 键模板同批写入）。`apply_provider_to_paths_inner` 通过 `crate::settings::get_settings()` 取值传入（既有缓存模式，与其他 config 写入器一致）。为 `None` 时行为与补丁 A 完全一致（磁盘旧值由合并保留）。
+**写入路径**：新增独立函数 `inject_display_settings(profile: &mut Value, display: Option<&ClaudeDesktopDisplaySettings>)`，在 `apply_provider_to_paths_inner` 的 `match` 之后、merge 之前调用（**不改** `build_gateway_profile` 的签名）。`display` 为 `Some` 且 `name` 非空时把三键注入 profile；`None` 或 `name` 为空时**不写**（磁盘旧值由合并保留）。`apply_provider_to_paths_inner` 通过 `crate::settings::get_settings()` 取值（既有内存缓存模式，与其他 config 写入器一致）。
 
 **前端 UI**（React + TS，遵循既有 SettingsPage 模式）：
 
 - 新组件 `src/components/settings/ClaudeDesktopDisplaySettings.tsx`：一个「管理 Claude Desktop 显示设置」开关（对应 Option 门控）+ 两个文本输入（显示名/副标题）+ 一个开关（endUserAttribution，默认 false，与用户当前磁盘值一致）；
-- 副标题输入为空时按空串写入（用户可有意清空）；开关启用时显示名必填；
+- 副标题输入为空时按空串写入（用户可有意清空）；**显示名为空 = 未配置**（后端不写三键，避免启用开关却不输名字时把显示名抹空）；
 - 注册进 `SettingsPage.tsx` 既有分栏；
 - i18n 补 zh/en 键（`src/i18n/` 目录）；
 - 设置走既有 `useSettings` hook + `settingsApi`（AppSettings 已整体序列化到前端，无需新命令）。
 
 **测试**（Rust 单测，`claude_desktop_config.rs` tests mod，直接测 `inject_display_settings`）：
 
-- `inject_display_settings_writes_keys_when_configured`：display 为 Some → profile 含三键且值正确；
-- `inject_display_settings_omits_keys_when_none`：display 为 None → profile 不含三键（磁盘旧值由合并保留）。
+- `inject_display_settings_writes_keys_when_configured`：display 为 Some 且 name 非空 → profile 含三键且值正确；
+- `inject_display_settings_omits_keys_when_none`：display 为 None → profile 不含三键（磁盘旧值由合并保留）；
+- `inject_display_settings_omits_keys_when_name_empty`：display 为 Some 但 name 为空 → 不写三键。
 
 **为何不写成经 `apply_provider_to_paths` 的集成测试**：该路径读全局 settings store，测试若要走集成就得调 `update_settings`，而它会写用户**真实的**设置文件，且全局可变状态会在并行测试间互相干扰。故单测覆盖注入逻辑；**接线正确性由 §8 验收第二步覆盖**（在 UI 改显示名 → 切换供应商 → 观察 profile 实际变化）。
 

@@ -450,7 +450,7 @@
     "language": "Language",
     "languageHint": "Preview interface language immediately after switching, takes effect permanently after saving.",
     "claudeDesktopDisplay": "Claude Desktop display",
-    "claudeDesktopDisplayHint": "Take over the bottom-left display name and attribution (deploymentDisplayName and related keys). When off, nothing is written; leaving the name or subtitle empty also means \"leave unchanged\", keeping the values already set in the Claude Desktop panel.",
+    "claudeDesktopDisplayHint": "Take over the bottom-left display name and attribution (deploymentDisplayName and related keys). When off, nothing is written; an empty name means the whole group is left alone, while an empty subtitle only skips that key — either way the values already set in the Claude Desktop panel are kept.",
     "claudeDesktopDisplayEnable": "Manage display settings",
     "claudeDesktopDisplayName": "Display name",
     "claudeDesktopDisplaySubtitle": "Subtitle",

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -9,15 +10,29 @@ interface ClaudeDesktopDisplaySettingsProps {
   onChange: (value: ClaudeDesktopDisplay | null) => void;
 }
 
+const EMPTY_DISPLAY: ClaudeDesktopDisplay = {
+  name: "",
+  subtitle: "",
+  attribution: false,
+};
+
 export function ClaudeDesktopDisplaySettings({
   value,
   onChange,
 }: ClaudeDesktopDisplaySettingsProps) {
   const { t } = useTranslation();
   const enabled = value !== null;
+  // 记住最近一次非空取值：关掉再打开时恢复已填内容，而不是清空。
+  const [lastValues, setLastValues] = useState<ClaudeDesktopDisplay>(
+    () => value ?? EMPTY_DISPLAY,
+  );
+
+  useEffect(() => {
+    if (value) setLastValues(value);
+  }, [value]);
 
   const setEnabled = (on: boolean) => {
-    onChange(on ? { name: "", subtitle: "", attribution: false } : null);
+    onChange(on ? lastValues : null);
   };
   const patch = (p: Partial<ClaudeDesktopDisplay>) => {
     if (!value) return;

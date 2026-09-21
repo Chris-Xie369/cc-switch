@@ -12,11 +12,18 @@ export function UpdateBadge({ className = "", onClick }: UpdateBadgeProps) {
   const { hasUpdate, updateInfo } = useUpdate();
   const { t } = useTranslation();
   const isActive = hasUpdate && updateInfo;
-  const title = isActive
-    ? t("settings.updateAvailable", {
-        version: updateInfo?.availableVersion ?? "",
-      })
-    : t("settings.checkForUpdates");
+  const availableVersion = updateInfo?.availableVersion ?? "";
+  // 「仅 PR 合并、上游无新版本」时 availableVersion 会回退成当前版本，
+  // 此时应提示上游修复已合并，而不是「检测到新版本：<当前版本>」。
+  const isNewerVersion =
+    updateInfo != null &&
+    availableVersion !== "" &&
+    availableVersion !== updateInfo.currentVersion;
+  const title = !isActive
+    ? t("settings.checkForUpdates")
+    : isNewerVersion
+      ? t("settings.updateAvailable", { version: availableVersion })
+      : t("settings.upstreamPrMerged");
 
   if (!isActive) {
     return null;

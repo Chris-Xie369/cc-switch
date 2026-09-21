@@ -46,4 +46,13 @@ describe("isUpdateAvailable", () => {
     expect(isUpdateAvailable("2.1.156", null)).toBe(false);
     expect(isUpdateAvailable("", "")).toBe(false);
   });
+
+  it("预发布本地版本与同号上游版本比较时，需先剥掉本地预发布后缀", () => {
+    // 本地 3.20.3-local 与上游同样基于 3.20.3 时，不应报告有更新。
+    // 直接比较会把预发布版判为更低（semver 规则），造成永久误报 —— 因此
+    // 调用方必须先剥掉 "-local" 再比。
+    expect(compareVersions("3.20.3", "3.20.3-local")).toBeGreaterThan(0);
+    expect(isUpdateAvailable("3.20.3", "3.20.3")).toBe(false);
+    expect(isUpdateAvailable("3.20.3", "3.21.0")).toBe(true);
+  });
 });

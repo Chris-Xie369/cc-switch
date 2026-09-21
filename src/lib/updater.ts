@@ -1,4 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
+import { isUpdateAvailable } from "@/lib/version";
 
 export type UpdateChannel = "stable" | "beta";
 
@@ -29,26 +30,6 @@ export async function getCurrentVersion(): Promise<string> {
   }
 }
 
-/** 上游 tag 是否比本地版本更新（忽略 v 前缀与 -local 等预发布后缀）。 */
-function isUpstreamNewer(latestTag: string, localVersion: string): boolean {
-  const parse = (s: string): [number, number, number] | null => {
-    const core = s.replace(/^v/, "").split(/[-+]/)[0];
-    const parts = core.split(".");
-    const nums = [parts[0], parts[1], parts[2] ?? "0"].map((p) =>
-      Number.parseInt(p ?? "", 10),
-    );
-    if (nums.some((n) => Number.isNaN(n))) return null;
-    return nums as [number, number, number];
-  };
-  const a = parse(latestTag);
-  const b = parse(localVersion);
-  if (!a || !b) return false;
-  for (let i = 0; i < 3; i += 1) {
-    if (a[i] !== b[i]) return a[i] > b[i];
-  }
-  return false;
-}
-
 // 本机为本地构建（3.20.3-local）且 updater 插件已禁用（补丁 C），原「检查更新」必然失败。
 // 改为查询上游状态：修复 PR（#5417）是否合并 + 最新 release，据此提示同步时机。
 export async function checkForUpdate(
@@ -60,8 +41,12 @@ export async function checkForUpdate(
   const status = await invoke<UpstreamStatus>("check_upstream_status");
 
   const currentVersion = await getCurrentVersion();
-  const latest = status.latestRelease ?? "";
-  const newer = latest ? isUpstreamNewer(latest, currentVersion) : false;
+  // 本地版本形如 "3.20.3-local"：semver 中预发布版低于同号正式版，直接比较会把
+  // 「上游仍停在 fork 基线」误判为有新版（永久误报），故先剥掉预发布后缀再比。
+  const baseVersion = currentVersion.replace(/-.*$/, "");
+  // 上游 tag 形如 "v3.21.0"：version.ts 的解析器不认 "v" 前缀，同样先剥掉。
+  const latest = (status.latestRelease ?? "").replace(/^v/, "");
+  const newer = latest ? isUpdateAvailable(baseVersion, latest) : false;
 
   // 只有「上游有更新版本」或「修复 PR 已合并」才提示；两者都无变化时静默。
   if (!newer && !status.prMerged) {

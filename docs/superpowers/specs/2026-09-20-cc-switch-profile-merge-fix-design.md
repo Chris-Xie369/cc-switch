@@ -72,6 +72,7 @@ pub claude_desktop_display: Option<ClaudeDesktopDisplaySettings>,
 
 - 新组件 `src/components/settings/ClaudeDesktopDisplaySettings.tsx`：一个「管理 Claude Desktop 显示设置」开关（对应 Option 门控）+ 两个文本输入（显示名/副标题）+ 一个开关（endUserAttribution，默认 false，与用户当前磁盘值一致）；
 - **显示名为空 = 未配置**（后端不写三键）；**副标题为空 = 未设置**（后端不写该键，磁盘旧值由合并保留）——两者都避免启用开关却未填完整时把现有值抹空；attribution 为可见开关，随名字非空一并写入；
+- 「管理显示设置」开关**关掉再打开时恢复上次填写的内容**（组件内记住最近一次非空取值），不因重开而清空；提示文案须说明「留空 = 保持 Claude Desktop 现有值」；
 - 注册进 `SettingsPage.tsx` 既有分栏；
 - i18n 补 zh/en 键（`src/i18n/` 目录）；
 - 设置走既有 `useSettings` hook + `settingsApi`（AppSettings 已整体序列化到前端，无需新命令）。

@@ -29,6 +29,7 @@ pub mod skill;
 mod stream_check;
 mod subscription;
 mod sync_support;
+pub mod upstream;
 mod xai_oauth;
 
 mod lightweight;

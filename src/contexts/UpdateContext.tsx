@@ -28,6 +28,12 @@ interface UpdateContextValue {
 
 const UpdateContext = createContext<UpdateContextValue | undefined>(undefined);
 
+// dismiss 键由纯版本号升级为「状态指纹」：同一版本下「仅上游修复 PR 合并」与「有新版本」
+// 是两种不同状态，需分别记忆（PR 合并后应能再次提醒）。旧值（纯版本号）与新格式不匹配，
+// 首次会表现为「未忽略过」——最多多提醒一次，可接受。
+const dismissedKeyOf = (info: UpdateInfo): string =>
+  `${info.availableVersion}|pr:${info.prMerged ?? false}`;
+
 export function UpdateProvider({ children }: { children: React.ReactNode }) {
   const DISMISSED_VERSION_KEY = "ccswitch:update:dismissedVersion";
   const LEGACY_DISMISSED_KEY = "dismissedUpdateVersion"; // 兼容旧键
@@ -38,10 +44,12 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [isDismissed, setIsDismissed] = useState(false);
 
-  // 从 localStorage 读取已关闭的版本
+  // 当前状态的指纹（版本 + PR 合并状态），空串表示尚无更新信息
+  const stateKey = updateInfo ? dismissedKeyOf(updateInfo) : "";
+
+  // 从 localStorage 读取已关闭的状态指纹
   useEffect(() => {
-    const current = updateInfo?.availableVersion;
-    if (!current) return;
+    if (!stateKey) return;
 
     // 读取新键；若不存在，尝试迁移旧键
     let dismissedVersion = localStorage.getItem(DISMISSED_VERSION_KEY);
@@ -54,8 +62,8 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    setIsDismissed(dismissedVersion === current);
-  }, [updateInfo?.availableVersion]);
+    setIsDismissed(dismissedVersion === stateKey);
+  }, [stateKey]);
 
   const isCheckingRef = useRef(false);
 
@@ -72,7 +80,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
         setHasUpdate(true);
         setUpdateInfo(result.info);
 
-        // 检查是否已经关闭过这个版本的提醒
+        // 检查是否已经关闭过这个状态的提醒
         let dismissedVersion = localStorage.getItem(DISMISSED_VERSION_KEY);
         if (!dismissedVersion) {
           const legacy = localStorage.getItem(LEGACY_DISMISSED_KEY);
@@ -82,7 +90,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
             dismissedVersion = legacy;
           }
         }
-        setIsDismissed(dismissedVersion === result.info.availableVersion);
+        setIsDismissed(dismissedVersion === dismissedKeyOf(result.info));
         return true; // 有更新
       } else {
         setHasUpdate(false);
@@ -103,12 +111,12 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
 
   const dismissUpdate = useCallback(() => {
     setIsDismissed(true);
-    if (updateInfo?.availableVersion) {
-      localStorage.setItem(DISMISSED_VERSION_KEY, updateInfo.availableVersion);
+    if (updateInfo) {
+      localStorage.setItem(DISMISSED_VERSION_KEY, dismissedKeyOf(updateInfo));
       // 清理旧键
       localStorage.removeItem(LEGACY_DISMISSED_KEY);
     }
-  }, [updateInfo?.availableVersion]);
+  }, [updateInfo]);
 
   const resetDismiss = useCallback(() => {
     setIsDismissed(false);

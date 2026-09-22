@@ -241,6 +241,51 @@ mod tests {
         assert_eq!(routes.len(), 1);
         assert_eq!(routes[0].route_id, "claude-sonnet-glm");
     }
+
+    #[tokio::test]
+    async fn resolve_target_hits_slot_by_generated_id() {
+        let db = crate::database::Database::memory().expect("db");
+        // 目标供应商（用仓库既有惯例 Provider::with_id 构造，Provider 未 derive Default）
+        let target = crate::provider::Provider::with_id(
+            "p-glm".to_string(),
+            "GLM".to_string(),
+            serde_json::json!({}),
+            None,
+        );
+        db.save_provider("claude-desktop", &target).expect("save target");
+
+        let mut aggregate = crate::provider::Provider::with_id(
+            "agg".to_string(),
+            "Aggregate".to_string(),
+            serde_json::json!({}),
+            None,
+        );
+        aggregate.meta = Some(crate::provider::ProviderMeta {
+            aggregate_routes: Some(AggregateRoutes {
+                slots: vec![AggregateRouteSlot {
+                    route_id: "claude-sonnet-glm".into(),
+                    tier: AggregateTier::Sonnet,
+                    provider_id: "p-glm".into(),
+                    upstream_model: "glm-5.3".into(),
+                    label: None,
+                    supports_1m: false,
+                }],
+                default_target: DefaultTarget::ProviderId("p-glm".into()),
+            }),
+            ..Default::default()
+        });
+
+        let hit = resolve_target(&db, "claude-desktop", &aggregate, "claude-sonnet-glm")
+            .expect("hit");
+        assert_eq!(hit.0.id, "p-glm");
+        assert_eq!(hit.1.as_deref(), Some("glm-5.3"));
+
+        // 未命中 → 默认目标，且不改写模型名
+        let miss = resolve_target(&db, "claude-desktop", &aggregate, "claude-haiku-4-5")
+            .expect("miss falls back to default");
+        assert_eq!(miss.0.id, "p-glm");
+        assert_eq!(miss.1, None);
+    }
 }
 
 /// 该供应商是否为聚合供应商。
@@ -301,4 +346,69 @@ pub fn aggregate_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRo
     }
 
     Ok(out)
+}
+
+/// 解析聚合路由：给定聚合供应商与请求模型，返回 (目标供应商, 需改写的上游模型名)。
+/// - 命中槽位 → 返回该槽位的目标与上游模型
+/// - 未命中 → 返回默认目标，模型名不改写（None）
+/// - 默认目标也不可用 → 返回明确错误（不静默降级）
+pub fn resolve_target(
+    db: &crate::database::Database,
+    app_type: &str,
+    aggregate: &Provider,
+    request_model: &str,
+) -> Result<(Provider, Option<String>), AppError> {
+    let routes = aggregate
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.aggregate_routes.as_ref())
+        .ok_or_else(|| {
+            AppError::localized(
+                "aggregate.routes_missing",
+                "聚合供应商缺少路由表",
+                "Aggregate provider is missing its route table",
+            )
+        })?;
+
+    // 直接按持久化的槽位 ID 查表（ID 在保存时生成，运行时不重新生成）
+    for slot in &routes.slots {
+        if slot.route_id == request_model {
+            let target = load_provider(db, app_type, &slot.provider_id)?;
+            return Ok((target, Some(slot.upstream_model.clone())));
+        }
+    }
+
+    // 未命中 → 默认目标
+    let fallback_id = match &routes.default_target {
+        DefaultTarget::ProviderId(id) => id.clone(),
+        DefaultTarget::SlotId(slot_id) => routes
+            .slots
+            .iter()
+            .find(|slot| &slot.route_id == slot_id)
+            .map(|slot| slot.provider_id.clone())
+            .ok_or_else(|| {
+                AppError::localized(
+                    "aggregate.default_target_slot_missing",
+                    "聚合供应商的默认目标指向了不存在的槽位",
+                    "Aggregate default target points to a missing slot",
+                )
+            })?,
+    };
+    let target = load_provider(db, app_type, &fallback_id)?;
+    Ok((target, None))
+}
+
+fn load_provider(
+    db: &crate::database::Database,
+    app_type: &str,
+    provider_id: &str,
+) -> Result<Provider, AppError> {
+    db.get_provider_by_id(provider_id, app_type)?
+        .ok_or_else(|| {
+            AppError::localized(
+                "aggregate.target_provider_missing",
+                "聚合供应商的目标供应商不存在",
+                "Aggregate target provider does not exist",
+            )
+        })
 }

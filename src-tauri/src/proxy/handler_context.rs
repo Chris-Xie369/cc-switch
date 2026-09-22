@@ -53,6 +53,8 @@ pub struct RequestContext {
     /// usage 归因的兜底顺序：上游响应回显 → outbound_model → request_model。
     /// 不能直接用 request_model 兜底：接管场景下它是映射前的客户端别名。
     pub outbound_model: Option<String>,
+    /// 聚合路由命中时需改写的上游模型名（None = 不改写，走既有映射）
+    pub aggregate_override: Option<String>,
     /// 日志标签（如 "Claude"、"Codex"、"Gemini"）
     pub tag: &'static str,
     /// 应用类型字符串（如 "claude"、"codex"、"gemini"）
@@ -107,7 +109,7 @@ impl RequestContext {
         let optimizer_config = state.db.get_optimizer_config().unwrap_or_default();
         let copilot_optimizer_config = state.db.get_copilot_optimizer_config().unwrap_or_default();
 
-        let current_provider_id =
+        let mut current_provider_id =
             crate::settings::get_current_provider(&app_type).unwrap_or_default();
 
         // 从请求体提取模型名称
@@ -131,7 +133,7 @@ impl RequestContext {
 
         // 使用共享的 ProviderRouter 选择 Provider（熔断器状态跨请求保持）
         // 注意：只在这里调用一次，结果传递给 forwarder，避免重复消耗 HalfOpen 名额
-        let providers = state
+        let mut providers = state
             .provider_router
             .select_providers(app_type_str)
             .await
@@ -143,10 +145,38 @@ impl RequestContext {
                 _ => ProxyError::DatabaseError(e.to_string()),
             })?;
 
-        let provider = providers
+        let mut provider = providers
             .first()
             .cloned()
             .ok_or(ProxyError::NoAvailableProvider)?;
+
+        // 聚合供应商：按请求模型把「本次使用的供应商」换成路由表里的目标供应商。
+        // 目标供应商负责端点 / 凭据 / 协议转换 / 熔断；`aggregate_override` 记录
+        // 需改写的上游模型名，转发前据此改写 `body.model`。
+        let aggregate_override = if crate::aggregate::is_aggregate_provider(&provider) {
+            let (target, upstream) =
+                crate::aggregate::resolve_target(&state.db, app_type_str, &provider, &request_model)
+                    .map_err(|e| ProxyError::ConfigError(e.to_string()))?;
+            log::debug!(
+                "[{}] Aggregate route: {} -> provider {} (upstream model: {:?})",
+                tag,
+                request_model,
+                target.name,
+                upstream
+            );
+            // 转发层按 providers 列表逐个尝试（见 `forward_with_retry_inner`）——只换
+            // `provider` 字段不够，必须把列表首位也换成目标供应商，否则仍会拿无端点
+            // 无凭据的聚合供应商去发请求。
+            providers[0] = target.clone();
+            // 让 current_provider_id 指向目标：否则转发成功后会把「实际供应商 ≠ 当前
+            // 供应商」判为故障转移并切换，把用户选中的聚合供应商切走（下一次请求就不再
+            // 命中聚合路由）。
+            current_provider_id = target.id.clone();
+            provider = target;
+            upstream
+        } else {
+            None
+        };
 
         log::debug!(
             "[{}] Provider: {}, model: {}, failover chain: {} providers, session: {}",
@@ -165,6 +195,7 @@ impl RequestContext {
             current_provider_id,
             request_model,
             outbound_model: None,
+            aggregate_override,
             tag,
             app_type_str,
             app_type,
@@ -242,6 +273,9 @@ impl RequestContext {
             self.copilot_optimizer_config.clone(),
             max_retries,
         )
+        // 聚合路由命中时把上游模型名交给转发层：模型映射由聚合路由表给出，
+        // 不再走目标供应商自己的路由表。
+        .with_aggregate_override(self.aggregate_override.clone())
     }
 
     /// 获取 Provider 列表（用于故障转移）

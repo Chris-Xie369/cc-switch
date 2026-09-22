@@ -1240,4 +1240,222 @@ mod tests {
             "full URL"
         );
     }
+
+    /// 端到端：聚合供应商按请求模型把请求路由到槽位目标供应商，并把槽位的上游模型名
+    /// 写进出站 body（本任务的验收核心）。用真实 `ProxyServer` + mock 上游驱动
+    /// `/claude-desktop/v1/messages`，断言 mock 上游**实际收到**的 body 与鉴权。
+    #[tokio::test]
+    async fn aggregate_routes_rewrite_model_and_use_target_provider() {
+        let captured = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
+        let mock_app = Router::new().route(
+            "/v1/messages",
+            post({
+                let captured = captured.clone();
+                move |request: axum::extract::Request| {
+                    let captured = captured.clone();
+                    async move {
+                        let (parts, body) = request.into_parts();
+                        let body = axum::body::to_bytes(body, 1024 * 1024)
+                            .await
+                            .expect("read mock request body");
+                        captured.lock().await.push(CapturedRequest {
+                            path_and_query: parts
+                                .uri
+                                .path_and_query()
+                                .map(|value| value.as_str().to_string())
+                                .unwrap_or_else(|| parts.uri.path().to_string()),
+                            authorization: parts
+                                .headers
+                                .get(header::AUTHORIZATION)
+                                .and_then(|value| value.to_str().ok())
+                                .map(ToString::to_string),
+                            body: serde_json::from_slice(&body).expect("parse mock request body"),
+                        });
+
+                        (
+                            StatusCode::OK,
+                            [(header::CONTENT_TYPE, "application/json")],
+                            r#"{"id":"msg_1","type":"message","role":"assistant","model":"glm-5.3","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":3,"output_tokens":2}}"#,
+                        )
+                    }
+                }
+            }),
+        );
+        let mock_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind mock upstream");
+        let mock_addr = mock_listener.local_addr().expect("mock upstream address");
+        let mock_handle = tokio::spawn(async move {
+            axum::serve(mock_listener, mock_app)
+                .await
+                .expect("serve mock upstream");
+        });
+
+        let db = Arc::new(Database::memory().expect("memory database"));
+
+        // 槽位目标：端点与凭据都来自它自己
+        let glm_target = Provider::with_id(
+            "glm-target".to_string(),
+            "GLM Target".to_string(),
+            json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": format!("http://{mock_addr}"),
+                    "ANTHROPIC_AUTH_TOKEN": "target-secret"
+                }
+            }),
+            None,
+        );
+        db.save_provider("claude-desktop", &glm_target)
+            .expect("save slot target");
+
+        // 默认目标：未命中路由时兜底。自带一条 route（映射到同名上游），
+        // 用于证明「未命中不套用槽位的上游模型名」。
+        let mut default_target = Provider::with_id(
+            "default-target".to_string(),
+            "Default Target".to_string(),
+            json!({
+                "env": {
+                    "ANTHROPIC_BASE_URL": format!("http://{mock_addr}"),
+                    "ANTHROPIC_AUTH_TOKEN": "default-secret"
+                }
+            }),
+            None,
+        );
+        default_target.meta = Some(ProviderMeta {
+            claude_desktop_model_routes: std::collections::HashMap::from([(
+                "claude-haiku-4-5".to_string(),
+                crate::provider::ClaudeDesktopModelRoute {
+                    model: "claude-haiku-4-5".to_string(),
+                    label_override: None,
+                    supports_1m: None,
+                },
+            )]),
+            ..Default::default()
+        });
+        db.save_provider("claude-desktop", &default_target)
+            .expect("save default target");
+
+        // 聚合供应商：无端点无凭据，只有一张路由表
+        let mut aggregate = Provider::with_id(
+            "agg".to_string(),
+            "Aggregate".to_string(),
+            json!({ "env": {} }),
+            None,
+        );
+        aggregate.meta = Some(ProviderMeta {
+            aggregate_routes: Some(crate::aggregate::AggregateRoutes {
+                slots: vec![crate::aggregate::AggregateRouteSlot {
+                    route_id: "claude-sonnet-glm".to_string(),
+                    tier: crate::aggregate::AggregateTier::Sonnet,
+                    provider_id: "glm-target".to_string(),
+                    upstream_model: "glm-5.3".to_string(),
+                    label: None,
+                    supports_1m: false,
+                }],
+                default_target: crate::aggregate::DefaultTarget::ProviderId(
+                    "default-target".to_string(),
+                ),
+            }),
+            ..Default::default()
+        });
+        db.save_provider("claude-desktop", &aggregate)
+            .expect("save aggregate provider");
+        db.set_current_provider("claude-desktop", "agg")
+            .expect("select aggregate provider");
+
+        let token = crate::claude_desktop_config::get_or_create_gateway_token(db.as_ref())
+            .expect("gateway token");
+
+        let proxy = ProxyServer::new(
+            ProxyConfig {
+                listen_port: 0,
+                enable_logging: true,
+                non_streaming_timeout: 10,
+                ..ProxyConfig::default()
+            },
+            db.clone(),
+            None,
+        );
+        let proxy_info = proxy.start().await.expect("start test proxy");
+        let client = reqwest::Client::new();
+        let messages_url = format!(
+            "http://127.0.0.1:{}/claude-desktop/v1/messages",
+            proxy_info.port
+        );
+
+        // 命中：model = 槽位 ID → 目标供应商 + 上游模型名改写
+        let hit = client
+            .post(&messages_url)
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .json(&json!({
+                "model": "claude-sonnet-glm",
+                "max_tokens": 16,
+                "messages": [{"role": "user", "content": "hi"}]
+            }))
+            .send()
+            .await
+            .expect("send aggregate hit request");
+        assert_eq!(hit.status(), StatusCode::OK, "aggregate hit");
+
+        {
+            let captured = captured.lock().await;
+            assert_eq!(captured.len(), 1, "hit reached upstream exactly once");
+            let request = &captured[0];
+            assert_eq!(
+                request.body["model"], "glm-5.3",
+                "slot upstream model must reach the outbound body"
+            );
+            assert_eq!(
+                request.authorization.as_deref(),
+                Some("Bearer target-secret"),
+                "auth must come from the slot target, not the aggregate provider"
+            );
+        }
+
+        // 聚合供应商必须仍是持久化的当前供应商（UI 不得被切走）；同时不得发生伪故障转移。
+        assert_eq!(
+            db.get_current_provider("claude-desktop")
+                .expect("read current provider")
+                .as_deref(),
+            Some("agg"),
+            "aggregate provider must stay the persisted current provider"
+        );
+        assert_eq!(
+            proxy.get_status().await.failover_count,
+            0,
+            "aggregate routing must not be mistaken for a failover switch"
+        );
+
+        // 未命中：不匹配任何槽位 → 走默认目标，聚合层不改写模型名
+        let miss = client
+            .post(&messages_url)
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .json(&json!({
+                "model": "claude-haiku-4-5",
+                "max_tokens": 16,
+                "messages": [{"role": "user", "content": "hi"}]
+            }))
+            .send()
+            .await
+            .expect("send aggregate miss request");
+        assert_eq!(miss.status(), StatusCode::OK, "aggregate miss");
+
+        {
+            let captured = captured.lock().await;
+            assert_eq!(captured.len(), 2, "miss reached upstream");
+            let request = &captured[1];
+            assert_eq!(
+                request.body["model"], "claude-haiku-4-5",
+                "miss must not apply the slot's upstream model"
+            );
+            assert_eq!(
+                request.authorization.as_deref(),
+                Some("Bearer default-secret"),
+                "miss must be routed to the default target"
+            );
+        }
+
+        proxy.stop().await.expect("stop test proxy");
+        mock_handle.abort();
+    }
 }

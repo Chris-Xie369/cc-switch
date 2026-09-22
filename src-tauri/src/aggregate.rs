@@ -286,6 +286,79 @@ mod tests {
         assert_eq!(miss.0.id, "p-glm");
         assert_eq!(miss.1, None);
     }
+
+    /// 取出 `AppError::Localized` 的稳定 key（断言错误类型，而非本地化文案）。
+    fn localized_key(err: &AppError) -> &'static str {
+        match err {
+            AppError::Localized { key, .. } => key,
+            other => panic!("expected a localized error, got: {other}"),
+        }
+    }
+
+    /// 槽位构造器：指向 `provider_id`。
+    fn slot_for(
+        route_id: &str,
+        provider_id: &str,
+        upstream_model: &str,
+    ) -> AggregateRouteSlot {
+        AggregateRouteSlot {
+            route_id: route_id.to_string(),
+            tier: AggregateTier::Sonnet,
+            provider_id: provider_id.to_string(),
+            upstream_model: upstream_model.to_string(),
+            label: None,
+            supports_1m: false,
+        }
+    }
+
+    fn aggregate_with(slots: Vec<AggregateRouteSlot>, default_target: DefaultTarget) -> Provider {
+        let mut aggregate = crate::provider::Provider::with_id(
+            "agg".to_string(),
+            "Aggregate".to_string(),
+            serde_json::json!({}),
+            None,
+        );
+        aggregate.meta = Some(crate::provider::ProviderMeta {
+            aggregate_routes: Some(AggregateRoutes {
+                slots,
+                default_target,
+            }),
+            ..Default::default()
+        });
+        aggregate
+    }
+
+    #[tokio::test]
+    async fn resolve_target_errors_when_default_target_slot_missing() {
+        let db = crate::database::Database::memory().expect("db");
+        // 默认目标指向一个不存在的槽位 id —— 必须显式报错，
+        // **不得**静默回落到「第一个槽位」（那会把用户的兜底配置悄悄改掉）。
+        let aggregate = aggregate_with(
+            vec![slot_for("claude-sonnet-glm", "p-glm", "glm-5.3")],
+            DefaultTarget::SlotId("claude-sonnet-missing".into()),
+        );
+
+        let err = resolve_target(&db, "claude-desktop", &aggregate, "claude-haiku-4-5")
+            .expect_err("default target pointing at a missing slot must error");
+        assert_eq!(
+            localized_key(&err),
+            "aggregate.default_target_slot_missing"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_target_errors_when_target_provider_missing() {
+        let db = crate::database::Database::memory().expect("db");
+        // 命中槽位，但它引用的目标供应商在库里不存在 → 明确错误
+        let aggregate = aggregate_with(
+            vec![slot_for("claude-sonnet-glm", "p-missing", "glm-5.3")],
+            DefaultTarget::ProviderId("p-missing".into()),
+        );
+
+        let err = resolve_target(&db, "claude-desktop", &aggregate, "claude-sonnet-glm")
+            .expect_err("missing target provider must error");
+        assert_eq!(localized_key(&err), "aggregate.target_provider_missing");
+    }
 }
 
 /// 该供应商是否为聚合供应商。

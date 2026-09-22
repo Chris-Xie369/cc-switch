@@ -19,14 +19,18 @@ import type {
   DefaultTarget,
   Provider,
 } from "@/types";
-import { assignSlotIds, slotLabel } from "@/utils/aggregateRoutes";
+import {
+  assignSlotIds,
+  canSaveAggregateRoutes,
+  slotLabel,
+} from "@/utils/aggregateRoutes";
 
 const TIERS: AggregateTier[] = ["sonnet", "opus", "haiku", "fable"];
 
 interface Props {
   value: AggregateRoutes;
   onChange: (next: AggregateRoutes) => void;
-  /** 可作目标的常规供应商（不含聚合供应商自身，防止嵌套） */
+  /** 可作目标的常规供应商（不含聚合供应商自身与官方供应商，防止嵌套/无凭据目标） */
   candidates: Provider[];
 }
 
@@ -70,6 +74,10 @@ export function AggregateProviderFields({
         <h3 className="text-sm font-medium">{t("aggregate.title")}</h3>
         <p className="text-xs text-muted-foreground">{t("aggregate.hint")}</p>
       </header>
+
+      {!canSaveAggregateRoutes(value) && (
+        <p className="text-xs text-destructive">{t("aggregate.notSaveable")}</p>
+      )}
 
       <div className="space-y-3">
         {value.slots.map((slot, index) => (

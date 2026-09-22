@@ -338,13 +338,16 @@ export function ClaudeDesktopProviderForm({
   );
 
   // 聚合槽位可指向的目标：同 app 下的常规供应商，排除聚合供应商（禁嵌套，
-  // 后端亦拒绝）与正在编辑的自身（后端禁止自引用）。
+  // 后端亦拒绝）、正在编辑的自身（后端禁止自引用）与官方供应商（1P 无网关凭据，
+  // 选作目标会在请求时失败）。
   const { data: desktopProvidersData } = useProvidersQuery("claude-desktop");
   const aggregateCandidates = useMemo<Provider[]>(
     () =>
       Object.values(desktopProvidersData?.providers ?? {}).filter(
         (provider) =>
-          provider.id !== providerId && !isAggregateProvider(provider),
+          provider.id !== providerId &&
+          !isAggregateProvider(provider) &&
+          provider.category !== "official",
       ),
     [desktopProvidersData?.providers, providerId],
   );
@@ -633,7 +636,7 @@ export function ClaudeDesktopProviderForm({
       });
       return;
     }
-    if (!baseUrl.trim() && !usesManagedOAuth) {
+    if (!baseUrl.trim() && !usesManagedOAuth && !aggregateRoutes) {
       toast.error(
         t("providerForm.fetchModelsNeedEndpoint", {
           defaultValue: "请先填写接口地址",
@@ -718,7 +721,7 @@ export function ClaudeDesktopProviderForm({
       );
       return;
     }
-    if (!usesManagedOAuth && !apiKey.trim()) {
+    if (!usesManagedOAuth && !apiKey.trim() && !aggregateRoutes) {
       toast.error(
         t("providerForm.fetchModelsNeedApiKey", {
           defaultValue: "请先填写 API Key",
@@ -781,16 +784,19 @@ export function ClaudeDesktopProviderForm({
     const env = clonePlainRecord(settingsConfig.env);
     delete env.ANTHROPIC_AUTH_TOKEN;
     delete env.ANTHROPIC_API_KEY;
-    settingsConfig.env = usesManagedOAuth
-      ? {
-          ...env,
-          ANTHROPIC_BASE_URL: baseUrl.trim().replace(/\/+$/, ""),
-        }
-      : {
-          ...env,
-          ANTHROPIC_BASE_URL: baseUrl.trim().replace(/\/+$/, ""),
-          [apiKeyField]: apiKey.trim(),
-        };
+    settingsConfig.env = aggregateRoutes
+      ? // 聚合供应商无端点无凭据：不写 base_url / key（转发时用目标供应商的）
+        env
+      : usesManagedOAuth
+        ? {
+            ...env,
+            ANTHROPIC_BASE_URL: baseUrl.trim().replace(/\/+$/, ""),
+          }
+        : {
+            ...env,
+            ANTHROPIC_BASE_URL: baseUrl.trim().replace(/\/+$/, ""),
+            [apiKeyField]: apiKey.trim(),
+          };
 
     const routeMap = routeEntries.reduce<
       Record<string, ClaudeDesktopModelRoute>

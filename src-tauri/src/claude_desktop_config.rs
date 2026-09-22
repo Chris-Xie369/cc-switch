@@ -340,6 +340,11 @@ pub fn validate_direct_provider(provider: &Provider) -> Result<(), AppError> {
         return Ok(());
     }
 
+    // 聚合供应商自身无端点无凭据（转发时用目标供应商的），故不适用直连凭据校验。
+    if crate::aggregate::is_aggregate_provider(provider) {
+        return Ok(());
+    }
+
     if !provider.settings_config.is_object() {
         return Err(AppError::localized(
             "claude_desktop.provider.settings_not_object",
@@ -424,6 +429,12 @@ pub fn validate_proxy_provider(provider: &Provider) -> Result<(), AppError> {
     }
 
     proxy_model_routes(provider)?;
+
+    // 聚合供应商自身无端点无凭据（转发时用目标供应商的），故不检查它自己的凭据；
+    // 路由表本身已由上面的 proxy_model_routes 校验。
+    if crate::aggregate::is_aggregate_provider(provider) {
+        return Ok(());
+    }
 
     if !has_proxy_base_url_and_key(provider) {
         return Err(AppError::localized(
@@ -982,7 +993,15 @@ fn apply_provider_to_paths_inner(
     provider: &Provider,
     paths: &ClaudeDesktopPaths,
 ) -> Result<(), AppError> {
-    let mut profile = match provider_mode(provider) {
+    // 聚合供应商自身无端点无凭据：它的槽位模型列表与请求转发都依赖本地代理，
+    // 故一律按代理分支写 profile（否则会去取聚合自己的端点/凭据而失败——表单默认「直连」）。
+    let profile_mode = if crate::aggregate::is_aggregate_provider(provider) {
+        ClaudeDesktopMode::Proxy
+    } else {
+        provider_mode(provider)
+    };
+
+    let mut profile = match profile_mode {
         ClaudeDesktopMode::Direct => {
             let credentials = direct_gateway_credentials(provider)?;
             let model_specs = direct_inference_model_specs(provider)?;
@@ -2444,5 +2463,71 @@ mod tests {
         assert_eq!(routes[1].upstream_model, "glm-5.3");
         assert_eq!(routes[1].label_override.as_deref(), Some("智谱 GLM-5.3"));
         assert!(routes[1].supports_1m);
+    }
+
+    /// 构造一个仅带聚合路由表、`settings_config` 为空对象的供应商（无端点无凭据）。
+    fn aggregate_provider_without_credentials(id: &str) -> Provider {
+        let mut provider = Provider::with_id(
+            id.to_string(),
+            "Aggregate".to_string(),
+            json!({}),
+            None,
+        );
+        provider.meta = Some(ProviderMeta {
+            aggregate_routes: Some(crate::aggregate::AggregateRoutes {
+                slots: vec![crate::aggregate::AggregateRouteSlot {
+                    route_id: "claude-sonnet-glm".into(),
+                    tier: crate::aggregate::AggregateTier::Sonnet,
+                    provider_id: "p-glm".into(),
+                    upstream_model: "glm-5.3".into(),
+                    label: None,
+                    supports_1m: false,
+                }],
+                default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
+            }),
+            ..Default::default()
+        });
+        provider
+    }
+
+    #[test]
+    fn validate_direct_provider_accepts_aggregate_without_endpoint_or_credentials() {
+        // 聚合供应商自身无端点无凭据（转发时用目标供应商的），故空 settings_config
+        // 也必须通过直连校验 —— 不得逼用户编造占位端点与密钥。
+        let aggregate = aggregate_provider_without_credentials("agg");
+        validate_direct_provider(&aggregate)
+            .expect("aggregate provider must validate without endpoint or credentials");
+    }
+
+    #[test]
+    fn validate_direct_provider_still_rejects_ordinary_provider_without_credentials() {
+        // 对照：普通供应商的空 settings_config 仍必须被拒（聚合短路不得顺手放宽它）。
+        let plain = Provider::with_id(
+            "plain".to_string(),
+            "Plain".to_string(),
+            json!({}),
+            None,
+        );
+        validate_direct_provider(&plain)
+            .expect_err("ordinary provider without endpoint/credentials must still be rejected");
+    }
+
+    #[test]
+    fn apply_aggregate_provider_without_credentials_writes_local_gateway_profile() {
+        // 聚合供应商保存后必须能真正启用：空 settings_config 也要走代理分支写 profile
+        // （模型列表由槽位派生，网关地址为本地代理），而不是去取聚合自己的端点/凭据。
+        let temp = TempDir::new().expect("tempdir");
+        let paths = test_paths(temp.path());
+        let db = test_db();
+        let aggregate = aggregate_provider_without_credentials("agg");
+
+        apply_provider_to_paths(&db, &aggregate, &paths).expect("apply aggregate provider");
+
+        let profile: Value = read_json_file(&paths.profile_path).expect("read profile");
+        assert_eq!(
+            profile["inferenceGatewayBaseUrl"],
+            json!("http://127.0.0.1:15721/claude-desktop")
+        );
+        assert_eq!(profile["inferenceModels"], json!(["claude-sonnet-glm"]));
     }
 }

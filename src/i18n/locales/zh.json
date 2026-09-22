@@ -3283,6 +3283,7 @@
     "slotIdPreview": "槽位 ID",
     "addSlot": "添加槽位",
     "defaultTarget": "默认目标",
-    "defaultTargetHint": "未命中路由的请求发往这里（Claude 的内部调用会走它）"
+    "defaultTargetHint": "未命中路由的请求发往这里（Claude 的内部调用会走它）",
+    "notSaveable": "至少添加一个槽位并选择默认目标后才能保存"
   }
 }

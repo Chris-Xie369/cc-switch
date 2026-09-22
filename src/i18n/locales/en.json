@@ -3283,6 +3283,7 @@
     "slotIdPreview": "Slot ID",
     "addSlot": "Add slot",
     "defaultTarget": "Default target",
-    "defaultTargetHint": "Requests that match no slot go here (Claude's internal calls use it)"
+    "defaultTargetHint": "Requests that match no slot go here (Claude's internal calls use it)",
+    "notSaveable": "Add at least one slot and choose a default target before saving"
   }
 }

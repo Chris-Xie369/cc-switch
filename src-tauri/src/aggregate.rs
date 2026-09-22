@@ -30,9 +30,10 @@ impl AggregateTier {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AggregateRouteSlot {
-    /// 生成的槽位 ID（**持久化**，是稳定的路由键）。
-    /// 保存时由 `generate_slot_id` 依据目标供应商的名称生成并写入；
-    /// 运行时直接用它查表，不再重新生成——这样重命名供应商不会改变已生效的路由。
+    /// 槽位 ID（**持久化**，是稳定的路由键）。
+    /// 由前端在编辑时生成并随表单提交（UI 预览即提交值）；后端只校验它
+    /// （非空、claude-safe、不重复），运行时不重新生成——这样重命名供应商
+    /// 不会改变已生效的路由。
     pub route_id: String,
     pub tier: AggregateTier,
     /// 目标供应商 id（被引用者受删除保护）
@@ -62,118 +63,9 @@ pub struct AggregateRoutes {
     pub default_target: DefaultTarget,
 }
 
-/// 供应商名称 → slug。规则：**只保留 ASCII 字母数字**（其余字符视作分隔符并合并）→
-/// 转小写 → 去首尾 '-' → 截断 20 字符。**仅当结果为空**（名称为纯非 ASCII，如 "月之暗面"）
-/// 才回落为 provider_id 前 8 位。
-/// 注意："智谱 GLM" 的 ASCII 部分是 GLM → slug 为 "glm"，**不会**回落。
-pub fn slugify(provider_name: &str, provider_id: &str) -> String {
-    let mut out = String::new();
-    let mut last_dash = false;
-    for ch in provider_name.chars() {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch.to_ascii_lowercase());
-            last_dash = false;
-        } else if !last_dash && !out.is_empty() {
-            out.push('-');
-            last_dash = true;
-        }
-    }
-    let trimmed = out.trim_matches('-').to_string();
-    let truncated = trimmed.chars().take(20).collect::<String>();
-    let truncated = truncated.trim_matches('-').to_string();
-    if truncated.is_empty() {
-        provider_id.chars().take(8).collect()
-    } else {
-        truncated
-    }
-}
-
-/// 生成槽位 ID：`claude-{tier}-{slug}`；与 taken 冲突时追加 `-2`、`-3`…
-pub fn generate_slot_id(
-    tier: AggregateTier,
-    provider_name: &str,
-    provider_id: &str,
-    taken: &[String],
-) -> String {
-    let base = format!("claude-{}-{}", tier.as_str(), slugify(provider_name, provider_id));
-    if !taken.iter().any(|t| t == &base) {
-        return base;
-    }
-    let mut n = 2;
-    loop {
-        let candidate = format!("{base}-{n}");
-        if !taken.iter().any(|t| t == &candidate) {
-            return candidate;
-        }
-        n += 1;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::claude_desktop_config::is_claude_safe_model_id;
-
-    #[test]
-    fn slugify_ascii_name() {
-        assert_eq!(slugify("DeepSeek-OTN", "abc12345"), "deepseek-otn");
-        assert_eq!(slugify("OpenCode Go", "abc12345"), "opencode-go");
-    }
-
-    #[test]
-    fn slugify_uses_ascii_part_of_mixed_name() {
-        // "智谱 GLM" 的 ASCII 部分是 GLM：非 ASCII 字符被跳过（不产生分隔符），
-        // 得到可读的 slug —— 不要误以为"含中文就回落"
-        assert_eq!(slugify("智谱 GLM", "97a1d0df-b9a9"), "glm");
-    }
-
-    #[test]
-    fn slugify_falls_back_to_provider_id_when_no_ascii() {
-        // 名称为纯非 ASCII 时 slug 为空，才回落为 provider id 前 8 位
-        assert_eq!(slugify("月之暗面", "97a1d0df-b9a9"), "97a1d0df");
-    }
-
-    #[test]
-    fn slugify_truncates_and_cleans_edges() {
-        assert_eq!(slugify("  ---A--B---  ", "x"), "a-b");
-        assert_eq!(slugify("abcdefghijklmnopqrstuvwxyz", "x").len(), 20);
-    }
-
-    #[test]
-    fn generate_slot_id_is_claude_safe() {
-        let id = generate_slot_id(AggregateTier::Sonnet, "DeepSeek-OTN", "pid", &[]);
-        assert_eq!(id, "claude-sonnet-deepseek-otn");
-        assert!(is_claude_safe_model_id(&id));
-    }
-
-    #[test]
-    fn generate_slot_id_dedups_with_numeric_suffix() {
-        let taken = vec!["claude-sonnet-glm".to_string()];
-        let id = generate_slot_id(AggregateTier::Sonnet, "GLM", "pid", &taken);
-        assert_eq!(id, "claude-sonnet-glm-2");
-        assert!(is_claude_safe_model_id(&id));
-    }
-
-    #[test]
-    fn slugify_trims_dash_created_by_truncation() {
-        // 第 20 个字符正好是分隔符：必须先截断再去尾部 '-'，否则会留下结尾的 '-'。
-        // 这是唯一能区分「先截断再清理」与「先清理再截断」的输入形态。
-        assert_eq!(
-            slugify("abcdefghijklmnopqrs tuv", "x"),
-            "abcdefghijklmnopqrs"
-        );
-    }
-
-    #[test]
-    fn generate_slot_id_skips_existing_numeric_suffixes() {
-        // 去重必须跳过已存在的编号，而不是只判断基名是否被占用
-        let taken = vec![
-            "claude-sonnet-glm".to_string(),
-            "claude-sonnet-glm-2".to_string(),
-        ];
-        let id = generate_slot_id(AggregateTier::Sonnet, "GLM", "pid", &taken);
-        assert_eq!(id, "claude-sonnet-glm-3");
-    }
 
     fn slot(route_id: &str, upstream_model: &str) -> AggregateRouteSlot {
         AggregateRouteSlot {

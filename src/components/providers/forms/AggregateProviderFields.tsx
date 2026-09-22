@@ -90,6 +90,54 @@ export function AggregateProviderFields({
         <p className="text-xs text-destructive">{t("aggregate.notSaveable")}</p>
       )}
 
+      {/* 默认目标是必填项，放在槽位**之前**：原先它在槽位列表下方，槽位一多就被顶出
+          视野、又渲染成一个没有占位文案的空白下拉框，用户会卡在这里（2026-09-22 实测）。
+          它的选项来自供应商与槽位，槽位为空时先选一家供应商也成立。 */}
+      <div className="space-y-1">
+        <Label className="text-xs">{t("aggregate.defaultTarget")}</Label>
+        <Select
+          value={
+            value.defaultTarget.kind === "providerId"
+              ? `provider:${value.defaultTarget.value}`
+              : `slot:${value.defaultTarget.value}`
+          }
+          onValueChange={(v) => {
+            const [kind, ...rest] = v.split(":");
+            const target: DefaultTarget =
+              kind === "provider"
+                ? { kind: "providerId", value: rest.join(":") }
+                : { kind: "slotId", value: rest.join(":") };
+            onChange({ ...value, defaultTarget: target });
+          }}
+        >
+          <SelectTrigger className="h-8">
+            <SelectValue
+              placeholder={t("aggregate.defaultTargetPlaceholder", {
+                defaultValue: "必选：未命中槽位的请求回落到这里",
+              })}
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {candidates.map((p) => (
+              <SelectItem key={p.id} value={`provider:${p.id}`}>
+                {p.name}
+              </SelectItem>
+            ))}
+            {value.slots.map((s, index) => (
+              <SelectItem
+                key={s.routeId || `slot-${index}`}
+                value={`slot:${s.routeId}`}
+              >
+                {slotLabel(s)} ({s.routeId})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          {t("aggregate.defaultTargetHint")}
+        </p>
+      </div>
+
       <div className="space-y-3">
         {value.slots.map((slot, index) => (
           <div
@@ -237,47 +285,6 @@ export function AggregateProviderFields({
         <Plus className="h-3.5 w-3.5" />
         {t("aggregate.addSlot")}
       </Button>
-
-      <div className="space-y-1">
-        <Label className="text-xs">{t("aggregate.defaultTarget")}</Label>
-        <Select
-          value={
-            value.defaultTarget.kind === "providerId"
-              ? `provider:${value.defaultTarget.value}`
-              : `slot:${value.defaultTarget.value}`
-          }
-          onValueChange={(v) => {
-            const [kind, ...rest] = v.split(":");
-            const target: DefaultTarget =
-              kind === "provider"
-                ? { kind: "providerId", value: rest.join(":") }
-                : { kind: "slotId", value: rest.join(":") };
-            onChange({ ...value, defaultTarget: target });
-          }}
-        >
-          <SelectTrigger className="h-8">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {candidates.map((p) => (
-              <SelectItem key={p.id} value={`provider:${p.id}`}>
-                {p.name}
-              </SelectItem>
-            ))}
-            {value.slots.map((s, index) => (
-              <SelectItem
-                key={s.routeId || `slot-${index}`}
-                value={`slot:${s.routeId}`}
-              >
-                {slotLabel(s)} ({s.routeId})
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p className="text-xs text-muted-foreground">
-          {t("aggregate.defaultTargetHint")}
-        </p>
-      </div>
     </section>
   );
 }

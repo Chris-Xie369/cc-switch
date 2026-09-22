@@ -15,17 +15,6 @@ pub enum AggregateTier {
     Fable,
 }
 
-impl AggregateTier {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            AggregateTier::Sonnet => "sonnet",
-            AggregateTier::Opus => "opus",
-            AggregateTier::Haiku => "haiku",
-            AggregateTier::Fable => "fable",
-        }
-    }
-}
-
 /// 一个槽位 = 一个可被 Claude 选择的模型。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -263,7 +252,7 @@ pub fn is_aggregate_provider(provider: &Provider) -> bool {
 }
 
 /// 由槽位派生模型规格（供 profile 的 inferenceModels 与 /models 端点共用）。
-/// 槽位 ID 是保存时生成并持久化的，这里直接取用；按 route_id 排序与既有实现保持一致。
+/// 槽位 ID 由前端在编辑时生成并持久化，这里直接取用；按 route_id 排序与既有实现保持一致。
 pub fn aggregate_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRoute>, AppError> {
     let routes = provider
         .meta
@@ -335,7 +324,7 @@ pub fn resolve_target(
             )
         })?;
 
-    // 直接按持久化的槽位 ID 查表（ID 在保存时生成，运行时不重新生成）
+    // 直接按持久化的槽位 ID 查表（ID 由前端编辑时生成并随表单提交，运行时不重新生成）
     for slot in &routes.slots {
         if slot.route_id == request_model {
             let target = load_provider(db, app_type, &slot.provider_id)?;

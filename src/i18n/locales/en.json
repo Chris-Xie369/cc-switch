@@ -3270,5 +3270,19 @@
     "expiredHint": "Run the {{tool}} command to refresh your login",
     "queryFailed": "Query failed",
     "refresh": "Refresh"
+  },
+  "aggregate": {
+    "enable": "Enable aggregate routing",
+    "title": "Aggregate provider",
+    "hint": "Holds no endpoint or key; routes requests to other providers by model. Restart Claude Desktop after enabling.",
+    "tier": "Tier",
+    "targetProvider": "Target provider",
+    "upstreamModel": "Upstream model",
+    "displayName": "Display name",
+    "supports1m": "1M context",
+    "slotIdPreview": "Slot ID",
+    "addSlot": "Add slot",
+    "defaultTarget": "Default target",
+    "defaultTargetHint": "Requests that match no slot go here (Claude's internal calls use it)"
   }
 }

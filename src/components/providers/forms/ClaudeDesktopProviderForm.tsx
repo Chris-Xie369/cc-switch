@@ -23,6 +23,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { AggregateProviderFields } from "./AggregateProviderFields";
 import { BasicFormFields } from "./BasicFormFields";
 import { CodexOAuthSection } from "./CodexOAuthSection";
 import { CopilotAuthSection } from "./CopilotAuthSection";
@@ -34,11 +36,15 @@ import { ProviderPresetSelector } from "./ProviderPresetSelector";
 import { useApiKeyLink } from "./hooks/useApiKeyLink";
 import { providerSchema, type ProviderFormData } from "@/lib/schemas/provider";
 import type {
+  AggregateRoutes,
   ClaudeApiFormat,
   ClaudeDesktopModelRoute,
+  Provider,
   ProviderCategory,
   ProviderMeta,
 } from "@/types";
+import { useProvidersQuery } from "@/lib/query/queries";
+import { isAggregateProvider } from "@/utils/aggregateRoutes";
 import type { OpenClawSuggestedDefaults } from "@/config/openclawProviderPresets";
 import {
   CLAUDE_DESKTOP_ROLE_ROUTE_IDS,
@@ -82,6 +88,8 @@ export interface ClaudeDesktopProviderFormProps {
   onSubmit: (values: ClaudeDesktopProviderFormValues) => Promise<void> | void;
   onCancel: () => void;
   onSubmittingChange?: (isSubmitting: boolean) => void;
+  /** 编辑中的供应商 id（新建时缺省）；用于把自身排除出聚合路由的目标候选项 */
+  providerId?: string;
   initialData?: {
     name?: string;
     websiteUrl?: string;
@@ -244,6 +252,7 @@ export function ClaudeDesktopProviderForm({
   onSubmit,
   onCancel,
   onSubmittingChange,
+  providerId,
   initialData,
   showButtons = true,
   onManageAuthAccounts,
@@ -280,6 +289,11 @@ export function ClaudeDesktopProviderForm({
   const [codexFastMode, setCodexFastMode] = useState<boolean>(
     () => initialData?.meta?.codexFastMode ?? false,
   );
+  // 聚合路由表：仅在「聚合供应商」开关打开时存在；关闭时置 undefined，
+  // 提交时据此删除 meta.aggregateRoutes（普通供应商 JSON 不变）。
+  const [aggregateRoutes, setAggregateRoutes] = useState<
+    AggregateRoutes | undefined
+  >(() => initialData?.meta?.aggregateRoutes);
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(
     "custom",
   );
@@ -321,6 +335,18 @@ export function ClaudeDesktopProviderForm({
         envString(initialData?.settingsConfig, "ANTHROPIC_MODEL"),
       ),
     [defaultRoutes, initialData?.settingsConfig],
+  );
+
+  // 聚合槽位可指向的目标：同 app 下的常规供应商，排除聚合供应商（禁嵌套，
+  // 后端亦拒绝）与正在编辑的自身（后端禁止自引用）。
+  const { data: desktopProvidersData } = useProvidersQuery("claude-desktop");
+  const aggregateCandidates = useMemo<Provider[]>(
+    () =>
+      Object.values(desktopProvidersData?.providers ?? {}).filter(
+        (provider) =>
+          provider.id !== providerId && !isAggregateProvider(provider),
+      ),
+    [desktopProvidersData?.providers, providerId],
   );
 
   const defaultValues: ProviderFormData = useMemo(
@@ -498,6 +524,14 @@ export function ClaudeDesktopProviderForm({
     );
   };
 
+  const handleAggregateToggle = (checked: boolean) => {
+    setAggregateRoutes(
+      checked
+        ? { slots: [], defaultTarget: { kind: "providerId", value: "" } }
+        : undefined,
+    );
+  };
+
   const handleModelMappingChange = (checked: boolean) => {
     if (usesManagedOAuth) return;
     setMode(checked ? "proxy" : "direct");
@@ -586,6 +620,7 @@ export function ClaudeDesktopProviderForm({
       delete meta.apiFormat;
       delete meta.endpointAutoSelect;
       delete meta.isFullUrl;
+      delete meta.aggregateRoutes;
       await onSubmit({
         ...values,
         name: values.name.trim(),
@@ -810,6 +845,13 @@ export function ClaudeDesktopProviderForm({
     delete meta.endpointAutoSelect;
     delete meta.isFullUrl;
 
+    // 开关打开时写入聚合路由表；关闭时彻底移除，保证普通供应商的 meta 不变。
+    if (aggregateRoutes) {
+      meta.aggregateRoutes = aggregateRoutes;
+    } else {
+      delete meta.aggregateRoutes;
+    }
+
     await onSubmit({
       ...values,
       name: values.name.trim(),
@@ -886,6 +928,28 @@ export function ClaudeDesktopProviderForm({
 
         {!isOfficial && (
           <>
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-border-default p-3">
+              <Label
+                htmlFor="claude-desktop-aggregate"
+                className="text-sm font-medium"
+              >
+                {t("aggregate.enable", { defaultValue: "启用聚合路由" })}
+              </Label>
+              <Switch
+                id="claude-desktop-aggregate"
+                checked={aggregateRoutes !== undefined}
+                onCheckedChange={handleAggregateToggle}
+              />
+            </div>
+
+            {aggregateRoutes && (
+              <AggregateProviderFields
+                value={aggregateRoutes}
+                onChange={setAggregateRoutes}
+                candidates={aggregateCandidates}
+              />
+            )}
+
             {usesManagedOAuth ? (
               <div className="rounded-lg border border-border-default bg-muted/20 p-3">
                 {activeProviderType === "github_copilot" ? (

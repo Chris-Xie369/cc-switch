@@ -150,4 +150,25 @@ mod tests {
         assert_eq!(id, "claude-sonnet-glm-2");
         assert!(is_claude_safe_model_id(&id));
     }
+
+    #[test]
+    fn slugify_trims_dash_created_by_truncation() {
+        // 第 20 个字符正好是分隔符：必须先截断再去尾部 '-'，否则会留下结尾的 '-'。
+        // 这是唯一能区分「先截断再清理」与「先清理再截断」的输入形态。
+        assert_eq!(
+            slugify("abcdefghijklmnopqrs tuv", "x"),
+            "abcdefghijklmnopqrs"
+        );
+    }
+
+    #[test]
+    fn generate_slot_id_skips_existing_numeric_suffixes() {
+        // 去重必须跳过已存在的编号，而不是只判断基名是否被占用
+        let taken = vec![
+            "claude-sonnet-glm".to_string(),
+            "claude-sonnet-glm-2".to_string(),
+        ];
+        let id = generate_slot_id(AggregateTier::Sonnet, "GLM", "pid", &taken);
+        assert_eq!(id, "claude-sonnet-glm-3");
+    }
 }

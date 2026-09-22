@@ -1,5 +1,8 @@
 //! 聚合供应商：无端点无凭据的虚拟供应商，按模型把请求分流到其他供应商。
 
+use crate::claude_desktop_config::{is_claude_safe_model_id, ResolvedModelRoute};
+use crate::error::AppError;
+use crate::provider::Provider;
 use serde::{Deserialize, Serialize};
 
 /// 档位：决定 Claude Desktop 选择器里那句描述文字来自目录中哪个角色。
@@ -171,11 +174,74 @@ mod tests {
         let id = generate_slot_id(AggregateTier::Sonnet, "GLM", "pid", &taken);
         assert_eq!(id, "claude-sonnet-glm-3");
     }
-}
 
-use crate::claude_desktop_config::ResolvedModelRoute;
-use crate::error::AppError;
-use crate::provider::Provider;
+    fn slot(route_id: &str, upstream_model: &str) -> AggregateRouteSlot {
+        AggregateRouteSlot {
+            route_id: route_id.to_string(),
+            tier: AggregateTier::Sonnet,
+            provider_id: "p-target".to_string(),
+            upstream_model: upstream_model.to_string(),
+            label: None,
+            supports_1m: false,
+        }
+    }
+
+    fn aggregate_provider(slots: Vec<AggregateRouteSlot>) -> Provider {
+        let mut provider = Provider::with_id(
+            "agg".to_string(),
+            "Aggregate".to_string(),
+            serde_json::json!({ "env": {} }),
+            Some("https://example.com".to_string()),
+        );
+        provider.meta = Some(crate::provider::ProviderMeta {
+            aggregate_routes: Some(AggregateRoutes {
+                slots,
+                default_target: DefaultTarget::ProviderId("p-target".to_string()),
+            }),
+            ..Default::default()
+        });
+        provider
+    }
+
+    #[test]
+    fn aggregate_model_routes_filters_unsafe_route_ids() {
+        // 不安全的 route_id 必须被丢弃（而非 repair 或原样发射）——
+        // 一个坏 ID 会让 Claude Desktop 拒收整组 inferenceModels。
+        // 同时保底：其余合法槽位仍应正常产出。
+        let provider = aggregate_provider(vec![
+            slot("claude-sonnet-glm", "glm-5.3"),
+            slot("glm-5.3", "some-upstream-model"),
+        ]);
+
+        let routes = aggregate_model_routes(&provider).expect("routes");
+
+        assert_eq!(routes.len(), 1);
+        assert_eq!(routes[0].route_id, "claude-sonnet-glm");
+        assert_eq!(routes[0].upstream_model, "glm-5.3");
+    }
+
+    #[test]
+    fn aggregate_model_routes_errors_when_all_slots_are_unusable() {
+        // 全部槽位不可用时返回 Err（而不是安静地写出空列表 -> 空白模型选择器）
+        let provider = aggregate_provider(vec![slot("glm-5.3", "some-upstream-model")]);
+
+        assert!(aggregate_model_routes(&provider).is_err());
+    }
+
+    #[test]
+    fn aggregate_model_routes_dedups_repeated_route_ids() {
+        // 手工编辑产生的重复 route_id 只应产出一条
+        let provider = aggregate_provider(vec![
+            slot("claude-sonnet-glm", "glm-a"),
+            slot("claude-sonnet-glm", "glm-b"),
+        ]);
+
+        let routes = aggregate_model_routes(&provider).expect("routes");
+
+        assert_eq!(routes.len(), 1);
+        assert_eq!(routes[0].route_id, "claude-sonnet-glm");
+    }
+}
 
 /// 该供应商是否为聚合供应商。
 pub fn is_aggregate_provider(provider: &Provider) -> bool {
@@ -205,7 +271,10 @@ pub fn aggregate_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRo
     for slot in &routes.slots {
         let upstream = slot.upstream_model.trim();
         let route_id = slot.route_id.trim();
-        if upstream.is_empty() || route_id.is_empty() {
+        // route_id 是稳定路由键（路由表、DefaultTarget::SlotId、UI 均引用它），
+        // 不做 repair —— 一个非 claude-safe 的 ID 会让 Claude Desktop 拒收整组
+        // inferenceModels，故直接丢弃该槽位，保留其余合法槽位。
+        if upstream.is_empty() || route_id.is_empty() || !is_claude_safe_model_id(route_id) {
             continue;
         }
         out.push(ResolvedModelRoute {
@@ -221,5 +290,15 @@ pub fn aggregate_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRo
         });
     }
     out.sort_by(|a, b| a.route_id.cmp(&b.route_id));
+    out.dedup_by(|a, b| a.route_id == b.route_id);
+
+    if out.is_empty() {
+        return Err(AppError::localized(
+            "aggregate.routes_empty",
+            "聚合供应商的路由表至少需要一个可用的模型槽位",
+            "Aggregate provider requires at least one usable model route slot",
+        ));
+    }
+
     Ok(out)
 }

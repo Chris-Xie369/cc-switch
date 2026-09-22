@@ -1633,6 +1633,270 @@ GEMINI_TIMEOUT_MS=30000
         ));
     }
 
+    /// Claude Desktop 直连供应商的合法 settings（通过 `validate_direct_provider`）。
+    /// 聚合校验位于直连校验之后，故测试样本必须能先过直连这一关。
+    fn claude_desktop_direct_settings() -> serde_json::Value {
+        json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": "https://aggregate.example",
+                "ANTHROPIC_AUTH_TOKEN": "agg-token"
+            }
+        })
+    }
+
+    /// 构造一个带聚合路由表的供应商（Provider 未 derive Default，用 with_id）
+    fn aggregate_provider(id: &str, routes: crate::aggregate::AggregateRoutes) -> Provider {
+        let mut provider = Provider::with_id(
+            id.to_string(),
+            "Aggregate".to_string(),
+            claude_desktop_direct_settings(),
+            None,
+        );
+        provider.meta = Some(ProviderMeta {
+            aggregate_routes: Some(routes),
+            ..Default::default()
+        });
+        provider
+    }
+
+    fn slot(route_id: &str, provider_id: &str) -> crate::aggregate::AggregateRouteSlot {
+        crate::aggregate::AggregateRouteSlot {
+            route_id: route_id.into(),
+            tier: crate::aggregate::AggregateTier::Sonnet,
+            provider_id: provider_id.into(),
+            upstream_model: "m".into(),
+            label: None,
+            supports_1m: false,
+        }
+    }
+
+    #[test]
+    fn validate_aggregate_rejects_empty_slots() {
+        let provider = aggregate_provider(
+            "agg",
+            crate::aggregate::AggregateRoutes {
+                slots: vec![],
+                default_target: crate::aggregate::DefaultTarget::ProviderId("x".into()),
+            },
+        );
+        let err = ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
+            .expect_err("empty slots must be rejected");
+        assert!(err.to_string().contains("槽位"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn validate_aggregate_rejects_self_reference() {
+        let provider = aggregate_provider(
+            "agg",
+            crate::aggregate::AggregateRoutes {
+                slots: vec![slot("claude-sonnet-agg", "agg")], // 指向自己
+                default_target: crate::aggregate::DefaultTarget::ProviderId("agg".into()),
+            },
+        );
+        let err = ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
+            .expect_err("self reference must be rejected");
+        assert!(err.to_string().contains("自身"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn validate_aggregate_rejects_duplicate_route_ids() {
+        let provider = aggregate_provider(
+            "agg",
+            crate::aggregate::AggregateRoutes {
+                slots: vec![slot("claude-sonnet-a", "p1"), slot("claude-sonnet-a", "p1")],
+                default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
+            },
+        );
+        assert!(
+            ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider).is_err()
+        );
+    }
+
+    #[test]
+    fn validate_aggregate_rejects_unsafe_route_id() {
+        // 缺少角色前缀的 ID 会被 Claude Desktop 整组拒收
+        let provider = aggregate_provider(
+            "agg",
+            crate::aggregate::AggregateRoutes {
+                slots: vec![slot("glm-5.3", "p1")],
+                default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
+            },
+        );
+        let err = ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
+            .expect_err("unsafe route id must be rejected");
+        assert!(err.to_string().contains("槽位 ID"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn validate_aggregate_rejects_incomplete_slot() {
+        // 目标供应商或上游模型为空都必须拒绝
+        let mut bad_target = slot("claude-sonnet-a", "p1");
+        bad_target.provider_id = "   ".into();
+        let provider = aggregate_provider(
+            "agg",
+            crate::aggregate::AggregateRoutes {
+                slots: vec![bad_target],
+                default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
+            },
+        );
+        let err = ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
+            .expect_err("empty target provider must be rejected");
+        assert!(err.to_string().contains("槽位"), "unexpected error: {err}");
+
+        let mut bad_model = slot("claude-sonnet-a", "p1");
+        bad_model.upstream_model = "  ".into();
+        let provider = aggregate_provider(
+            "agg",
+            crate::aggregate::AggregateRoutes {
+                slots: vec![bad_model],
+                default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
+            },
+        );
+        let err = ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
+            .expect_err("empty upstream model must be rejected");
+        assert!(err.to_string().contains("槽位"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn validate_aggregate_accepts_valid_table() {
+        let provider = aggregate_provider(
+            "agg",
+            crate::aggregate::AggregateRoutes {
+                slots: vec![slot("claude-sonnet-glm", "p1"), slot("claude-opus-glm", "p1")],
+                default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
+            },
+        );
+        ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
+            .expect("a self-consistent route table must pass");
+    }
+
+    #[test]
+    fn validate_aggregate_leaves_non_aggregate_provider_untouched() {
+        // 普通供应商没有 aggregate_routes：不得因新校验而被拒
+        let provider = Provider::with_id(
+            "plain".into(),
+            "Plain".into(),
+            claude_desktop_direct_settings(),
+            None,
+        );
+        ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
+            .expect("an ordinary provider must still save");
+    }
+
+    #[test]
+    fn validate_aggregate_rejects_nested_aggregate() {
+        // 目标供应商自身是聚合供应商 -> 保存层拒绝（需跨供应商信息）
+        with_test_home(|state, _home| {
+            let target = aggregate_provider(
+                "target-agg",
+                crate::aggregate::AggregateRoutes {
+                    slots: vec![slot("claude-sonnet-glm", "p-glm")],
+                    default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
+                },
+            );
+            state
+                .db
+                .save_provider(AppType::ClaudeDesktop.as_str(), &target)
+                .expect("save target aggregate");
+
+            let nested = aggregate_provider(
+                "agg",
+                crate::aggregate::AggregateRoutes {
+                    slots: vec![slot("claude-sonnet-nested", "target-agg")],
+                    default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
+                },
+            );
+            let err = ProviderService::add(state, AppType::ClaudeDesktop, nested, false)
+                .expect_err("nesting an aggregate must be rejected");
+            assert!(
+                err.to_string().contains("另一个聚合供应商"),
+                "unexpected error: {err}"
+            );
+        });
+    }
+
+    #[test]
+    fn delete_rejects_provider_referenced_by_aggregate() {
+        with_test_home(|state, _home| {
+            state
+                .db
+                .save_provider(
+                    AppType::ClaudeDesktop.as_str(),
+                    &Provider::with_id(
+                        "target".into(),
+                        "Target".into(),
+                        claude_desktop_direct_settings(),
+                        None,
+                    ),
+                )
+                .expect("save target");
+            let agg = aggregate_provider(
+                "agg",
+                crate::aggregate::AggregateRoutes {
+                    slots: vec![slot("claude-sonnet-target", "target")],
+                    default_target: crate::aggregate::DefaultTarget::ProviderId("target".into()),
+                },
+            );
+            state
+                .db
+                .save_provider(AppType::ClaudeDesktop.as_str(), &agg)
+                .expect("save aggregate");
+
+            let err = ProviderService::delete(state, AppType::ClaudeDesktop, "target")
+                .expect_err("referenced provider must not be deletable");
+            assert!(
+                err.to_string().contains("被聚合供应商引用"),
+                "unexpected error: {err}"
+            );
+
+            // 聚合供应商自身可删（解除引用后目标也可删）
+            ProviderService::delete(state, AppType::ClaudeDesktop, "agg")
+                .expect("aggregate itself is deletable");
+            ProviderService::delete(state, AppType::ClaudeDesktop, "target")
+                .expect("target is deletable once no longer referenced");
+        });
+    }
+
+    #[test]
+    fn delete_allows_provider_referenced_by_ordinary_provider() {
+        // 误伤防护：普通供应商（无 aggregate_routes）引用某 id 不影响其删除
+        with_test_home(|state, _home| {
+            state
+                .db
+                .save_provider(
+                    AppType::ClaudeDesktop.as_str(),
+                    &Provider::with_id(
+                        "target".into(),
+                        "Target".into(),
+                        claude_desktop_direct_settings(),
+                        None,
+                    ),
+                )
+                .expect("save target");
+            // 普通供应商的 settings 里也引用 "target"，但不是聚合路由表
+            let mut plain = Provider::with_id(
+                "plain".into(),
+                "Plain".into(),
+                json!({
+                    "env": {
+                        "ANTHROPIC_BASE_URL": "https://plain.example",
+                        "ANTHROPIC_AUTH_TOKEN": "plain-token"
+                    },
+                    "referencedProvider": "target"
+                }),
+                None,
+            );
+            plain.meta = Some(ProviderMeta::default());
+            state
+                .db
+                .save_provider(AppType::ClaudeDesktop.as_str(), &plain)
+                .expect("save plain provider");
+
+            ProviderService::delete(state, AppType::ClaudeDesktop, "target")
+                .expect("a merely-mentioned provider id must remain deletable");
+        });
+    }
+
     #[test]
     fn extract_credentials_returns_expected_values() {
         let provider = Provider::with_id(
@@ -4579,6 +4843,7 @@ impl ProviderService {
         // Normalize Claude model keys
         Self::normalize_provider_if_claude(&app_type, &mut provider);
         Self::validate_provider_settings(&app_type, &provider)?;
+        Self::validate_aggregate_not_nested(state, &app_type, &provider)?;
         normalize_provider_common_config_for_storage(state.db.as_ref(), &app_type, &mut provider)?;
         Self::normalize_usage_script_credential_overrides(&app_type, &mut provider);
         if app_type.is_additive_mode() {
@@ -4715,6 +4980,7 @@ impl ProviderService {
         // Normalize Claude model keys
         Self::normalize_provider_if_claude(&app_type, &mut provider);
         Self::validate_provider_settings(&app_type, &provider)?;
+        Self::validate_aggregate_not_nested(state, &app_type, &provider)?;
         normalize_provider_common_config_for_storage(state.db.as_ref(), &app_type, &mut provider)?;
         if matches!(app_type, AppType::Codex) && provider.category.as_deref() == Some("official") {
             crate::codex_config::strip_codex_unified_session_bucket_from_settings(
@@ -5043,6 +5309,9 @@ impl ProviderService {
         if app_type == AppType::Pi {
             return pi::delete(state, id);
         }
+
+        // 删除保护：被同 app 下任一聚合路由表引用的供应商不可删（先于实际删除检查）。
+        Self::reject_if_referenced_by_aggregate(state, &app_type, id)?;
 
         // Additive mode apps - no current provider concept
         if app_type.is_additive_mode() {
@@ -6588,6 +6857,124 @@ impl ProviderService {
             }
         }
 
+        // 聚合供应商校验。槽位 ID 由前端在编辑时生成并随表单提交（后端只校验、不生成），
+        // 因此这里只需保证收到的路由表自洽：至少一个槽位、目标与模型必填、禁自引用、
+        // 槽位 ID 合法且唯一。
+        if let Some(routes) = provider
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.aggregate_routes.as_ref())
+        {
+            if routes.slots.is_empty() {
+                return Err(AppError::localized(
+                    "aggregate.slots_empty",
+                    "聚合供应商至少需要一个槽位",
+                    "Aggregate provider requires at least one slot",
+                ));
+            }
+            let mut seen: Vec<String> = Vec::new();
+            for slot in &routes.slots {
+                if slot.provider_id.trim().is_empty() || slot.upstream_model.trim().is_empty() {
+                    return Err(AppError::localized(
+                        "aggregate.slot_incomplete",
+                        "槽位必须同时指定目标供应商与上游模型",
+                        "Each slot must specify both a target provider and an upstream model",
+                    ));
+                }
+                if slot.provider_id == provider.id {
+                    return Err(AppError::localized(
+                        "aggregate.self_reference",
+                        "聚合供应商不能把自身作为目标",
+                        "An aggregate provider cannot target itself",
+                    ));
+                }
+                // 槽位 ID 由前端生成（预览即实际值），这里只做校验
+                let route_id = slot.route_id.trim();
+                if route_id.is_empty()
+                    || !crate::claude_desktop_config::is_claude_safe_model_id(route_id)
+                {
+                    return Err(AppError::localized(
+                        "aggregate.invalid_route_id",
+                        "槽位 ID 不合法（须形如 claude-sonnet-glm）；Claude Desktop 会整组拒收",
+                        "Invalid slot id (expected e.g. claude-sonnet-glm); Claude Desktop would reject the whole group",
+                    ));
+                }
+                if seen.iter().any(|s| s == route_id) {
+                    return Err(AppError::localized(
+                        "aggregate.duplicate_route_id",
+                        "槽位 ID 重复",
+                        "Duplicate slot id",
+                    ));
+                }
+                seen.push(route_id.to_string());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 禁嵌套：聚合供应商的槽位不得指向另一个聚合供应商。
+    ///
+    /// 该判定需要跨供应商信息（目标供应商自身是否带 `aggregate_routes`），
+    /// 因此不在纯校验层 `validate_provider_settings` 中，而在能访问 DB 的保存层调用。
+    fn validate_aggregate_not_nested(
+        state: &AppState,
+        app_type: &AppType,
+        provider: &Provider,
+    ) -> Result<(), AppError> {
+        let Some(routes) = provider
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.aggregate_routes.as_ref())
+        else {
+            return Ok(());
+        };
+        for slot in &routes.slots {
+            // 目标供应商是否存在由运行时 resolve_target 负责，这里只禁嵌套。
+            let Some(target) = state
+                .db
+                .get_provider_by_id(&slot.provider_id, app_type.as_str())?
+            else {
+                continue;
+            };
+            if crate::aggregate::is_aggregate_provider(&target) {
+                return Err(AppError::localized(
+                    "aggregate.nested_aggregate",
+                    "聚合供应商的槽位不能指向另一个聚合供应商",
+                    "An aggregate provider's slot cannot target another aggregate provider",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// 删除保护：被同 app 下任一聚合路由表引用的供应商不可删除。
+    fn reject_if_referenced_by_aggregate(
+        state: &AppState,
+        app_type: &AppType,
+        provider_id: &str,
+    ) -> Result<(), AppError> {
+        let all = state.db.get_all_providers(app_type.as_str())?;
+        for other in all.values() {
+            let Some(routes) = other
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.aggregate_routes.as_ref())
+            else {
+                continue;
+            };
+            if routes
+                .slots
+                .iter()
+                .any(|slot| slot.provider_id == provider_id)
+            {
+                return Err(AppError::localized(
+                    "aggregate.provider_in_use",
+                    "该供应商被聚合供应商引用，需先移除对应槽位",
+                    "This provider is referenced by an aggregate provider; remove the slot first",
+                ));
+            }
+        }
         Ok(())
     }
 

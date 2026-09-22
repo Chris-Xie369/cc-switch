@@ -607,6 +607,52 @@ export function ClaudeDesktopProviderForm({
     }
   };
 
+  // 聚合槽位按「目标供应商」拉取模型列表：凭据取自该供应商自身的 env。聚合供应商
+  // 自己没有端点，顶部的「获取模型列表」对它无从下手，故这一份是聚合专属的入口。
+  // 结果按供应商 id 缓存，多个槽位指向同一家时共用一份。
+  const [aggregateModelsByProvider, setAggregateModelsByProvider] = useState<
+    Record<string, FetchedModel[]>
+  >({});
+  const [fetchingAggregateProviderId, setFetchingAggregateProviderId] =
+    useState<string | null>(null);
+
+  const handleFetchModelsForProvider = async (provider: Provider) => {
+    const targetBaseUrl = envString(
+      provider.settingsConfig,
+      "ANTHROPIC_BASE_URL",
+    ).trim();
+    const targetApiKey = envString(
+      provider.settingsConfig,
+      "ANTHROPIC_AUTH_TOKEN",
+    ).trim();
+    if (!targetBaseUrl || !targetApiKey) {
+      showFetchModelsError(null, t, {
+        hasBaseUrl: Boolean(targetBaseUrl),
+        hasApiKey: Boolean(targetApiKey),
+      });
+      return;
+    }
+
+    setFetchingAggregateProviderId(provider.id);
+    try {
+      const models = await fetchModelsForConfig(targetBaseUrl, targetApiKey);
+      setAggregateModelsByProvider((current) => ({
+        ...current,
+        [provider.id]: models,
+      }));
+      toast.success(
+        t("providerForm.fetchModelsSuccess", {
+          count: models.length,
+          defaultValue: `已获取 ${models.length} 个模型`,
+        }),
+      );
+    } catch (error) {
+      showFetchModelsError(error, t, { hasBaseUrl: true, hasApiKey: true });
+    } finally {
+      setFetchingAggregateProviderId(null);
+    }
+  };
+
   const handleSubmit = async (values: ProviderFormData) => {
     if (!values.name.trim()) {
       toast.error(
@@ -967,6 +1013,11 @@ export function ClaudeDesktopProviderForm({
                 value={aggregateRoutes}
                 onChange={setAggregateRoutes}
                 candidates={aggregateCandidates}
+                modelsForProvider={(providerId) =>
+                  aggregateModelsByProvider[providerId] ?? []
+                }
+                fetchingProviderId={fetchingAggregateProviderId}
+                onFetchModels={handleFetchModelsForProvider}
               />
             )}
 

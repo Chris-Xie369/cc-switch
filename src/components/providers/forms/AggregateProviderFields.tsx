@@ -1,9 +1,11 @@
-import { Plus, Trash2 } from "lucide-react";
+import { Download, Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ImeSafeInput } from "@/components/ui/ime-safe-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { ModelDropdown } from "./shared/ModelDropdown";
+import type { FetchedModel } from "@/lib/api/model-fetch";
 import {
   Select,
   SelectContent,
@@ -32,12 +34,20 @@ interface Props {
   onChange: (next: AggregateRoutes) => void;
   /** 可作目标的常规供应商（不含聚合供应商自身与官方供应商，防止嵌套/无凭据目标） */
   candidates: Provider[];
+  /** 该目标供应商已拉取到的模型列表；按供应商 id 缓存，同家的多个槽位共用 */
+  modelsForProvider: (providerId: string) => FetchedModel[];
+  /** 正在拉取的供应商 id；非 null 时所有拉取按钮进入 loading */
+  fetchingProviderId: string | null;
+  onFetchModels: (provider: Provider) => void;
 }
 
 export function AggregateProviderFields({
   value,
   onChange,
   candidates,
+  modelsForProvider,
+  fetchingProviderId,
+  onFetchModels,
 }: Props) {
   const { t } = useTranslation();
 
@@ -160,16 +170,48 @@ export function AggregateProviderFields({
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <Label className="text-xs">
-                  {t("aggregate.upstreamModel")}
-                </Label>
-                <Input
-                  className="h-8"
-                  value={slot.upstreamModel}
-                  onChange={(e) =>
-                    setSlot(index, { upstreamModel: e.target.value })
-                  }
-                />
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-xs">
+                    {t("aggregate.upstreamModel")}
+                  </Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1"
+                    disabled={!slot.providerId || fetchingProviderId !== null}
+                    onClick={() => {
+                      const target = candidates.find(
+                        (p) => p.id === slot.providerId,
+                      );
+                      if (target) onFetchModels(target);
+                    }}
+                  >
+                    {fetchingProviderId === slot.providerId ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="h-3.5 w-3.5" />
+                    )}
+                    {t("providerForm.fetchModels", {
+                      defaultValue: "获取模型列表",
+                    })}
+                  </Button>
+                </div>
+                <div className="flex gap-1">
+                  <Input
+                    className="h-8 flex-1"
+                    value={slot.upstreamModel}
+                    onChange={(e) =>
+                      setSlot(index, { upstreamModel: e.target.value })
+                    }
+                  />
+                  {modelsForProvider(slot.providerId).length > 0 && (
+                    <ModelDropdown
+                      models={modelsForProvider(slot.providerId)}
+                      onSelect={(id) => setSlot(index, { upstreamModel: id })}
+                    />
+                  )}
+                </div>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("aggregate.displayName")}</Label>

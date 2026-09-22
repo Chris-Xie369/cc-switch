@@ -3284,6 +3284,7 @@
     "addSlot": "Add slot",
     "defaultTarget": "Default target",
     "defaultTargetHint": "Requests that match no slot go here (Claude's internal calls use it)",
-    "notSaveable": "Add at least one slot and choose a default target before saving"
+    "notSaveable": "Add at least one slot and choose a default target before saving",
+    "modeLockedHint": "Aggregate routing takes over request forwarding, so the mode is locked to model mapping (proxy)."
   }
 }

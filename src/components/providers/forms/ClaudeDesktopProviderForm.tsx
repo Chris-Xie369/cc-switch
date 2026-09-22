@@ -421,7 +421,12 @@ export function ClaudeDesktopProviderForm({
   const usesManagedOAuth =
     activePreset?.requiresOAuth === true ||
     isOAuthProviderType(activeProviderType);
-  const effectiveMode: "direct" | "proxy" = usesManagedOAuth ? "proxy" : mode;
+  // 聚合供应商服务端被钉死为代理模式（apply 强制走 proxy 分支），前端同步锁定为
+  // proxy，避免界面显示「直连」而落盘 profile 为 proxy 的不一致。开关关闭时
+  // isAggregate 变回 false，effectiveMode 落回 mode，普通供应商行为完全不变。
+  const isAggregate = aggregateRoutes !== undefined;
+  const effectiveMode: "direct" | "proxy" =
+    usesManagedOAuth || isAggregate ? "proxy" : mode;
   const needsModelMapping = effectiveMode === "proxy";
   const routes = needsModelMapping ? proxyRoutes : directRoutes;
   const setRoutes = needsModelMapping ? setProxyRoutes : setDirectRoutes;
@@ -536,7 +541,7 @@ export function ClaudeDesktopProviderForm({
   };
 
   const handleModelMappingChange = (checked: boolean) => {
-    if (usesManagedOAuth) return;
+    if (usesManagedOAuth || isAggregate) return;
     setMode(checked ? "proxy" : "direct");
     if (checked) {
       // 切到 proxy：只恢复/初始化映射模式自己的固定四档，不复用直连模型列表。
@@ -739,7 +744,10 @@ export function ClaudeDesktopProviderForm({
       }))
       .filter((route) => route.route || route.model);
 
-    if (effectiveMode === "proxy") {
+    // 聚合供应商的模型规格由槽位派生（后端 aggregate_model_routes），不使用自身的
+    // claudeDesktopModelRoutes，故不在此做直连/映射的校验与回填——否则聚合会被
+    // 强迫填一份无意义的模型映射才能保存。
+    if (effectiveMode === "proxy" && !aggregateRoutes) {
       // 固定四档（Sonnet / Opus / Fable / Haiku），route_id 由 UI 生成、恒合法，
       // 因此只要求至少填一个实际请求模型；留空档继承第一个已填档（Sonnet 优先），
       // 对齐 Claude Code 的兜底，保证落库四档齐全、子 agent 不会找不到模型。
@@ -765,7 +773,7 @@ export function ClaudeDesktopProviderForm({
           }
         }
       }
-    } else {
+    } else if (effectiveMode === "direct") {
       const invalid = routeEntries.find(
         (route) => !route.route || !isClaudeSafeRoute(route.route),
       );
@@ -823,7 +831,13 @@ export function ClaudeDesktopProviderForm({
             : "anthropic",
     };
 
-    meta.claudeDesktopModelRoutes = routeMap;
+    // 聚合供应商不使用自身的 claudeDesktopModelRoutes（模型规格由槽位派生），
+    // 不写入，避免 meta 里出现与聚合语义无关、易误导的四档映射。
+    if (aggregateRoutes) {
+      delete meta.claudeDesktopModelRoutes;
+    } else {
+      meta.claudeDesktopModelRoutes = routeMap;
+    }
     meta.providerType = activeProviderType;
     meta.authBinding =
       activeProviderType === "github_copilot"
@@ -1053,7 +1067,7 @@ export function ClaudeDesktopProviderForm({
                     onValueChange={(value) =>
                       handleModelMappingChange(value === "proxy")
                     }
-                    disabled={usesManagedOAuth}
+                    disabled={usesManagedOAuth || isAggregate}
                   >
                     <SelectTrigger
                       id="claude-desktop-model-mode"
@@ -1079,6 +1093,15 @@ export function ClaudeDesktopProviderForm({
                   </Select>
                 </div>
               </div>
+
+              {isAggregate && (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {t("aggregate.modeLockedHint", {
+                    defaultValue:
+                      "聚合路由需要接管请求转发，接入方式已锁定为「模型映射」（代理）。",
+                  })}
+                </p>
+              )}
 
               {needsModelMapping && (
                 <div className="space-y-4 border-t border-border-default pt-4">

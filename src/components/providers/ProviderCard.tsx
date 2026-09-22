@@ -38,6 +38,7 @@ import {
 } from "@/utils/providerCapabilities";
 import { useProviderHealth } from "@/lib/query/failover";
 import { useUsageQuery } from "@/lib/query/queries";
+import { isAggregateProvider } from "@/utils/aggregateRoutes";
 import { resolveProviderIcon } from "@/utils/providerIcon";
 import { ProviderStatusBadge } from "@/components/providers/ProviderStatusBadge";
 import { isAdditiveAppId, isProxyAppId } from "@/config/appConfig";
@@ -698,8 +699,11 @@ export function ProviderCard({
                 // 真实请求探测会误报、而可达性探测能正确处理的对象）。官方供应商
                 // (category === "official") 一律隐藏：它们 base_url 故意留空、走客户端
                 // 默认/OAuth 端点，cc-switch 没有可靠的探测目标（尤其 Claude Desktop
-                // 官方是原生 1P 模式，根本不在请求路径上）。
-                onTest && provider.category !== "official"
+                // 官方是原生 1P 模式，根本不在请求路径上）。聚合供应商同理隐藏：它按
+                // 设计自身无端点无凭据，请求由代理按模型分流，没有可探测的 base_url。
+                onTest &&
+                provider.category !== "official" &&
+                !isAggregateProvider(provider)
                   ? () => onTest(provider)
                   : undefined
               }

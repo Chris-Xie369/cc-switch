@@ -165,10 +165,20 @@ impl StreamCheckService {
     /// 官方供应商（`category == "official"`）base_url 故意留空（走客户端默认/OAuth 端点），
     /// 没有 cc-switch 能可靠探测的目标——这类供应商的连通检测按钮在前端已隐藏
     /// （见 `ProviderCard.tsx`），故此处对其提取失败直接报错即可，不做官方端点回退。
+    ///
+    /// 聚合供应商同理：它按设计自身无端点无凭据（`settings_config` 的 env 就是空的），
+    /// 请求由代理按模型分流给槽位指向的目标供应商。若放它走 adapter，用户会收到
+    /// 「Claude Provider 缺少 base_url 配置」这种把人引向"去填地址"的误导性报错。
     fn resolve_base_url(app_type: &AppType, provider: &Provider) -> Result<String, AppError> {
         if provider.category.as_deref() == Some("official") {
             return Err(AppError::Message(
                 "Official providers do not expose a reachability-check target".to_string(),
+            ));
+        }
+
+        if crate::aggregate::is_aggregate_provider(provider) {
+            return Err(AppError::Message(
+                "Aggregate providers do not expose a reachability-check target".to_string(),
             ));
         }
 
@@ -528,5 +538,35 @@ mod tests {
         official.id = crate::database::CODEX_OFFICIAL_PROVIDER_ID.to_string();
         official.category = Some("official".to_string());
         assert!(StreamCheckService::resolve_base_url(&AppType::Codex, &official).is_err());
+    }
+
+    #[test]
+    fn test_resolve_base_url_rejects_aggregate_provider() {
+        // 聚合供应商按设计自身无端点无凭据（settings_config 的 env 就是空的），
+        // 它的请求由代理按模型分流给槽位指向的目标供应商。没有自己的 base_url
+        // 可探测，故与官方供应商同样直接报错——而不是抛出 adapter 的
+        // 「Claude Provider 缺少 base_url 配置」把用户引向"去填地址"。
+        let mut aggregate = make_provider(serde_json::json!({ "env": {} }));
+        aggregate.meta = Some(crate::provider::ProviderMeta {
+            aggregate_routes: Some(crate::aggregate::AggregateRoutes {
+                slots: vec![crate::aggregate::AggregateRouteSlot {
+                    route_id: "claude-sonnet-target".into(),
+                    tier: crate::aggregate::AggregateTier::Sonnet,
+                    provider_id: "target".into(),
+                    upstream_model: "m".into(),
+                    label: None,
+                    supports_1m: false,
+                }],
+                default_target: crate::aggregate::DefaultTarget::ProviderId("target".into()),
+            }),
+            ..Default::default()
+        });
+
+        let err = StreamCheckService::resolve_base_url(&AppType::ClaudeDesktop, &aggregate)
+            .expect_err("aggregate provider has no endpoint to probe");
+        assert_eq!(
+            err.to_string(),
+            "Aggregate providers do not expose a reachability-check target"
+        );
     }
 }

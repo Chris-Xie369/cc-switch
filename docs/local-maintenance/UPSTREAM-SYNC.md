@@ -43,6 +43,10 @@ git push origin fix/profile-merge
 | **B** 显示名可配置 | `b0ba96de` `f9874721` `2b13804b` `42c9983c` `0fb72b4a` `20a63f49` | `ClaudeDesktopDisplaySettings`（后端 `settings.rs` + `claude_desktop_config.rs`）+ 前端设置项 + i18n | 上游无此功能；值得自己提 PR |
 | **C** 本地构建 | `e3695f0e` `418fa7e4` | 移除 `plugins.updater` / `createUpdaterArtifacts`；版本号 `<版本>-local` | **纯本地**，永不上游 |
 | **D** 上游状态检查 | `feat(upstream): 检查并提醒上游状态` | 应用内检查 PR #5417 是否合并 + 是否有新 release，有变化才提醒（`commands/upstream.rs` + `lib/updater.ts` + `UpdateContext` + `AboutSection`） | **纯本地**（上游不会接受"检测本 fork 是否落后"）；每次同步需保留 |
+| **E** Claude Desktop 多供应商共存（聚合供应商） | `750e1a34`…`543c90cb`（7 个任务的实现链） | 让多家供应商的模型**同时**出现在 Claude 的选择器里：虚拟「聚合供应商」自身无端点无凭据、只存路由表（`Provider.meta.aggregateRoutes`），代理按请求模型把请求分流到目标供应商并改写模型名；含保存校验、删除保护、配置界面 | 社区诉求极高（#3703 血书 / #5109 / #7146）但**上游 #5937 只覆盖 CLI+Codex**，Desktop 侧无实现；提 PR 有机会进主干 |
+
+**补丁 E 的触及面（同步时注意）**：`src-tauri/src/aggregate.rs`(新)、`proxy/handler_context.rs`、`proxy/forwarder.rs`、`claude_desktop_config.rs`、`services/provider/mod.rs`、`src/types.ts`、`src/utils/aggregateRoutes.ts`(新)、`components/providers/forms/` 两个组件、i18n zh/en。
+> ⚠️ 其中 `claude_desktop_config.rs` 与 `services/provider/mod.rs` 是**修复过程中新增的触达**（原任务只声明前端文件）——因为设计规定聚合供应商无端点无凭据，后端不放宽校验则功能不可用。同步冲突排查时别遗漏这两处。
 
 > 还有若干 `docs(...)` 提交（设计/计划/账本），是本地决策记录，与上游无关。
 
@@ -127,10 +131,16 @@ cmd //c start "" "C:\Users\Jason\AppData\Local\Programs\CC Switch\cc-switch.exe"
 ```
 
 - 必须经 `.bat` 调用安装器：Git Bash 会转写 `/S` 与 `/D=`，导致静默装到 NSIS 默认目录（踩过一次）
+- **装之前必须确认进程真的退出了**（`taskkill` 之后轮询 `tasklist`，别只 `sleep`）：exe 被占用时
+  NSIS 静默安装会**静默失败**——`EXITCODE` 仍是 0、目标文件纹丝不动，还顺手把你原来那个旧版本
+  重新拉起来，看上去像"装成功了"（2026-09-22 踩过一次，白折腾一轮）
 - 退出 cc-switch 会中断经其网关的会话；它是独立进程，稍后重启即可恢复
 - 校验装对了没（**不要看版本号**，Windows 会丢 semver 预发布标签）：
-  - `stat -c%s` 与构建产物比对
+  - `md5sum` 与 `target/release/cc-switch.exe` 比对（比 `stat -c%s` 更强：同尺寸不同内容也能分辨）
   - 二进制中不应含官方 pubkey：`grep -a -c "dW50cnVzdGVkIGNvbW1lbnQ6"` = 0
+  - **确认前端也换了**：`grep -a -c "<dist/index.html 里那个 assets/index-*.js 文件名>" <已安装 exe>` 应为 1
+    （前端资源在 release 里是压缩的，中文 UI 文案 grep 不到——只有资源名这类明文串能查，
+    这是唯一能排除"后端是新的、前端还是旧的"的廉价手段）
 
 ---
 

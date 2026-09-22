@@ -19,6 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | 文档快照（异地备份） | `src/docs/local-maintenance/` | 本目录各文档的副本，随代码进了 fork。**改原件后需刷新快照**（命令见该目录 README） |
 | 本地部署脚本 | [tools/install-local.bat](tools/install-local.bat) | 覆盖安装到现有目录（必须经它，Git Bash 会转写参数） |
 | 修复设计 / 实施计划 | `src/docs/superpowers/specs|plans/` | 设计已获确认；计划含 8 个任务 |
+| **聚合供应商**（Claude Desktop 多供应商共存） | spec `2026-09-22-claude-desktop-multi-provider-design.md`、plan 同名 | 目的：一次启用多家 → 重启一次 → 在 Claude 模型列表里自由选用任意一家的模型。实现完成（补丁 E），待本机验收 |
 | 执行进度账本 | `src/.superpowers/sdd/progress.md` | 各任务状态、审查结论、环境坑记录 |
 | 本地构建产物 | `src/src-tauri/target/release/bundle/nsis/CC Switch_3.20.3-local_x64-setup.exe` | 已构建 |
 | 本机已安装版本 | `C:\Users\Jason\AppData\Local\Programs\CC Switch\` | **运行 3.20.3-local，验收通过**；官方 exe 备份为同目录 `cc-switch.exe.official-3.20.3` |

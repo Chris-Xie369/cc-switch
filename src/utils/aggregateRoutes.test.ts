@@ -1,73 +1,28 @@
 import { describe, expect, it } from "vitest";
-import {
-  assignSlotIds,
-  canSaveAggregateRoutes,
-  generateSlotId,
-  slugify,
-} from "./aggregateRoutes";
+import { assignSlotIds, canSaveAggregateRoutes, slotId } from "./aggregateRoutes";
 
-describe("slugify", () => {
-  it("规范 ASCII 名称", () => {
-    expect(slugify("DeepSeek-OTN", "abc12345")).toBe("deepseek-otn");
-    expect(slugify("OpenCode Go", "abc12345")).toBe("opencode-go");
+describe("slotId", () => {
+  it("只由档位与序号构成", () => {
+    expect(slotId("sonnet", 1)).toBe("claude-sonnet-1");
+    expect(slotId("fable", 2)).toBe("claude-fable-2");
   });
 
-  it("混合名取 ASCII 部分", () => {
-    expect(slugify("智谱 GLM", "97a1d0df-b9a9")).toBe("glm");
-  });
-
-  it("纯非 ASCII 名回落为 provider id 前缀", () => {
-    expect(slugify("月之暗面", "97a1d0df-b9a9")).toBe("97a1d0df");
-  });
-
-  it("含非 ASCII 但有 ASCII 时取 ASCII，不回落", () => {
-    // 回落只在 ASCII 派生结果为空时触发，而非「名称含非 ASCII」就触发
-    expect(slugify("GLM 智谱", "97a1d0df-b9a9")).toBe("glm");
-  });
-
-  it("截断并清理首尾分隔符", () => {
-    expect(slugify("  ---A--B---  ", "x")).toBe("a-b");
-    expect(slugify("abcdefghijklmnopqrstuvwxyz", "x")).toHaveLength(20);
-  });
-
-  it("截断正好落在分隔符上时，去掉尾部 '-'", () => {
-    // "abcdefghijklmnopqrs tuv" -> 前 19 字母 + 空格 + 3 字母；
-    // 先截断到 20 字符会得到 "...s-"（第 20 位是分隔符），必须再去尾 '-'
-    const out = slugify("abcdefghijklmnopqrs tuv", "x");
-    expect(out).toBe("abcdefghijklmnopqrs");
-    expect(out).toHaveLength(19);
-  });
-});
-
-describe("generateSlotId", () => {
-  it("生成 claude-{tier}-{slug}", () => {
-    expect(generateSlotId("sonnet", "DeepSeek-OTN", "pid", [])).toBe(
-      "claude-sonnet-deepseek-otn",
-    );
-  });
-
-  it("冲突时追加编号", () => {
-    expect(generateSlotId("sonnet", "GLM", "pid", ["claude-sonnet-glm"])).toBe(
-      "claude-sonnet-glm-2",
-    );
-  });
-
-  it("跳过已占用的编号，而非只测 base 本身", () => {
-    // taken 同时含 base 与 base-2，下一次必须是 base-3
-    expect(
-      generateSlotId("sonnet", "GLM", "pid", [
-        "claude-sonnet-glm",
-        "claude-sonnet-glm-2",
-      ]),
-    ).toBe("claude-sonnet-glm-3");
+  it("ID 里绝不出现供应商名（厂商词会让 Claude Desktop 整组丢弃模型列表）", () => {
+    // 实测（Claude Desktop 2.2553.1.0，看门狗日志已确证）：模型列表里凡是名字含
+    // deepseek/glm/kimi/gpt/qwen/gemini… 这类**厂商词**的条目，都会被判为
+    // "is not an Anthropic model" 从列表移除。旧方案 claude-{tier}-{供应商名 slug}
+    // 恰好撞上这条黑名单（claude-fable-deepseek、claude-fable-zhipu-glm），
+    // 四个槽位被删光、选择器变空。ID 必须与供应商名无关，可读性交给「显示名」。
+    for (const tier of ["sonnet", "opus", "haiku", "fable"] as const) {
+      const id = slotId(tier, 1);
+      expect(id).toBe(`claude-${tier}-1`);
+      expect(id).not.toMatch(/deepseek|glm|kimi|gpt|gemini|qwen/i);
+    }
   });
 
   it("产物满足后端 is_claude_safe_model_id 形状", () => {
     // claude-{sonnet|opus|haiku|fable}-{非空}
-    expect(generateSlotId("haiku", "月之暗面", "97a1d0df-b9a9", [])).toBe(
-      "claude-haiku-97a1d0df",
-    );
-    expect(generateSlotId("fable", "GLM", "pid", [])).toBe("claude-fable-glm");
+    expect(slotId("haiku", 3)).toMatch(/^claude-haiku-.+$/);
   });
 });
 
@@ -116,83 +71,143 @@ describe("canSaveAggregateRoutes", () => {
 });
 
 describe("assignSlotIds", () => {
-  const providers = [
-    { id: "p-glm", name: "智谱 GLM" },
-    { id: "p-ds", name: "DeepSeek-OTN" },
-  ];
   const base = {
     defaultTarget: { kind: "providerId" as const, value: "p-glm" },
   };
 
-  it("按目标供应商名称生成 ID，并处理同名冲突", () => {
-    const next = assignSlotIds(
-      {
-        ...base,
-        slots: [
-          {
-            routeId: "",
-            tier: "sonnet",
-            providerId: "p-ds",
-            upstreamModel: "flash",
-          },
-          {
-            routeId: "",
-            tier: "sonnet",
-            providerId: "p-ds",
-            upstreamModel: "pro",
-          },
-        ],
-      },
-      providers,
-    );
-    // "DeepSeek-OTN" → slug "deepseek-otn"；第二条同供应商 → 追加编号
-    expect(next.slots[0].routeId).toBe("claude-sonnet-deepseek-otn");
-    expect(next.slots[1].routeId).toBe("claude-sonnet-deepseek-otn-2");
+  it("按档位分别编号：同档第 1、2 个得到 -1、-2", () => {
+    const next = assignSlotIds({
+      ...base,
+      slots: [
+        {
+          routeId: "",
+          tier: "sonnet",
+          providerId: "p-ds",
+          upstreamModel: "flash",
+        },
+        {
+          routeId: "",
+          tier: "sonnet",
+          providerId: "p-glm",
+          upstreamModel: "pro",
+        },
+      ],
+    });
+    expect(next.slots.map((s) => s.routeId)).toEqual([
+      "claude-sonnet-1",
+      "claude-sonnet-2",
+    ]);
+  });
+
+  it("不同档位各自从 1 开始", () => {
+    const next = assignSlotIds({
+      ...base,
+      slots: [
+        { routeId: "", tier: "sonnet", providerId: "p-ds", upstreamModel: "a" },
+        { routeId: "", tier: "opus", providerId: "p-ds", upstreamModel: "b" },
+        { routeId: "", tier: "sonnet", providerId: "p-glm", upstreamModel: "c" },
+      ],
+    });
+    expect(next.slots.map((s) => s.routeId)).toEqual([
+      "claude-sonnet-1",
+      "claude-opus-1",
+      "claude-sonnet-2",
+    ]);
   });
 
   it("档位变化会改变 ID", () => {
-    const next = assignSlotIds(
-      {
-        ...base,
-        slots: [
-          {
-            routeId: "",
-            tier: "opus",
-            providerId: "p-ds",
-            upstreamModel: "flash",
-          },
-        ],
-      },
-      providers,
-    );
-    expect(next.slots[0].routeId).toBe("claude-opus-deepseek-otn");
+    const next = assignSlotIds({
+      ...base,
+      slots: [
+        {
+          routeId: "claude-sonnet-1",
+          tier: "opus",
+          providerId: "p-ds",
+          upstreamModel: "flash",
+        },
+      ],
+    });
+    expect(next.slots[0].routeId).toBe("claude-opus-1");
   });
 
   it("重算所有槽位，旧的 routeId 不会残留", () => {
-    // 第 0 槽改为 opus，第 1 槽的陈旧 routeId 也必须按新档位重算
-    const next = assignSlotIds(
-      {
-        ...base,
-        slots: [
-          {
-            routeId: "claude-sonnet-stale",
-            tier: "opus",
-            providerId: "p-ds",
-            upstreamModel: "flash",
-          },
-          {
-            routeId: "claude-sonnet-stale",
-            tier: "sonnet",
-            providerId: "p-ds",
-            upstreamModel: "pro",
-          },
-        ],
-      },
-      providers,
-    );
+    const next = assignSlotIds({
+      ...base,
+      slots: [
+        {
+          routeId: "claude-sonnet-stale",
+          tier: "opus",
+          providerId: "p-ds",
+          upstreamModel: "flash",
+        },
+        {
+          routeId: "claude-sonnet-stale",
+          tier: "sonnet",
+          providerId: "p-ds",
+          upstreamModel: "pro",
+        },
+      ],
+    });
     expect(next.slots.map((s) => s.routeId)).toEqual([
-      "claude-opus-deepseek-otn",
-      "claude-sonnet-deepseek-otn",
+      "claude-opus-1",
+      "claude-sonnet-1",
     ]);
+  });
+
+  it("旧方案（含供应商名）的存量 ID 会被迁移掉", () => {
+    const next = assignSlotIds({
+      ...base,
+      slots: [
+        {
+          routeId: "claude-fable-zhipu-glm",
+          tier: "fable",
+          providerId: "p-glm",
+          upstreamModel: "glm-5.3",
+        },
+      ],
+    });
+    expect(next.slots[0].routeId).toBe("claude-fable-1");
+  });
+
+  it("默认目标引用槽位 ID 时，按位置跟随重编号", () => {
+    const next = assignSlotIds({
+      defaultTarget: { kind: "slotId", value: "claude-fable-zhipu-glm" },
+      slots: [
+        {
+          routeId: "claude-opus-deepseek",
+          tier: "opus",
+          providerId: "p-ds",
+          upstreamModel: "a",
+        },
+        {
+          routeId: "claude-fable-zhipu-glm",
+          tier: "fable",
+          providerId: "p-glm",
+          upstreamModel: "b",
+        },
+      ],
+    });
+    expect(next.defaultTarget).toEqual({
+      kind: "slotId",
+      value: "claude-fable-1",
+    });
+  });
+
+  it("目标槽位已被删除时保持原值，绝不静默改指", () => {
+    const next = assignSlotIds({
+      defaultTarget: { kind: "slotId", value: "claude-fable-gone" },
+      slots: [
+        {
+          routeId: "claude-sonnet-1",
+          tier: "sonnet",
+          providerId: "p-ds",
+          upstreamModel: "a",
+        },
+      ],
+    });
+    expect(next.defaultTarget).toEqual({
+      kind: "slotId",
+      value: "claude-fable-gone",
+    });
   });
 });

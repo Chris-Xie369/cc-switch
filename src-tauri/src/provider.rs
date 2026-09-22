@@ -1669,7 +1669,7 @@ mod tests {
             "aggregateRoutes": {
                 "slots": [
                     {
-                        "routeId": "claude-sonnet-glm",
+                        "routeId": "claude-sonnet-1",
                         "tier": "sonnet",
                         "providerId": "p-glm",
                         "upstreamModel": "glm-5.3",
@@ -1683,7 +1683,7 @@ mod tests {
         .expect("deserialize");
         let routes = meta.aggregate_routes.expect("aggregate routes present");
         assert_eq!(routes.slots.len(), 1);
-        assert_eq!(routes.slots[0].route_id, "claude-sonnet-glm");
+        assert_eq!(routes.slots[0].route_id, "claude-sonnet-1");
         assert_eq!(routes.slots[0].upstream_model, "glm-5.3");
         assert_eq!(routes.slots[0].tier, crate::aggregate::AggregateTier::Sonnet);
         assert!(routes.slots[0].supports_1m);

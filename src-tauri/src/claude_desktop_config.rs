@@ -239,6 +239,9 @@ pub fn is_claude_safe_model_id(model: &str) -> bool {
     if normalized.contains(ONE_M_CONTEXT_MARKER) {
         return false;
     }
+    if has_non_anthropic_vendor_token(&normalized) {
+        return false;
+    }
 
     let Some(route_tail) = normalized
         .strip_prefix(ANTHROPIC_CLAUDE_ROUTE_PREFIX)
@@ -259,6 +262,30 @@ pub fn is_claude_safe_model_id(model: &str) -> bool {
                 .strip_prefix(prefix)
                 .is_some_and(|rest| !rest.is_empty())
         })
+}
+
+/// Claude Desktop 的**厂商词黑名单**（`app.asar` 内 `Vxe` 的逐字转写）。
+///
+/// 它的判定是「厂商词优先否决」：`Go(name) = Vxe.test(name) ? false : …`，
+/// 即名字里**只要出现** deepseek / glm / kimi / gpt… 任一词，即被判为
+/// "is not an Anthropic model" 并从 `inferenceModels` 移除，**且整组生效**——
+/// 一个坏 ID 就让所有模型消失、选择器变空。
+///
+/// 2026-09-22 实测事故：槽位 ID 曾把供应商名 slug 进去（`claude-fable-deepseek`、
+/// `claude-fable-zhipu-glm`），恰好全部命中黑名单，四个槽位被 Claude Desktop
+/// 悄悄删光。这一层校验当时在 cc-switch 侧是缺的，故补上——前端已改为
+/// 「ID 只含档位与序号」，此处是可写入 profile 的最终闸门。
+///
+/// 大小写不敏感由调用方先 `to_ascii_lowercase` 保证（与 `Vxe` 前的
+/// `name.toLowerCase()` 一致），此处不再加 `(?i)`。
+fn has_non_anthropic_vendor_token(model: &str) -> bool {
+    const VENDOR_TOKENS: &str = r"ark-code|astron|command-r|deepseek|doubao|gemini|gemma|glm|gpt|grok|hermes|hy3|kimi|lfm|\bling\b|llama|longcat|mimo|minimax|mistral|mixtral|moonshot|nemotron|openai|phi-|qianfan|qwen|tc-code|\bunic\b|yi-|stepfun|step-3|seed-|bytedance|hunyuan|granite|amazon\.nova|nova-|devstral|ministral|ernie|codex|arcee|trinity|abab|phi\d|\bk2\.|\bm2\.|jamba|arctic|solar|mercury|zamba|kat-coder|\bds-|dpsk";
+    static VENDOR_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    VENDOR_RE
+        .get_or_init(|| {
+            regex::Regex::new(VENDOR_TOKENS).expect("vendor token pattern is a valid regex")
+        })
+        .is_match(model)
 }
 
 fn inference_model_json(spec: &InferenceModelSpec) -> Value {
@@ -2227,6 +2254,29 @@ mod tests {
     }
 
     #[test]
+    fn claude_desktop_rejects_vendor_tokens_in_model_id() {
+        // 厂商词黑名单（app.asar 内 Vxe）。角色前缀能过、厂商词不能过——
+        // 这正是旧槽位 ID 方案（claude-{档位}-{供应商名 slug}）踩的坑：
+        // `claude-fable-deepseek` 的 tail 是 `fable-deepseek`，角色前缀规则放行，
+        // 但 Claude Desktop 会判其 "is not an Anthropic model" 并从
+        // inferenceModels 移除，且**整组生效**（2026-09-22 实测：4 个槽位被删光、
+        // 选择器变空）。故这一层必须与角色前缀规则并列存在。
+        assert!(!is_claude_safe_model_id("claude-fable-deepseek"));
+        assert!(!is_claude_safe_model_id("claude-fable-zhipu-glm"));
+        assert!(!is_claude_safe_model_id("claude-opus-deepseek"));
+        assert!(!is_claude_safe_model_id("claude-sonnet-1-glm"));
+        assert!(!is_claude_safe_model_id("claude-haiku-kimi"));
+        assert!(!is_claude_safe_model_id("anthropic/claude-sonnet-1-qwen"));
+        // 大小写不敏感（与 Vxe 前的 toLowerCase 一致）
+        assert!(!is_claude_safe_model_id("claude-sonnet-DeepSeek"));
+        // 词边界类厂商词只在独立成词时命中：`ling` 不该误伤 `lingua`
+        assert!(is_claude_safe_model_id("claude-sonnet-lingua"));
+        // 新方案产物（档位 + 序号）不受影响
+        assert!(is_claude_safe_model_id("claude-sonnet-1"));
+        assert!(is_claude_safe_model_id("claude-fable-2"));
+    }
+
+    #[test]
     fn claude_desktop_apply_rolls_back_when_profile_write_fails() {
         let temp = TempDir::new().expect("tempdir");
         let paths = test_paths(temp.path());
@@ -2433,7 +2483,7 @@ mod tests {
         meta.aggregate_routes = Some(crate::aggregate::AggregateRoutes {
             slots: vec![
                 crate::aggregate::AggregateRouteSlot {
-                    route_id: "claude-sonnet-glm".into(),
+                    route_id: "claude-sonnet-1".into(),
                     tier: crate::aggregate::AggregateTier::Sonnet,
                     provider_id: "p-glm".into(),
                     upstream_model: "glm-5.3".into(),
@@ -2441,7 +2491,7 @@ mod tests {
                     supports_1m: true,
                 },
                 crate::aggregate::AggregateRouteSlot {
-                    route_id: "claude-haiku-ds".into(),
+                    route_id: "claude-haiku-1".into(),
                     tier: crate::aggregate::AggregateTier::Haiku,
                     provider_id: "p-ds".into(),
                     upstream_model: "deepseek-flash".into(),
@@ -2455,11 +2505,11 @@ mod tests {
         let routes = proxy_model_routes(&provider).expect("routes");
         // 按 route_id 排序（与既有实现一致）
         assert_eq!(routes.len(), 2);
-        assert_eq!(routes[0].route_id, "claude-haiku-ds");
+        assert_eq!(routes[0].route_id, "claude-haiku-1");
         assert_eq!(routes[0].upstream_model, "deepseek-flash");
         assert_eq!(routes[0].label_override, None);
         assert!(!routes[0].supports_1m);
-        assert_eq!(routes[1].route_id, "claude-sonnet-glm");
+        assert_eq!(routes[1].route_id, "claude-sonnet-1");
         assert_eq!(routes[1].upstream_model, "glm-5.3");
         assert_eq!(routes[1].label_override.as_deref(), Some("智谱 GLM-5.3"));
         assert!(routes[1].supports_1m);
@@ -2476,7 +2526,7 @@ mod tests {
         provider.meta = Some(ProviderMeta {
             aggregate_routes: Some(crate::aggregate::AggregateRoutes {
                 slots: vec![crate::aggregate::AggregateRouteSlot {
-                    route_id: "claude-sonnet-glm".into(),
+                    route_id: "claude-sonnet-1".into(),
                     tier: crate::aggregate::AggregateTier::Sonnet,
                     provider_id: "p-glm".into(),
                     upstream_model: "glm-5.3".into(),
@@ -2560,6 +2610,6 @@ mod tests {
             profile["inferenceGatewayBaseUrl"],
             json!("http://127.0.0.1:15721/claude-desktop")
         );
-        assert_eq!(profile["inferenceModels"], json!(["claude-sonnet-glm"]));
+        assert_eq!(profile["inferenceModels"], json!(["claude-sonnet-1"]));
     }
 }

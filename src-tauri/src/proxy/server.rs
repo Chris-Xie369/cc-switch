@@ -1345,7 +1345,7 @@ mod tests {
         aggregate.meta = Some(ProviderMeta {
             aggregate_routes: Some(crate::aggregate::AggregateRoutes {
                 slots: vec![crate::aggregate::AggregateRouteSlot {
-                    route_id: "claude-sonnet-glm".to_string(),
+                    route_id: "claude-sonnet-1".to_string(),
                     tier: crate::aggregate::AggregateTier::Sonnet,
                     provider_id: "glm-target".to_string(),
                     upstream_model: "glm-5.3".to_string(),
@@ -1388,7 +1388,7 @@ mod tests {
             .post(&messages_url)
             .header(header::AUTHORIZATION, format!("Bearer {token}"))
             .json(&json!({
-                "model": "claude-sonnet-glm",
+                "model": "claude-sonnet-1",
                 "max_tokens": 16,
                 "messages": [{"role": "user", "content": "hi"}]
             }))

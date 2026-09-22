@@ -1772,7 +1772,7 @@ GEMINI_TIMEOUT_MS=30000
         let provider = aggregate_provider(
             "agg",
             crate::aggregate::AggregateRoutes {
-                slots: vec![slot("claude-sonnet-glm", "p1"), slot("claude-opus-glm", "p1")],
+                slots: vec![slot("claude-sonnet-1", "p1"), slot("claude-opus-1", "p1")],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
             },
         );
@@ -1786,7 +1786,7 @@ GEMINI_TIMEOUT_MS=30000
         let provider = aggregate_provider(
             "agg",
             crate::aggregate::AggregateRoutes {
-                slots: vec![slot("claude-sonnet-glm", "p1")],
+                slots: vec![slot("claude-sonnet-1", "p1")],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("   ".into()),
             },
         );
@@ -1810,7 +1810,7 @@ GEMINI_TIMEOUT_MS=30000
         let provider = aggregate_provider(
             "agg",
             crate::aggregate::AggregateRoutes {
-                slots: vec![slot("claude-sonnet-glm", "p1")],
+                slots: vec![slot("claude-sonnet-1", "p1")],
                 default_target: crate::aggregate::DefaultTarget::SlotId(
                     "claude-opus-gone".into(),
                 ),
@@ -1836,9 +1836,9 @@ GEMINI_TIMEOUT_MS=30000
         let provider = aggregate_provider(
             "agg",
             crate::aggregate::AggregateRoutes {
-                slots: vec![slot("claude-sonnet-glm", "p1")],
+                slots: vec![slot("claude-sonnet-1", "p1")],
                 default_target: crate::aggregate::DefaultTarget::SlotId(
-                    "claude-sonnet-glm".into(),
+                    "claude-sonnet-1".into(),
                 ),
             },
         );
@@ -1867,7 +1867,7 @@ GEMINI_TIMEOUT_MS=30000
             let target = aggregate_provider(
                 "target-agg",
                 crate::aggregate::AggregateRoutes {
-                    slots: vec![slot("claude-sonnet-glm", "p-glm")],
+                    slots: vec![slot("claude-sonnet-1", "p-glm")],
                     default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
                 },
             );
@@ -7032,8 +7032,8 @@ impl ProviderService {
                 {
                     return Err(AppError::localized(
                         "aggregate.invalid_route_id",
-                        "槽位 ID 不合法（须形如 claude-sonnet-glm）；Claude Desktop 会整组拒收",
-                        "Invalid slot id (expected e.g. claude-sonnet-glm); Claude Desktop would reject the whole group",
+                        "槽位 ID 不合法（须形如 claude-sonnet-1）；Claude Desktop 会整组拒收",
+                        "Invalid slot id (expected e.g. claude-sonnet-1); Claude Desktop would reject the whole group",
                     ));
                 }
                 if seen.iter().any(|s| s == route_id) {

@@ -90,14 +90,14 @@ mod tests {
         // 一个坏 ID 会让 Claude Desktop 拒收整组 inferenceModels。
         // 同时保底：其余合法槽位仍应正常产出。
         let provider = aggregate_provider(vec![
-            slot("claude-sonnet-glm", "glm-5.3"),
+            slot("claude-sonnet-1", "glm-5.3"),
             slot("glm-5.3", "some-upstream-model"),
         ]);
 
         let routes = aggregate_model_routes(&provider).expect("routes");
 
         assert_eq!(routes.len(), 1);
-        assert_eq!(routes[0].route_id, "claude-sonnet-glm");
+        assert_eq!(routes[0].route_id, "claude-sonnet-1");
         assert_eq!(routes[0].upstream_model, "glm-5.3");
     }
 
@@ -113,14 +113,14 @@ mod tests {
     fn aggregate_model_routes_dedups_repeated_route_ids() {
         // 手工编辑产生的重复 route_id 只应产出一条
         let provider = aggregate_provider(vec![
-            slot("claude-sonnet-glm", "glm-a"),
-            slot("claude-sonnet-glm", "glm-b"),
+            slot("claude-sonnet-1", "glm-a"),
+            slot("claude-sonnet-1", "glm-b"),
         ]);
 
         let routes = aggregate_model_routes(&provider).expect("routes");
 
         assert_eq!(routes.len(), 1);
-        assert_eq!(routes[0].route_id, "claude-sonnet-glm");
+        assert_eq!(routes[0].route_id, "claude-sonnet-1");
     }
 
     #[tokio::test]
@@ -144,7 +144,7 @@ mod tests {
         aggregate.meta = Some(crate::provider::ProviderMeta {
             aggregate_routes: Some(AggregateRoutes {
                 slots: vec![AggregateRouteSlot {
-                    route_id: "claude-sonnet-glm".into(),
+                    route_id: "claude-sonnet-1".into(),
                     tier: AggregateTier::Sonnet,
                     provider_id: "p-glm".into(),
                     upstream_model: "glm-5.3".into(),
@@ -156,7 +156,7 @@ mod tests {
             ..Default::default()
         });
 
-        let hit = resolve_target(&db, "claude-desktop", &aggregate, "claude-sonnet-glm")
+        let hit = resolve_target(&db, "claude-desktop", &aggregate, "claude-sonnet-1")
             .expect("hit");
         assert_eq!(hit.0.id, "p-glm");
         assert_eq!(hit.1.as_deref(), Some("glm-5.3"));
@@ -215,7 +215,7 @@ mod tests {
         // 默认目标指向一个不存在的槽位 id —— 必须显式报错，
         // **不得**静默回落到「第一个槽位」（那会把用户的兜底配置悄悄改掉）。
         let aggregate = aggregate_with(
-            vec![slot_for("claude-sonnet-glm", "p-glm", "glm-5.3")],
+            vec![slot_for("claude-sonnet-1", "p-glm", "glm-5.3")],
             DefaultTarget::SlotId("claude-sonnet-missing".into()),
         );
 
@@ -232,11 +232,11 @@ mod tests {
         let db = crate::database::Database::memory().expect("db");
         // 命中槽位，但它引用的目标供应商在库里不存在 → 明确错误
         let aggregate = aggregate_with(
-            vec![slot_for("claude-sonnet-glm", "p-missing", "glm-5.3")],
+            vec![slot_for("claude-sonnet-1", "p-missing", "glm-5.3")],
             DefaultTarget::ProviderId("p-missing".into()),
         );
 
-        let err = resolve_target(&db, "claude-desktop", &aggregate, "claude-sonnet-glm")
+        let err = resolve_target(&db, "claude-desktop", &aggregate, "claude-sonnet-1")
             .expect_err("missing target provider must error");
         assert_eq!(localized_key(&err), "aggregate.target_provider_missing");
     }

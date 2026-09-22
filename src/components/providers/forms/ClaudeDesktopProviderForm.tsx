@@ -44,7 +44,7 @@ import type {
   ProviderMeta,
 } from "@/types";
 import { useProvidersQuery } from "@/lib/query/queries";
-import { isAggregateProvider } from "@/utils/aggregateRoutes";
+import { assignSlotIds, isAggregateProvider } from "@/utils/aggregateRoutes";
 import type { OpenClawSuggestedDefaults } from "@/config/openclawProviderPresets";
 import {
   CLAUDE_DESKTOP_ROLE_ROUTE_IDS,
@@ -293,7 +293,14 @@ export function ClaudeDesktopProviderForm({
   // 提交时据此删除 meta.aggregateRoutes（普通供应商 JSON 不变）。
   const [aggregateRoutes, setAggregateRoutes] = useState<
     AggregateRoutes | undefined
-  >(() => initialData?.meta?.aggregateRoutes);
+  >(() =>
+    // 载入即迁移槽位 ID：旧方案把供应商名 slug 进 ID（claude-fable-deepseek…），
+    // Claude Desktop 会判为「非 Anthropic 模型」把整组模型列表移除。迁移是纯
+    // 重编号（槽位顺序与目标引用都不变），未点保存不会落库。
+    initialData?.meta?.aggregateRoutes
+      ? assignSlotIds(initialData.meta.aggregateRoutes)
+      : undefined,
+  );
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(
     "custom",
   );

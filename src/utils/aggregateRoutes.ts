@@ -1,52 +1,25 @@
 import type { AggregateRoutes, AggregateTier, Provider } from "@/types";
 
 /**
- * 把供应商名规范为路由段 slug，产出仅含 [a-z0-9-]，且无首尾 '-'。
+ * 生成槽位 ID：`claude-{档位}-{同档序号}`。
  *
- * 这是槽位 ID 形状的唯一权威实现：后端不再有对应的 slugify（它只对自己的
- * 结果做 is_claude_safe_model_id 校验），所以这里的算法与测试即规范。
+ * 这个字符串就是 Claude Desktop 模型列表里的 `inferenceModels[].name`，也是
+ * 请求按模型分流的键，因此**必须过 Claude Desktop 的校验**。实测（2.2553.1.0）
+ * 它的校验是「厂商词黑名单 + Anthropic 形状」：
  *
- * 流程：转小写保留字母数字 → 其他字符折叠为单个 '-' → 去首尾 '-' →
- * 截断 20 字符 → 再次去尾部 '-'（截断可能正好落在分隔符上）；结果为空
- * 时回落为 provider id 前 8 位。
+ * ```js
+ * Vxe = /ark-code|…|deepseek|glm|gpt|gemini|grok|kimi|qwen|…/   // 厂商词
+ * Go  = (name) => Vxe.test(name) ? false : Wo.test(name) || name.includes("claude")
+ * ```
+ *
+ * 也就是说**名字里只要出现 deepseek/glm 这类厂商词就会被判为
+ * "is not an Anthropic model" 并从列表移除，且是整组生效**——旧方案把供应商名
+ * slug 进 ID（`claude-fable-deepseek`、`claude-fable-zhipu-glm`），四个槽位被删光、
+ * 选择器变空。故 ID 只由档位与序号构成，可读性交给「显示名」（`labelOverride`，
+ * 它不受该校验约束）。
  */
-export function slugify(providerName: string, providerId: string): string {
-  let out = "";
-  let lastDash = false;
-  for (const ch of providerName) {
-    if (/[A-Za-z0-9]/.test(ch)) {
-      out += ch.toLowerCase();
-      lastDash = false;
-    } else if (!lastDash && out.length > 0) {
-      out += "-";
-      lastDash = true;
-    }
-  }
-  const trimmed = out.replace(/^-+|-+$/g, "");
-  const truncated = trimmed.slice(0, 20).replace(/-+$/g, "");
-  return truncated.length > 0 ? truncated : providerId.slice(0, 8);
-}
-
-/**
- * 生成 claude-{tier}-{slug}；若已被占用则追加 -2、-3……直到空闲。
- *
- * 注意：taken 里的每个候选都要检查，不能只看 base 本身——否则
- * taken=["claude-sonnet-glm","claude-sonnet-glm-2"] 时会重复返回 -2。
- */
-export function generateSlotId(
-  tier: AggregateTier,
-  providerName: string,
-  providerId: string,
-  taken: string[],
-): string {
-  const base = `claude-${tier}-${slugify(providerName, providerId)}`;
-  if (!taken.includes(base)) return base;
-  let n = 2;
-  for (;;) {
-    const candidate = `${base}-${n}`;
-    if (!taken.includes(candidate)) return candidate;
-    n += 1;
-  }
+export function slotId(tier: AggregateTier, ordinal: number): string {
+  return `claude-${tier}-${ordinal}`;
 }
 
 /** 供应商是否为聚合供应商。 */
@@ -72,23 +45,34 @@ export function canSaveAggregateRoutes(
   );
 }
 
-/** 为所有槽位重新生成 routeId（按当前顺序去重），返回新的路由表。
- *  在槽位增删、目标供应商变更、档位变更后调用——保证预览与实际提交值一致。 */
-export function assignSlotIds(
-  routes: AggregateRoutes,
-  providers: Pick<Provider, "id" | "name">[],
-): AggregateRoutes {
-  const taken: string[] = [];
-  const slots = routes.slots.map((slot) => {
-    const provider = providers.find((p) => p.id === slot.providerId);
-    const routeId = generateSlotId(
-      slot.tier,
-      provider?.name ?? slot.providerId,
-      slot.providerId,
-      taken,
-    );
-    taken.push(routeId);
-    return { ...slot, routeId };
+/** 为所有槽位重新生成 routeId（按档位分别编号），并让默认目标按位置跟随。
+ *
+ *  在槽位增删、档位变更后调用，也可用于**迁移存量 ID**（旧方案含供应商名，
+ *  会被 Claude Desktop 整组拒绝）。默认目标若引用的是槽位 ID：以它在**本表内
+ *  的位置**取新 ID；目标槽位已被删除（旧 ID 不在本表里）时保持原值，交由保存
+ *  校验拦截，绝不静默改指到另一个槽位。 */
+export function assignSlotIds(routes: AggregateRoutes): AggregateRoutes {
+  const ordinalByTier = new Map<AggregateTier, number>();
+  const ids = routes.slots.map((slot) => {
+    const ordinal = (ordinalByTier.get(slot.tier) ?? 0) + 1;
+    ordinalByTier.set(slot.tier, ordinal);
+    return slotId(slot.tier, ordinal);
   });
-  return { ...routes, slots };
+
+  const slots = routes.slots.map((slot, index) => ({
+    ...slot,
+    routeId: ids[index],
+  }));
+
+  let defaultTarget = routes.defaultTarget;
+  if (defaultTarget.kind === "slotId") {
+    const index = routes.slots.findIndex(
+      (slot) => slot.routeId === defaultTarget.value,
+    );
+    if (index >= 0) {
+      defaultTarget = { kind: "slotId", value: ids[index] };
+    }
+  }
+
+  return { ...routes, slots, defaultTarget };
 }

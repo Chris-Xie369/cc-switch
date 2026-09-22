@@ -1816,6 +1816,63 @@ GEMINI_TIMEOUT_MS=30000
     }
 
     #[test]
+    fn validate_aggregate_rejects_ordinary_provider_becoming_referenced_aggregate() {
+        // 单向漏洞：普通供应商 B 先被聚合供应商 A 的槽位引用，之后把 B 改造成聚合
+        // 供应商时也必须拒绝——只查 P 自身槽位的正向检查会放行，运行时 A→B 便会拿到
+        // 一个没有端点/凭据的目标（设计 §9 禁止该状态）。
+        with_test_home(|state, _home| {
+            let target = Provider::with_id(
+                "target".into(),
+                "Target".into(),
+                claude_desktop_direct_settings(),
+                None,
+            );
+            ProviderService::add(state, AppType::ClaudeDesktop, target, false)
+                .expect("ordinary provider saves");
+
+            let agg = aggregate_provider(
+                "agg",
+                crate::aggregate::AggregateRoutes {
+                    slots: vec![slot("claude-sonnet-target", "target")],
+                    default_target: crate::aggregate::DefaultTarget::ProviderId("target".into()),
+                },
+            );
+            ProviderService::add(state, AppType::ClaudeDesktop, agg, false)
+                .expect("aggregate referencing an ordinary provider saves");
+
+            // 把 B 改造成聚合供应商：B 新增一张指向另一普通供应商的路由表。
+            let converted = aggregate_provider(
+                "target",
+                crate::aggregate::AggregateRoutes {
+                    slots: vec![slot("claude-sonnet-other", "other")],
+                    default_target: crate::aggregate::DefaultTarget::ProviderId("other".into()),
+                },
+            );
+            let err = ProviderService::update(
+                state,
+                AppType::ClaudeDesktop,
+                Some("target"),
+                converted,
+            )
+            .expect_err("a referenced provider must not become an aggregate");
+            assert!(
+                err.to_string().contains("已被聚合供应商引用"),
+                "unexpected error: {err}"
+            );
+
+            // 未被引用的普通供应商仍可正常保存（不误伤）。
+            let plain = Provider::with_id(
+                "plain".into(),
+                "Plain".into(),
+                claude_desktop_direct_settings(),
+                None,
+            );
+            ProviderService::add(state, AppType::ClaudeDesktop, plain, false)
+                .expect("an unreferenced ordinary provider must still save");
+        });
+    }
+
+    #[test]
     fn delete_rejects_provider_referenced_by_aggregate() {
         with_test_home(|state, _home| {
             state
@@ -6942,6 +6999,32 @@ impl ProviderService {
                     "aggregate.nested_aggregate",
                     "聚合供应商的槽位不能指向另一个聚合供应商",
                     "An aggregate provider's slot cannot target another aggregate provider",
+                ));
+            }
+        }
+        // 反向检查：被保存者 P 自身带路由表（即本题分支），若它已被同 app 下其他聚合
+        // 供应商的槽位引用，则保存后即形成 A→P 的嵌套。正向检查只覆盖「P 指向别人」，
+        // 这一步封堵「普通供应商先被引用、之后被改造成聚合」的单向漏洞。
+        for other in state.db.get_all_providers(app_type.as_str())?.values() {
+            if other.id == provider.id {
+                continue;
+            }
+            let Some(other_routes) = other
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.aggregate_routes.as_ref())
+            else {
+                continue;
+            };
+            if other_routes
+                .slots
+                .iter()
+                .any(|slot| slot.provider_id == provider.id)
+            {
+                return Err(AppError::localized(
+                    "aggregate.provider_becomes_aggregate_while_referenced",
+                    "该供应商已被聚合供应商引用，不能再改造成聚合供应商",
+                    "This provider is referenced by an aggregate provider and cannot itself become an aggregate provider",
                 ));
             }
         }

@@ -245,6 +245,7 @@ ID 生成（含中文名回落与编号去重），生成结果必须通过 is_c
             "aggregateRoutes": {
                 "slots": [
                     {
+                        "routeId": "claude-sonnet-glm",
                         "tier": "sonnet",
                         "providerId": "p-glm",
                         "upstreamModel": "glm-5.3",
@@ -258,6 +259,8 @@ ID 生成（含中文名回落与编号去重），生成结果必须通过 is_c
         .expect("deserialize");
         let routes = meta.aggregate_routes.expect("aggregate routes present");
         assert_eq!(routes.slots.len(), 1);
+        // routeId 是必填的持久化路由键（前端生成、后端校验），往返测试需覆盖它
+        assert_eq!(routes.slots[0].route_id, "claude-sonnet-glm");
         assert_eq!(routes.slots[0].upstream_model, "glm-5.3");
         assert_eq!(routes.slots[0].tier, crate::aggregate::AggregateTier::Sonnet);
         assert!(routes.slots[0].supports_1m);

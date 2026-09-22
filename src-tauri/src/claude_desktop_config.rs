@@ -2513,6 +2513,38 @@ mod tests {
     }
 
     #[test]
+    fn validate_proxy_provider_accepts_aggregate_without_endpoint_or_credentials() {
+        // 聚合供应商走本地路由（代理）短路：自身无端点无凭据（转发时用目标供应商的），
+        // 故空 settings_config 也必须通过代理校验 —— 这正是 UI 持久化的主路径
+        // （meta.claudeDesktopMode = "proxy"）。
+        let mut aggregate = aggregate_provider_without_credentials("agg");
+        aggregate
+            .meta
+            .as_mut()
+            .expect("meta present")
+            .claude_desktop_mode = Some(ClaudeDesktopMode::Proxy);
+        validate_proxy_provider(&aggregate)
+            .expect("aggregate provider must validate as proxy without endpoint or credentials");
+    }
+
+    #[test]
+    fn validate_proxy_provider_still_rejects_ordinary_provider_without_credentials() {
+        // 对照：普通代理供应商的空 settings_config 仍必须被拒（聚合短路不得顺手放宽它）。
+        let mut plain = Provider::with_id(
+            "plain".to_string(),
+            "Plain".to_string(),
+            json!({}),
+            None,
+        );
+        plain.meta = Some(ProviderMeta {
+            claude_desktop_mode: Some(ClaudeDesktopMode::Proxy),
+            ..Default::default()
+        });
+        validate_proxy_provider(&plain)
+            .expect_err("ordinary proxy provider without endpoint/credentials must still be rejected");
+    }
+
+    #[test]
     fn apply_aggregate_provider_without_credentials_writes_local_gateway_profile() {
         // 聚合供应商保存后必须能真正启用：空 settings_config 也要走代理分支写 profile
         // （模型列表由槽位派生，网关地址为本地代理），而不是去取聚合自己的端点/凭据。

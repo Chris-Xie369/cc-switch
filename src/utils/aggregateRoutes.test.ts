@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { assignSlotIds, generateSlotId, slugify } from "./aggregateRoutes";
+import {
+  assignSlotIds,
+  canSaveAggregateRoutes,
+  generateSlotId,
+  slugify,
+} from "./aggregateRoutes";
 
 describe("slugify", () => {
   it("规范 ASCII 名称", () => {
@@ -42,9 +47,9 @@ describe("generateSlotId", () => {
   });
 
   it("冲突时追加编号", () => {
-    expect(
-      generateSlotId("sonnet", "GLM", "pid", ["claude-sonnet-glm"]),
-    ).toBe("claude-sonnet-glm-2");
+    expect(generateSlotId("sonnet", "GLM", "pid", ["claude-sonnet-glm"])).toBe(
+      "claude-sonnet-glm-2",
+    );
   });
 
   it("跳过已占用的编号，而非只测 base 本身", () => {
@@ -62,9 +67,51 @@ describe("generateSlotId", () => {
     expect(generateSlotId("haiku", "月之暗面", "97a1d0df-b9a9", [])).toBe(
       "claude-haiku-97a1d0df",
     );
-    expect(generateSlotId("fable", "GLM", "pid", [])).toBe(
-      "claude-fable-glm",
-    );
+    expect(generateSlotId("fable", "GLM", "pid", [])).toBe("claude-fable-glm");
+  });
+});
+
+describe("canSaveAggregateRoutes", () => {
+  const slot = {
+    routeId: "claude-sonnet-glm",
+    tier: "sonnet" as const,
+    providerId: "p-glm",
+    upstreamModel: "glm-5.3",
+  };
+
+  it("需要至少一个槽位与一个非空默认目标值", () => {
+    expect(
+      canSaveAggregateRoutes({
+        slots: [slot],
+        defaultTarget: { kind: "providerId", value: "p-glm" },
+      }),
+    ).toBe(true);
+  });
+
+  it("默认目标值为空白（未选择）时不可保存", () => {
+    expect(
+      canSaveAggregateRoutes({
+        slots: [slot],
+        defaultTarget: { kind: "providerId", value: "" },
+      }),
+    ).toBe(false);
+    expect(
+      canSaveAggregateRoutes({
+        slots: [slot],
+        defaultTarget: { kind: "slotId", value: "   " },
+      }),
+    ).toBe(false);
+  });
+
+  it("无槽位或路由表为空时不可保存", () => {
+    expect(
+      canSaveAggregateRoutes({
+        slots: [],
+        defaultTarget: { kind: "providerId", value: "p-glm" },
+      }),
+    ).toBe(false);
+    expect(canSaveAggregateRoutes(undefined)).toBe(false);
+    expect(canSaveAggregateRoutes(null)).toBe(false);
   });
 });
 

@@ -63,11 +63,13 @@ export function slotLabel(slot: {
   return l && l.length > 0 ? l : slot.upstreamModel;
 }
 
-/** 路由表是否可保存（至少一个槽位）。 */
+/** 路由表是否可保存（至少一个槽位，且默认目标已选定非空值）。 */
 export function canSaveAggregateRoutes(
   routes: AggregateRoutes | undefined | null,
 ): boolean {
-  return Boolean(routes && routes.slots.length > 0 && routes.defaultTarget);
+  return Boolean(
+    routes && routes.slots.length > 0 && routes.defaultTarget?.value.trim(),
+  );
 }
 
 /** 为所有槽位重新生成 routeId（按当前顺序去重），返回新的路由表。

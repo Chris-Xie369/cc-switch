@@ -1771,6 +1771,72 @@ GEMINI_TIMEOUT_MS=30000
     }
 
     #[test]
+    fn validate_aggregate_rejects_blank_provider_default_target() {
+        // 未选默认目标（值为空白）会在运行时让未命中槽位的请求硬失败，保存时即拦截
+        let provider = aggregate_provider(
+            "agg",
+            crate::aggregate::AggregateRoutes {
+                slots: vec![slot("claude-sonnet-glm", "p1")],
+                default_target: crate::aggregate::DefaultTarget::ProviderId("   ".into()),
+            },
+        );
+        let err = ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
+            .expect_err("blank provider-id default target must be rejected");
+        assert!(
+            matches!(
+                err,
+                AppError::Localized {
+                    key: "aggregate.default_target_invalid",
+                    ..
+                }
+            ),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_aggregate_rejects_default_target_naming_missing_slot() {
+        // 默认目标指向不存在的槽位（如重编号后悬空）必须被拒
+        let provider = aggregate_provider(
+            "agg",
+            crate::aggregate::AggregateRoutes {
+                slots: vec![slot("claude-sonnet-glm", "p1")],
+                default_target: crate::aggregate::DefaultTarget::SlotId(
+                    "claude-opus-gone".into(),
+                ),
+            },
+        );
+        let err = ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
+            .expect_err("slot-id default target naming a missing slot must be rejected");
+        assert!(
+            matches!(
+                err,
+                AppError::Localized {
+                    key: "aggregate.default_target_invalid",
+                    ..
+                }
+            ),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_aggregate_accepts_slot_default_target_present_in_slots() {
+        // 对照：默认目标指向确实存在的槽位时必须通过（校验不得误伤合法配置）
+        let provider = aggregate_provider(
+            "agg",
+            crate::aggregate::AggregateRoutes {
+                slots: vec![slot("claude-sonnet-glm", "p1")],
+                default_target: crate::aggregate::DefaultTarget::SlotId(
+                    "claude-sonnet-glm".into(),
+                ),
+            },
+        );
+        ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
+            .expect("a slot-id default target that exists must pass");
+    }
+
+    #[test]
     fn validate_aggregate_leaves_non_aggregate_provider_untouched() {
         // 普通供应商没有 aggregate_routes：不得因新校验而被拒
         let provider = Provider::with_id(
@@ -6964,6 +7030,31 @@ impl ProviderService {
                     ));
                 }
                 seen.push(route_id.to_string());
+            }
+
+            // 默认目标必填且必须可用：未命中槽位的请求（Claude Desktop 的内部调用，
+            // 如会话标题/摘要，正是此类）会回落到它；若它缺失或指向不存在的槽位，
+            // 运行时会硬失败，故保存时就拦截（设计 §8/§9）。
+            match &routes.default_target {
+                crate::aggregate::DefaultTarget::ProviderId(id) => {
+                    if id.trim().is_empty() {
+                        return Err(AppError::localized(
+                            "aggregate.default_target_invalid",
+                            "聚合供应商必须指定默认目标：未命中槽位的请求会回落到它",
+                            "Aggregate provider must specify a default target: unmatched requests fall back to it",
+                        ));
+                    }
+                }
+                crate::aggregate::DefaultTarget::SlotId(id) => {
+                    let id = id.trim();
+                    if !seen.iter().any(|s| s == id) {
+                        return Err(AppError::localized(
+                            "aggregate.default_target_invalid",
+                            "聚合供应商的默认目标缺失，或指向了不存在的槽位（可能因槽位改动而失效，请重新选择）",
+                            "Aggregate default target is missing or points to a non-existent slot (it may have been invalidated by slot changes; please reselect)",
+                        ));
+                    }
+                }
             }
         }
 

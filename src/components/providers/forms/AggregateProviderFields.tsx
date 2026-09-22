@@ -41,9 +41,39 @@ export function AggregateProviderFields({
 }: Props) {
   const { t } = useTranslation();
 
-  // 每次变更都重算所有槽位 ID：保证「预览 = 实际提交值」
-  const commit = (next: AggregateRoutes) =>
-    onChange(assignSlotIds(next, candidates));
+  // 每次变更都重算所有槽位 ID：保证「预览 = 实际提交值」。
+  // assignSlotIds 会从零重编号，故当默认目标引用的是槽位 ID 时，必须把它从旧 ID
+  // 改写到同一槽位的新 ID，否则改档位/增删槽位后引用会悬空。
+  const commit = (next: AggregateRoutes) => {
+    const previous = value.slots;
+    const renumbered = assignSlotIds(next, candidates);
+    let defaultTarget = next.defaultTarget;
+    if (defaultTarget.kind === "slotId") {
+      const index = previous.findIndex(
+        (s) => s.routeId === defaultTarget.value,
+      );
+      if (index >= 0) {
+        // 未触及的槽位在增删后保持同一对象引用，可据此跟随其新位置；被 setSlot
+        // 原地改写的槽位引用会变但位置不变（长度相等时按原索引定位）。
+        const byRef = next.slots.indexOf(previous[index]);
+        const newIndex =
+          byRef >= 0
+            ? byRef
+            : next.slots.length === previous.length
+              ? index
+              : -1;
+        if (newIndex >= 0) {
+          defaultTarget = {
+            kind: "slotId",
+            value: renumbered.slots[newIndex].routeId,
+          };
+        }
+      }
+      // 目标槽位被整个删除（index<0 或已不在 next 中）时保持原值，
+      // 交由保存校验拦截，绝不静默改指到另一个槽位。
+    }
+    onChange({ ...renumbered, defaultTarget });
+  };
 
   const setSlot = (index: number, patch: Partial<AggregateRouteSlot>) => {
     const slots = value.slots.map((s, i) =>

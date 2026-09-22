@@ -1003,7 +1003,7 @@ export function ClaudeDesktopProviderForm({
                   />
                 )}
               </div>
-            ) : (
+            ) : isAggregate ? null : (
               <ApiKeySection
                 value={apiKey}
                 onChange={setApiKey}
@@ -1015,23 +1015,25 @@ export function ClaudeDesktopProviderForm({
               />
             )}
 
-            <EndpointField
-              id="baseUrl"
-              label={t("providerForm.apiEndpoint")}
-              value={baseUrl}
-              onChange={(v) => setBaseUrl(v)}
-              placeholder={t("providerForm.apiEndpointPlaceholder")}
-              hint={
-                needsModelMapping && apiFormat === "openai_responses"
-                  ? t("providerForm.apiHintResponses")
-                  : needsModelMapping && apiFormat === "openai_chat"
-                    ? t("providerForm.apiHintOAI")
-                    : needsModelMapping && apiFormat === "gemini_native"
-                      ? t("providerForm.apiHintGeminiNative")
-                      : t("providerForm.apiHint")
-              }
-              showManageButton={false}
-            />
+            {!isAggregate && (
+              <EndpointField
+                id="baseUrl"
+                label={t("providerForm.apiEndpoint")}
+                value={baseUrl}
+                onChange={(v) => setBaseUrl(v)}
+                placeholder={t("providerForm.apiEndpointPlaceholder")}
+                hint={
+                  needsModelMapping && apiFormat === "openai_responses"
+                    ? t("providerForm.apiHintResponses")
+                    : needsModelMapping && apiFormat === "openai_chat"
+                      ? t("providerForm.apiHintOAI")
+                      : needsModelMapping && apiFormat === "gemini_native"
+                        ? t("providerForm.apiHintGeminiNative")
+                        : t("providerForm.apiHint")
+                }
+                showManageButton={false}
+              />
+            )}
 
             <div className="space-y-4 border-l border-border-default pl-3">
               <div className="flex items-stretch justify-between gap-4">
@@ -1103,7 +1105,7 @@ export function ClaudeDesktopProviderForm({
                 </p>
               )}
 
-              {needsModelMapping && (
+              {needsModelMapping && !isAggregate && (
                 <div className="space-y-4 border-t border-border-default pt-4">
                   {activeProviderType !== "xai_oauth" && (
                     <div className="space-y-2">

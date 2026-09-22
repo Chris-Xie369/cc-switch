@@ -226,8 +226,14 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
         let old_home = std::env::var_os("HOME");
+        // Claude Desktop 的 profile 路径在 Windows 上直接读 LOCALAPPDATA（见
+        // `claude_desktop_config::windows_local_app_data_dir`），既不认
+        // CC_SWITCH_TEST_HOME 也不认 HOME。不隔离它，任何保存/切换 Claude Desktop
+        // 供应商的测试都会写进开发者真实的桌面版配置。
+        let old_local_app_data = std::env::var_os("LOCALAPPDATA");
         std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
         std::env::set_var("HOME", temp.path());
+        std::env::set_var("LOCALAPPDATA", temp.path().join("AppData").join("Local"));
 
         let db = Arc::new(Database::memory().expect("in-memory database"));
         let state = AppState::new(db);
@@ -240,6 +246,10 @@ mod tests {
         match old_home {
             Some(value) => std::env::set_var("HOME", value),
             None => std::env::remove_var("HOME"),
+        }
+        match old_local_app_data {
+            Some(value) => std::env::set_var("LOCALAPPDATA", value),
+            None => std::env::remove_var("LOCALAPPDATA"),
         }
 
         result
@@ -1850,6 +1860,7 @@ GEMINI_TIMEOUT_MS=30000
     }
 
     #[test]
+    #[serial]
     fn validate_aggregate_rejects_nested_aggregate() {
         // 目标供应商自身是聚合供应商 -> 保存层拒绝（需跨供应商信息）
         with_test_home(|state, _home| {
@@ -1882,6 +1893,7 @@ GEMINI_TIMEOUT_MS=30000
     }
 
     #[test]
+    #[serial]
     fn validate_aggregate_rejects_ordinary_provider_becoming_referenced_aggregate() {
         // 单向漏洞：普通供应商 B 先被聚合供应商 A 的槽位引用，之后把 B 改造成聚合
         // 供应商时也必须拒绝——只查 P 自身槽位的正向检查会放行，运行时 A→B 便会拿到
@@ -1939,6 +1951,7 @@ GEMINI_TIMEOUT_MS=30000
     }
 
     #[test]
+    #[serial]
     fn delete_rejects_provider_referenced_by_aggregate() {
         with_test_home(|state, _home| {
             state
@@ -1981,6 +1994,7 @@ GEMINI_TIMEOUT_MS=30000
     }
 
     #[test]
+    #[serial]
     fn delete_allows_provider_referenced_by_ordinary_provider() {
         // 误伤防护：普通供应商（无 aggregate_routes）引用某 id 不影响其删除
         with_test_home(|state, _home| {

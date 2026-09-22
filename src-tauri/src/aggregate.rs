@@ -172,3 +172,54 @@ mod tests {
         assert_eq!(id, "claude-sonnet-glm-3");
     }
 }
+
+use crate::claude_desktop_config::ResolvedModelRoute;
+use crate::error::AppError;
+use crate::provider::Provider;
+
+/// 该供应商是否为聚合供应商。
+pub fn is_aggregate_provider(provider: &Provider) -> bool {
+    provider
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.aggregate_routes.as_ref())
+        .is_some()
+}
+
+/// 由槽位派生模型规格（供 profile 的 inferenceModels 与 /models 端点共用）。
+/// 槽位 ID 是保存时生成并持久化的，这里直接取用；按 route_id 排序与既有实现保持一致。
+pub fn aggregate_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRoute>, AppError> {
+    let routes = provider
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.aggregate_routes.as_ref())
+        .ok_or_else(|| {
+            AppError::localized(
+                "aggregate.routes_missing",
+                "聚合供应商缺少路由表",
+                "Aggregate provider is missing its route table",
+            )
+        })?;
+
+    let mut out = Vec::with_capacity(routes.slots.len());
+    for slot in &routes.slots {
+        let upstream = slot.upstream_model.trim();
+        let route_id = slot.route_id.trim();
+        if upstream.is_empty() || route_id.is_empty() {
+            continue;
+        }
+        out.push(ResolvedModelRoute {
+            route_id: route_id.to_string(),
+            upstream_model: upstream.to_string(),
+            label_override: slot
+                .label
+                .as_deref()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(str::to_string),
+            supports_1m: slot.supports_1m,
+        });
+    }
+    out.sort_by(|a, b| a.route_id.cmp(&b.route_id));
+    Ok(out)
+}

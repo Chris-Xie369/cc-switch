@@ -559,6 +559,11 @@ fn direct_inference_model_specs(provider: &Provider) -> Result<Vec<InferenceMode
 }
 
 pub fn proxy_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRoute>, AppError> {
+    // 聚合供应商：模型规格由路由表的槽位派生，而不是自身的 claudeDesktopModelRoutes
+    if crate::aggregate::is_aggregate_provider(provider) {
+        return crate::aggregate::aggregate_model_routes(provider);
+    }
+
     let routes = provider
         .meta
         .as_ref()
@@ -2400,5 +2405,44 @@ mod tests {
         assert_eq!(v.name, "Chris");
         assert_eq!(v.subtitle, "");
         assert!(!v.attribution);
+    }
+
+    #[test]
+    fn aggregate_provider_derives_model_routes_from_slots() {
+        let mut provider = direct_provider("agg");
+        let meta = provider.meta.get_or_insert_with(Default::default);
+        meta.aggregate_routes = Some(crate::aggregate::AggregateRoutes {
+            slots: vec![
+                crate::aggregate::AggregateRouteSlot {
+                    route_id: "claude-sonnet-glm".into(),
+                    tier: crate::aggregate::AggregateTier::Sonnet,
+                    provider_id: "p-glm".into(),
+                    upstream_model: "glm-5.3".into(),
+                    label: Some("智谱 GLM-5.3".into()),
+                    supports_1m: true,
+                },
+                crate::aggregate::AggregateRouteSlot {
+                    route_id: "claude-haiku-ds".into(),
+                    tier: crate::aggregate::AggregateTier::Haiku,
+                    provider_id: "p-ds".into(),
+                    upstream_model: "deepseek-flash".into(),
+                    label: None,
+                    supports_1m: false,
+                },
+            ],
+            default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
+        });
+
+        let routes = proxy_model_routes(&provider).expect("routes");
+        // 按 route_id 排序（与既有实现一致）
+        assert_eq!(routes.len(), 2);
+        assert_eq!(routes[0].route_id, "claude-haiku-ds");
+        assert_eq!(routes[0].upstream_model, "deepseek-flash");
+        assert_eq!(routes[0].label_override, None);
+        assert!(!routes[0].supports_1m);
+        assert_eq!(routes[1].route_id, "claude-sonnet-glm");
+        assert_eq!(routes[1].upstream_model, "glm-5.3");
+        assert_eq!(routes[1].label_override.as_deref(), Some("智谱 GLM-5.3"));
+        assert!(routes[1].supports_1m);
     }
 }

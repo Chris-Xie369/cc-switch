@@ -476,33 +476,35 @@ proxy_model_routes 与 model_list_response 对聚合供应商走新分支；
     #[tokio::test]
     async fn resolve_target_hits_slot_by_generated_id() {
         let db = crate::database::Database::memory().expect("db");
-        // 目标供应商
-        let target = crate::provider::Provider {
-            id: "p-glm".into(),
-            name: "GLM".into(),
-            ..Default::default()
-        };
+        // 目标供应商（用仓库既有惯例 Provider::with_id 构造，Provider 未 derive Default）
+        let target = crate::provider::Provider::with_id(
+            "p-glm".to_string(),
+            "GLM".to_string(),
+            serde_json::json!({}),
+            None,
+        );
         db.save_provider("claude-desktop", &target).expect("save target");
 
-        let aggregate = Provider {
-            id: "agg".into(),
-            name: "Aggregate".into(),
-            meta: Some(crate::provider::ProviderMeta {
-                aggregate_routes: Some(AggregateRoutes {
-                    slots: vec![AggregateRouteSlot {
-                        route_id: "claude-sonnet-glm".into(),
-                        tier: AggregateTier::Sonnet,
-                        provider_id: "p-glm".into(),
-                        upstream_model: "glm-5.3".into(),
-                        label: None,
-                        supports_1m: false,
-                    }],
-                    default_target: DefaultTarget::ProviderId("p-glm".into()),
-                }),
-                ..Default::default()
+        let mut aggregate = crate::provider::Provider::with_id(
+            "agg".to_string(),
+            "Aggregate".to_string(),
+            serde_json::json!({}),
+            None,
+        );
+        aggregate.meta = Some(crate::provider::ProviderMeta {
+            aggregate_routes: Some(AggregateRoutes {
+                slots: vec![AggregateRouteSlot {
+                    route_id: "claude-sonnet-glm".into(),
+                    tier: AggregateTier::Sonnet,
+                    provider_id: "p-glm".into(),
+                    upstream_model: "glm-5.3".into(),
+                    label: None,
+                    supports_1m: false,
+                }],
+                default_target: DefaultTarget::ProviderId("p-glm".into()),
             }),
             ..Default::default()
-        };
+        });
 
         let hit = resolve_target(&db, "claude-desktop", &aggregate, "claude-sonnet-glm")
             .expect("hit");
@@ -517,7 +519,7 @@ proxy_model_routes 与 model_list_response 对聚合供应商走新分支；
     }
 ```
 
-> 若 `Provider` / `Database::memory()` / `save_provider` 的既有签名与本例不符，按仓库实际 API 调整测试构造，**不要**改动被测逻辑来迁就。
+> `db.save_provider` / `Database::memory()` 的签名以仓库既有测试为准（`provider_router.rs` 与 `claude_desktop_config.rs` 的 tests 里都有用法可参照）。
 
 - [ ] **Step 2: 运行确认失败**
 
@@ -676,20 +678,41 @@ aggregate_override，转发前据此改写 body.model；未命中走默认目标
 在 `src-tauri/src/services/provider/mod.rs` 的 tests 内追加：
 
 ```rust
+    /// 构造一个带聚合路由表的供应商（Provider 未 derive Default，用 with_id）
+    fn aggregate_provider(id: &str, routes: crate::aggregate::AggregateRoutes) -> Provider {
+        let mut provider = Provider::with_id(
+            id.to_string(),
+            "Aggregate".to_string(),
+            serde_json::json!({}),
+            None,
+        );
+        provider.meta = Some(ProviderMeta {
+            aggregate_routes: Some(routes),
+            ..Default::default()
+        });
+        provider
+    }
+
+    fn slot(route_id: &str, provider_id: &str) -> crate::aggregate::AggregateRouteSlot {
+        crate::aggregate::AggregateRouteSlot {
+            route_id: route_id.into(),
+            tier: crate::aggregate::AggregateTier::Sonnet,
+            provider_id: provider_id.into(),
+            upstream_model: "m".into(),
+            label: None,
+            supports_1m: false,
+        }
+    }
+
     #[test]
     fn validate_aggregate_rejects_empty_slots() {
-        let provider = Provider {
-            id: "agg".into(),
-            name: "Aggregate".into(),
-            meta: Some(ProviderMeta {
-                aggregate_routes: Some(crate::aggregate::AggregateRoutes {
-                    slots: vec![],
-                    default_target: crate::aggregate::DefaultTarget::ProviderId("x".into()),
-                }),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+        let provider = aggregate_provider(
+            "agg",
+            crate::aggregate::AggregateRoutes {
+                slots: vec![],
+                default_target: crate::aggregate::DefaultTarget::ProviderId("x".into()),
+            },
+        );
         let err = validate_provider_settings(&AppType::ClaudeDesktop, &provider)
             .expect_err("empty slots must be rejected");
         assert!(err.to_string().contains("槽位"), "unexpected error: {err}");
@@ -697,60 +720,41 @@ aggregate_override，转发前据此改写 body.model；未命中走默认目标
 
     #[test]
     fn validate_aggregate_rejects_self_reference() {
-        let provider = Provider {
-            id: "agg".into(),
-            name: "Aggregate".into(),
-            meta: Some(ProviderMeta {
-                aggregate_routes: Some(crate::aggregate::AggregateRoutes {
-                    slots: vec![crate::aggregate::AggregateRouteSlot {
-                        route_id: "claude-sonnet-agg".into(),
-                        tier: crate::aggregate::AggregateTier::Sonnet,
-                        provider_id: "agg".into(), // 指向自己
-                        upstream_model: "m".into(),
-                        label: None,
-                        supports_1m: false,
-                    }],
-                    default_target: crate::aggregate::DefaultTarget::ProviderId("agg".into()),
-                }),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+        let provider = aggregate_provider(
+            "agg",
+            crate::aggregate::AggregateRoutes {
+                slots: vec![slot("claude-sonnet-agg", "agg")], // 指向自己
+                default_target: crate::aggregate::DefaultTarget::ProviderId("agg".into()),
+            },
+        );
         let err = validate_provider_settings(&AppType::ClaudeDesktop, &provider)
             .expect_err("self reference must be rejected");
         assert!(err.to_string().contains("自身"), "unexpected error: {err}");
     }
 
     #[test]
-    fn validate_aggregate_rejects_duplicate_or_unsafe_route_ids() {
-        let slot = |route_id: &str| crate::aggregate::AggregateRouteSlot {
-            route_id: route_id.into(),
-            tier: crate::aggregate::AggregateTier::Sonnet,
-            provider_id: "p1".into(),
-            upstream_model: "m".into(),
-            label: None,
-            supports_1m: false,
-        };
-        let provider_with = |slots: Vec<crate::aggregate::AggregateRouteSlot>| Provider {
-            id: "agg".into(),
-            name: "Aggregate".into(),
-            meta: Some(ProviderMeta {
-                aggregate_routes: Some(crate::aggregate::AggregateRoutes {
-                    slots,
-                    default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
-                }),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
+    fn validate_aggregate_rejects_duplicate_route_ids() {
+        let provider = aggregate_provider(
+            "agg",
+            crate::aggregate::AggregateRoutes {
+                slots: vec![slot("claude-sonnet-a", "p1"), slot("claude-sonnet-a", "p1")],
+                default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
+            },
+        );
+        assert!(validate_provider_settings(&AppType::ClaudeDesktop, &provider).is_err());
+    }
 
-        // 重复 ID
-        let dup = provider_with(vec![slot("claude-sonnet-a"), slot("claude-sonnet-a")]);
-        assert!(validate_provider_settings(&AppType::ClaudeDesktop, &dup).is_err());
-
-        // 非法 ID（缺少角色前缀）—— 会被 Claude Desktop 整组拒收
-        let bad = provider_with(vec![slot("glm-5.3")]);
-        let err = validate_provider_settings(&AppType::ClaudeDesktop, &bad)
+    #[test]
+    fn validate_aggregate_rejects_unsafe_route_id() {
+        // 缺少角色前缀的 ID 会被 Claude Desktop 整组拒收
+        let provider = aggregate_provider(
+            "agg",
+            crate::aggregate::AggregateRoutes {
+                slots: vec![slot("glm-5.3", "p1")],
+                default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
+            },
+        );
+        let err = validate_provider_settings(&AppType::ClaudeDesktop, &provider)
             .expect_err("unsafe route id must be rejected");
         assert!(err.to_string().contains("槽位 ID"), "unexpected error: {err}");
     }

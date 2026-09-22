@@ -103,9 +103,9 @@ pub struct AggregateRoutes {
 
 **槽位 ID 自动生成**（用户不手填）：`claude-{tier}-{slug}`
 
-- `slug` 生成规则：取目标供应商名称 → 转小写 → 非字母数字字符替换为 `-` → 合并连续 `-` → 去除首尾 `-` → 截断到 20 字符；若结果为空则回落为供应商 id 的前 8 位
-  - 例：`智谱 GLM` → 名称无 ASCII 字母 → 回落为供应商 id 前缀；`DeepSeek-OTN` → `deepseek-otn`
-  - 中文名供应商一律走 id 回落（避免生成空 slug）
+- `slug` 生成规则：取目标供应商名称 → **只保留 ASCII 字母数字**（其余字符视作分隔符并合并）→ 转小写 → 去除首尾 `-` → 截断到 20 字符；**仅当结果为空时**（名称为纯非 ASCII）回落为供应商 id 的前 8 位
+  - 例：`DeepSeek-OTN` → `deepseek-otn`；`智谱 GLM` → `glm`（中文被跳过，ASCII 部分保留，可得可读 slug）；`月之暗面` → 纯非 ASCII、slug 为空 → 回落为 id 前缀
+  - ⚠️ 注意不是"含中文就回落"——只有**完全没有 ASCII 字母数字**时才回落
 - 冲突时追加序号：`claude-sonnet-deepseek-otn`、`claude-sonnet-deepseek-otn-2`
 - 生成的 ID 必须通过 `is_claude_safe_model_id` 校验（角色前缀 + 非空标识）
 

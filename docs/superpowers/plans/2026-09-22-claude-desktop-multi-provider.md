@@ -98,8 +98,10 @@ pub struct AggregateRoutes {
     pub default_target: DefaultTarget,
 }
 
-/// 供应商名称 → slug。规则：转小写 → 非字母数字替换为 '-' → 合并连续 '-' →
-/// 去首尾 '-' → 截断 20 字符。若结果为空（例如纯中文名），回落为 provider_id 前 8 位。
+/// 供应商名称 → slug。规则：**只保留 ASCII 字母数字**（其余字符视作分隔符并合并）→
+/// 转小写 → 去首尾 '-' → 截断 20 字符。**仅当结果为空**（名称为纯非 ASCII，如 "月之暗面"）
+/// 才回落为 provider_id 前 8 位。
+/// 注意："智谱 GLM" 的 ASCII 部分是 GLM → slug 为 "glm"，**不会**回落。
 pub fn slugify(provider_name: &str, provider_id: &str) -> String {
     let mut out = String::new();
     let mut last_dash = false;
@@ -155,9 +157,16 @@ mod tests {
     }
 
     #[test]
-    fn slugify_cjk_name_falls_back_to_provider_id_prefix() {
-        // 纯中文名没有任何 ASCII 字母数字，必须回落为 id 前缀，否则会生成空 slug
-        assert_eq!(slugify("智谱 GLM", "97a1d0df-b9a9"), "97a1d0df");
+    fn slugify_uses_ascii_part_of_mixed_name() {
+        // "智谱 GLM" 的 ASCII 部分是 GLM：非 ASCII 字符被跳过（不产生分隔符），
+        // 得到可读的 slug —— 不要误以为"含中文就回落"
+        assert_eq!(slugify("智谱 GLM", "97a1d0df-b9a9"), "glm");
+    }
+
+    #[test]
+    fn slugify_falls_back_to_provider_id_when_no_ascii() {
+        // 名称为纯非 ASCII 时 slug 为空，才回落为 provider id 前 8 位
+        assert_eq!(slugify("月之暗面", "97a1d0df-b9a9"), "97a1d0df");
     }
 
     #[test]
@@ -201,7 +210,7 @@ Expected: 编译错误 —— `is_claude_safe_model_id` 若未 pub 会报私有�
 ```bash
 cargo test aggregate:: 2>&1 | tail -12
 ```
-Expected: `test result: ok. 5 passed`
+Expected: `test result: ok. 6 passed`
 
 - [ ] **Step 4: 提交**
 
@@ -903,8 +912,12 @@ describe("slugify", () => {
     expect(slugify("OpenCode Go", "abc12345")).toBe("opencode-go");
   });
 
-  it("纯中文名回落为 provider id 前缀", () => {
-    expect(slugify("智谱 GLM", "97a1d0df-b9a9")).toBe("97a1d0df");
+  it("混合名取 ASCII 部分", () => {
+    expect(slugify("智谱 GLM", "97a1d0df-b9a9")).toBe("glm");
+  });
+
+  it("纯非 ASCII 名回落为 provider id 前缀", () => {
+    expect(slugify("月之暗面", "97a1d0df-b9a9")).toBe("97a1d0df");
   });
 
   it("截断并清理首尾分隔符", () => {
@@ -947,9 +960,9 @@ describe("assignSlotIds", () => {
       },
       providers,
     );
-    // "智谱 GLM" 无 ASCII 字母数字 → slug 回落为 id 前缀 "p-glm"
-    expect(next.slots[0].routeId).toBe("claude-sonnet-p-glm");
-    expect(next.slots[1].routeId).toBe("claude-sonnet-p-ds-2");
+    // "DeepSeek-OTN" → slug "deepseek-otn"；第二条同供应商 → 追加编号
+    expect(next.slots[0].routeId).toBe("claude-sonnet-deepseek-otn");
+    expect(next.slots[1].routeId).toBe("claude-sonnet-deepseek-otn-2");
   });
 
   it("档位变化会改变 ID", () => {
@@ -962,7 +975,7 @@ describe("assignSlotIds", () => {
       },
       providers,
     );
-    expect(next.slots[0].routeId).toBe("claude-opus-p-ds");
+    expect(next.slots[0].routeId).toBe("claude-opus-deepseek-otn");
   });
 });
 ```

@@ -766,3 +766,87 @@ profile 依旧纹丝不动）。故「改完配置没重启 Claude Desktop 却�
 - 收尾：默认目标布局修复已提交（`d60cc905`，与已部署二进制一致）。
 
 槽位显示名仍是默认派生（"Claude Fable 1" 等）；如需自定义可在槽位编辑器填「显示名」。
+
+## 2026-09-23 用户反馈两问的根因（显示名 / 推理强度）
+
+用户验收后提出两点：①模型列表里只剩 `claude-opus-2[1m]` 这类名字，看不出实际调用
+哪家供应商的哪个模型；②推理强度既不显示也不能选。两者根因都在 **Claude Desktop
+按模型 ID 决定 UI**（app.asar 2.2553.1.0 逆向），不在 CC Switch 的代理逻辑。
+
+### 根因一：显示名 = `labelOverride` 缺失
+- `inferenceModels[]` 支持 `labelOverride`（schema 文案："Shown in the model picker.
+  Leave blank to auto-format from the ID."），我们的槽位没填显示名，CC Switch 便不写该键
+  （`claude_desktop_config.rs:291` `inference_model_json`），app 退回按 ID 自动格式化。
+- `[1m]` 变体的名字由基础条目的显式名派生（`JFt`），基础条目没有显式名时它连自动
+  格式化都拿不到 → **原样显示 ID**，即用户看到的 `claude-opus-2[1m]`。
+- 佐证：用户自己历史 profile（`bak-20260629`）就是 `{"name":"claude-opus-4-8",
+  "labelOverride":"glm-5.2"}`——**ID 用真模型名，labelOverride 写实际调用的模型**。
+
+### 根因二：推理强度控件由 `lPt(id)` 决定
+```js
+lPt = (id) => XNt[qAt(id)] ?? (ZNt.test(id) ? YNt : undefined)   // 都不中 → 没有强度控件
+XNt = { 精确表：claude-opus-4-6/4-7/4-8/5、claude-sonnet-4-5/4-6/5、claude-haiku-4-5 }
+ZNt = /^(?:claude-)?(?:fable|mythos)(?:-|$)/                     // 族正则 → YNt 通用阶梯
+YNt = { effortLevels:[low,medium,high,xhigh,max], recommended:high }
+```
+- 我们上一版的 ID（`claude-opus-1/2`）**两处都不中** → 该条模型没有强度控件；
+  而 `claude-fable-1/2` 命中族正则**反而有**（截图里 "Claude Fable 1  Max" 就是它）。
+- 佐证：main.log `[CCD] … thinking override on (effort max on claude-opus-5[1m])`
+  ——用户改用自造 ID 之前，用的是真 ID `claude-opus-5`，强度是好的。
+- 池内顺序：`4-8`/`4-7` 有 low…max（含 xhigh），`4-6` 只有 extended 开关；
+  不取 `opus-5`（`disallowThinkingDisabled`，会强制开思考）。
+- 另：profile 还支持顶层 `defaultModelEffort`（3p scope），本次未做（用户没要求）。
+
+### 修复
+- `aggregateRoutes.ts`：新增按档位的真 ID 池 `RECOGNIZED_IDS`，`slotId` 先取池、用尽
+  退回首序号方案；`slotLabel` 空值回落「供应商 · 上游模型」。
+- 表单保存时把空显示名落定（`ClaudeDesktopProviderForm` 提交处），保证 profile 每条
+  都带 `labelOverride`；槽位卡片与默认目标选项的占位文案同步。
+- 单测：`aggregateRoutes.test.ts` 20 个用例（含池/溢出唯一性——该用例当场抓到
+  `claude-sonnet-5` 与溢出值撞名，已把该 ID 移出池；厂商词与后端形状不变）。
+- 全量 vitest 与基线**失败集完全相同**（PiProviderForm×3 + App 集成×1，并发抖动，
+  单跑均通过），见下文验证记录。
+
+## 2026-09-23 新发现并修复：聚合路由漏掉 1M 变体（[1m] 后缀未剥离）
+
+**现象**：`claude-fable-1[1m]`（智谱槽位的 1M 变体）实际打到 **DeepSeek 的
+`deepseek-v4-pro`**；`claude-fable-1` 本体却正确落到智谱 `glm-5.3`。可稳定复现。
+
+**根因**（两层叠加，第二层把第一层变成了静默错路由）：
+1. `aggregate::resolve_target` 用 `slot.route_id == request_model` **精确比较**，
+   没有剥离 `[1m]` 标记 → 所有 1M 变体都「未命中槽位」→ 走默认目标。
+2. 未命中时 `aggregate_override = None`，转发层转而调用
+   `map_proxy_request_model(body, provider)`，而此时的 `provider` 已是**目标供应商**
+   （`forwarder.rs:1273`）→ 用目标供应商自己的路由表改写模型名。于是 1M 请求被
+   改成了另一家供应商的模型，且返回 200，**没有任何报错**。
+   （旧配置下默认目标恰好就是同一槽位，所以一直没暴露；本次 ID 池迁移让默认目标与
+   fable-1 分属两家，才显形。）
+
+**修复**：`resolve_target` 查找前剥离 `[1m]`（复用
+`strip_one_m_suffix_for_route_lookup`，改为 `pub(crate)`），并补回归测试
+`resolve_target_strips_one_m_marker_before_slot_lookup`（断言 1M 变体必须命中槽位、
+不得漏到默认目标；默认目标故意设成另一家供应商以便抓漏）。
+
+**观察（未改，留作后续）**：未命中槽位时「模型名不改写」的设计意图并未真正实现——
+转发层会拿目标供应商的路由表改写，或直接 `route_unknown` 报错。
+本次只修 [1m]（真实的静默错路由），未动兜底语义。
+
+### 2026-09-23 17:23 修复后复验（本机实测，证据来自 app 自身接口/日志）
+
+- profile：22 键不变；`inferenceModels` 四条均带 `labelOverride`（"Zhipu GLM · glm-5.3" 等）
+- `GET /v1/models` → `claude-fable-1/2`、`claude-opus-4-7/4-8`
+- 逐槽位真实请求（`proxy_request_logs` 归属，全部 200）：
+  · claude-fable-1        → glm-5.3        → Zhipu GLM
+  · claude-fable-2        → deepseek-v4-pro→ DeepSeek
+  · claude-opus-4-8       → glm-5.3-flash  → Zhipu GLM
+  · claude-opus-4-7       → deepseek-flash → DeepSeek
+  · **claude-fable-1[1m]**→ glm-5.3        → Zhipu GLM   ← 修复前是 deepseek-v4-pro
+- 当前会话仍在用旧 ID `claude-opus-2[1m]`：未命中槽位 → 走默认目标（claude-opus-4-7 槽位），
+  由目标供应商路由表映射为 deepseek-flash，200 不中断（重启 Claude Desktop 后自然换成新 ID）
+- 程序集校验：已安装 exe 与构建产物 md5 一致（a200fbd65fc42dd4bc3acc5ef1d41e93）；
+  前端资源名内嵌 ✓；不含官方 pubkey ✓
+- 测试：`cargo test --release --lib resolve_target` 4 passed（含新增 1M 回归测试）；
+  前端 `aggregateRoutes.test.ts` 20 passed；全量 vitest 失败集与基线相同（既存并发抖动）
+
+**待用户执行**：重启 Claude Desktop —— 它只在启动时读 profile，重启后选择器才显示
+「Zhipu GLM · glm-5.3」这类名字，opus 槽位才会出现推理强度档位。

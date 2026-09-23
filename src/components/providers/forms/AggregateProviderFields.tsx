@@ -51,6 +51,12 @@ export function AggregateProviderFields({
 }: Props) {
   const { t } = useTranslation();
 
+  // 显示名默认值要带上供应商名：同一个上游模型可能挂在两家供应商上，
+  // 只写模型名仍分不清实际调用的是哪一家。
+  const providerNameById = new Map(candidates.map((p) => [p.id, p.name]));
+  const labelOf = (slot: (typeof value.slots)[number]) =>
+    slotLabel(slot, providerNameById.get(slot.providerId));
+
   // 每次变更都重算所有槽位 ID：保证「预览 = 实际提交值」。
   // assignSlotIds 会按档位从零重编号，并让引用槽位 ID 的默认目标按位置跟随，
   // 故改档位/增删槽位后引用不会悬空（目标槽位被删则保持原值，交由保存校验拦截）。
@@ -128,7 +134,7 @@ export function AggregateProviderFields({
                 key={s.routeId || `slot-${index}`}
                 value={`slot:${s.routeId}`}
               >
-                {slotLabel(s)} ({s.routeId})
+                {labelOf(s)} ({s.routeId})
               </SelectItem>
             ))}
           </SelectContent>
@@ -236,9 +242,10 @@ export function AggregateProviderFields({
                 <Label className="text-xs">{t("aggregate.displayName")}</Label>
                 <ImeSafeInput
                   className="h-8"
-                  placeholder={slotLabel(slot)}
+                  placeholder={labelOf(slot)}
                   value={slot.label ?? ""}
-                  // 空显示名回落为 undefined（省略该键），后端视同未填写。
+                  // 留空则不落库；提交时由表单统一补成「供应商 · 上游模型」
+                  // （见 ClaudeDesktopProviderForm 的提交处），故这里存空串即可。
                   onValueChange={(v) =>
                     setSlot(index, { label: v.trim() ? v : undefined })
                   }

@@ -44,7 +44,11 @@ import type {
   ProviderMeta,
 } from "@/types";
 import { useProvidersQuery } from "@/lib/query/queries";
-import { assignSlotIds, isAggregateProvider } from "@/utils/aggregateRoutes";
+import {
+  assignSlotIds,
+  isAggregateProvider,
+  slotLabel,
+} from "@/utils/aggregateRoutes";
 import type { OpenClawSuggestedDefaults } from "@/config/openclawProviderPresets";
 import {
   CLAUDE_DESKTOP_ROLE_ROUTE_IDS,
@@ -920,7 +924,19 @@ export function ClaudeDesktopProviderForm({
 
     // 开关打开时写入聚合路由表；关闭时彻底移除，保证普通供应商的 meta 不变。
     if (aggregateRoutes) {
-      meta.aggregateRoutes = aggregateRoutes;
+      // 空显示名在这里落成默认值「供应商 · 上游模型」：profile 里每条都要带上
+      // labelOverride，留空的话 Claude Desktop 会退回按 ID 自动格式化，
+      // 选择器里只剩 claude-opus-2[1m] 这种看不出实际调用哪家模型的名字。
+      const providerNameById = new Map(
+        aggregateCandidates.map((provider) => [provider.id, provider.name]),
+      );
+      meta.aggregateRoutes = {
+        ...aggregateRoutes,
+        slots: aggregateRoutes.slots.map((slot) => ({
+          ...slot,
+          label: slotLabel(slot, providerNameById.get(slot.providerId)),
+        })),
+      };
     } else {
       delete meta.aggregateRoutes;
     }

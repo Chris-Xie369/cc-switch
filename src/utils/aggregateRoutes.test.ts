@@ -1,28 +1,87 @@
 import { describe, expect, it } from "vitest";
-import { assignSlotIds, canSaveAggregateRoutes, slotId } from "./aggregateRoutes";
+import {
+  assignSlotIds,
+  canSaveAggregateRoutes,
+  slotId,
+  slotLabel,
+} from "./aggregateRoutes";
+
+const TIERS = ["sonnet", "opus", "haiku", "fable"] as const;
 
 describe("slotId", () => {
-  it("只由档位与序号构成", () => {
-    expect(slotId("sonnet", 1)).toBe("claude-sonnet-1");
-    expect(slotId("fable", 2)).toBe("claude-fable-2");
+  it("优先取 Claude Desktop 认得的真实 ID（推理强度控件只认这些）", () => {
+    expect(slotId("opus", 1)).toBe("claude-opus-4-8");
+    expect(slotId("opus", 2)).toBe("claude-opus-4-7");
+    expect(slotId("sonnet", 1)).toBe("claude-sonnet-4-6");
+    expect(slotId("haiku", 1)).toBe("claude-haiku-4-5");
+  });
+
+  it("fable 族按序号生成（该族走正则，任意序号都有强度阶梯）", () => {
+    expect(slotId("fable", 1)).toBe("claude-fable-1");
+    expect(slotId("fable", 7)).toBe("claude-fable-7");
+  });
+
+  it("池子用尽后退回 claude-{档位}-{序号}", () => {
+    expect(slotId("haiku", 2)).toBe("claude-haiku-2");
+    expect(slotId("sonnet", 4)).toBe("claude-sonnet-4");
+    expect(slotId("opus", 4)).toBe("claude-opus-4");
+  });
+
+  it("同档位的 ID 互不相同（池内 + 溢出混合）", () => {
+    // 池里若混进 claude-{档位}-{数字} 形状的 ID，就会和溢出生成值撞名，
+    // 两条槽位同 ID 会被后端去重吃掉一条（claude-sonnet-5 踩过）。
+    for (const tier of TIERS) {
+      const ids = Array.from({ length: 20 }, (_, i) => slotId(tier, i + 1));
+      expect(new Set(ids).size).toBe(ids.length);
+    }
   });
 
   it("ID 里绝不出现供应商名（厂商词会让 Claude Desktop 整组丢弃模型列表）", () => {
-    // 实测（Claude Desktop 2.2553.1.0，看门狗日志已确证）：模型列表里凡是名字含
+    // 实测（Claude Desktop 2.2553.1.0，main.log 已确证）：模型列表里凡是名字含
     // deepseek/glm/kimi/gpt/qwen/gemini… 这类**厂商词**的条目，都会被判为
     // "is not an Anthropic model" 从列表移除。旧方案 claude-{tier}-{供应商名 slug}
     // 恰好撞上这条黑名单（claude-fable-deepseek、claude-fable-zhipu-glm），
     // 四个槽位被删光、选择器变空。ID 必须与供应商名无关，可读性交给「显示名」。
-    for (const tier of ["sonnet", "opus", "haiku", "fable"] as const) {
-      const id = slotId(tier, 1);
-      expect(id).toBe(`claude-${tier}-1`);
-      expect(id).not.toMatch(/deepseek|glm|kimi|gpt|gemini|qwen/i);
+    for (const tier of TIERS) {
+      for (let ordinal = 1; ordinal <= 20; ordinal += 1) {
+        expect(slotId(tier, ordinal)).not.toMatch(
+          /deepseek|glm|kimi|gpt|gemini|qwen/i,
+        );
+      }
     }
   });
 
   it("产物满足后端 is_claude_safe_model_id 形状", () => {
     // claude-{sonnet|opus|haiku|fable}-{非空}
-    expect(slotId("haiku", 3)).toMatch(/^claude-haiku-.+$/);
+    for (const tier of TIERS) {
+      for (let ordinal = 1; ordinal <= 20; ordinal += 1) {
+        expect(slotId(tier, ordinal)).toMatch(
+          /^claude-(sonnet|opus|haiku|fable)-.+$/,
+        );
+      }
+    }
+  });
+});
+
+describe("slotLabel", () => {
+  it("显式显示名优先（去掉首尾空白）", () => {
+    expect(
+      slotLabel({ upstreamModel: "glm-5.3", label: "  智谱 GLM  " }, "智谱 GLM"),
+    ).toBe("智谱 GLM");
+  });
+
+  it("未填写时回落为「供应商 · 上游模型」", () => {
+    expect(slotLabel({ upstreamModel: "glm-5.3" }, "智谱 GLM")).toBe(
+      "智谱 GLM · glm-5.3",
+    );
+    expect(slotLabel({ upstreamModel: "glm-5.3", label: "   " }, "智谱 GLM")).toBe(
+      "智谱 GLM · glm-5.3",
+    );
+  });
+
+  it("缺任一侧时只显示存在的一侧", () => {
+    expect(slotLabel({ upstreamModel: "glm-5.3" })).toBe("glm-5.3");
+    expect(slotLabel({ upstreamModel: "  " }, "智谱 GLM")).toBe("智谱 GLM");
   });
 });
 
@@ -75,7 +134,7 @@ describe("assignSlotIds", () => {
     defaultTarget: { kind: "providerId" as const, value: "p-glm" },
   };
 
-  it("按档位分别编号：同档第 1、2 个得到 -1、-2", () => {
+  it("按档位分别编号：同档第 1、2 个依次取该档 ID 池", () => {
     const next = assignSlotIds({
       ...base,
       slots: [
@@ -94,12 +153,12 @@ describe("assignSlotIds", () => {
       ],
     });
     expect(next.slots.map((s) => s.routeId)).toEqual([
-      "claude-sonnet-1",
-      "claude-sonnet-2",
+      "claude-sonnet-4-6",
+      "claude-sonnet-4-5",
     ]);
   });
 
-  it("不同档位各自从 1 开始", () => {
+  it("不同档位各自从池首开始", () => {
     const next = assignSlotIds({
       ...base,
       slots: [
@@ -109,9 +168,9 @@ describe("assignSlotIds", () => {
       ],
     });
     expect(next.slots.map((s) => s.routeId)).toEqual([
-      "claude-sonnet-1",
-      "claude-opus-1",
-      "claude-sonnet-2",
+      "claude-sonnet-4-6",
+      "claude-opus-4-8",
+      "claude-sonnet-4-5",
     ]);
   });
 
@@ -120,14 +179,14 @@ describe("assignSlotIds", () => {
       ...base,
       slots: [
         {
-          routeId: "claude-sonnet-1",
+          routeId: "claude-sonnet-4-6",
           tier: "opus",
           providerId: "p-ds",
           upstreamModel: "flash",
         },
       ],
     });
-    expect(next.slots[0].routeId).toBe("claude-opus-1");
+    expect(next.slots[0].routeId).toBe("claude-opus-4-8");
   });
 
   it("重算所有槽位，旧的 routeId 不会残留", () => {
@@ -149,8 +208,32 @@ describe("assignSlotIds", () => {
       ],
     });
     expect(next.slots.map((s) => s.routeId)).toEqual([
-      "claude-opus-1",
-      "claude-sonnet-1",
+      "claude-opus-4-8",
+      "claude-sonnet-4-6",
+    ]);
+  });
+
+  it("上一版序号方案（claude-opus-1）的存量 ID 会被迁移成池内 ID", () => {
+    const next = assignSlotIds({
+      ...base,
+      slots: [
+        {
+          routeId: "claude-opus-1",
+          tier: "opus",
+          providerId: "p-glm",
+          upstreamModel: "glm-5.3-flash",
+        },
+        {
+          routeId: "claude-opus-2",
+          tier: "opus",
+          providerId: "p-ds",
+          upstreamModel: "deepseek-flash",
+        },
+      ],
+    });
+    expect(next.slots.map((s) => s.routeId)).toEqual([
+      "claude-opus-4-8",
+      "claude-opus-4-7",
     ]);
   });
 

@@ -240,6 +240,49 @@ mod tests {
             .expect_err("missing target provider must error");
         assert_eq!(localized_key(&err), "aggregate.target_provider_missing");
     }
+
+    /// 1M 变体：槽位开了 `supports1m` 后，Claude Desktop 会生成 `<槽位 ID>[1m]` 的
+    /// 模型条目，用户选中它时请求里的 model 就带这个后缀。路由查找必须先剥离该标记，
+    /// 否则整批 1M 请求都会漏到默认目标，再由**目标供应商自己的路由表**改写模型名
+    /// ——表现为「选了 A 家的 1M 变体，实际打到 B 家的模型」（2026-09-23 本机实测：
+    /// `claude-fable-1[1m]` 被打到 DeepSeek 的 `deepseek-v4-pro`，而该槽位是智谱的
+    /// `glm-5.3`；默认目标写成另一家供应商，漏过去就会被断言抓到）。
+    #[tokio::test]
+    async fn resolve_target_strips_one_m_marker_before_slot_lookup() {
+        let db = crate::database::Database::memory().expect("db");
+        let target = crate::provider::Provider::with_id(
+            "p-glm".to_string(),
+            "GLM".to_string(),
+            serde_json::json!({}),
+            None,
+        );
+        let fallback = crate::provider::Provider::with_id(
+            "p-other".to_string(),
+            "Other".to_string(),
+            serde_json::json!({}),
+            None,
+        );
+        db.save_provider("claude-desktop", &target)
+            .expect("save target");
+        db.save_provider("claude-desktop", &fallback)
+            .expect("save fallback");
+
+        let aggregate = aggregate_with(
+            vec![slot_for("claude-fable-1", "p-glm", "glm-5.3")],
+            DefaultTarget::ProviderId("p-other".into()),
+        );
+
+        for requested in [
+            "claude-fable-1[1m]",
+            "claude-fable-1[1M] ",
+            "claude-fable-1 [1m]",
+        ] {
+            let hit = resolve_target(&db, "claude-desktop", &aggregate, requested)
+                .unwrap_or_else(|e| panic!("{requested} 应命中槽位: {e:?}"));
+            assert_eq!(hit.0.id, "p-glm", "{requested} 不应漏到默认目标");
+            assert_eq!(hit.1.as_deref(), Some("glm-5.3"), "{requested}");
+        }
+    }
 }
 
 /// 该供应商是否为聚合供应商。
@@ -306,6 +349,10 @@ pub fn aggregate_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRo
 /// - 命中槽位 → 返回该槽位的目标与上游模型
 /// - 未命中 → 返回默认目标，模型名不改写（None）
 /// - 默认目标也不可用 → 返回明确错误（不静默降级）
+///
+/// 查找前先剥离 `[1m]` 标记：槽位开了 `supports1m` 后，Claude Desktop 会给模型名
+/// 加上这个后缀再发请求。不剥离的话 1M 变体会整体漏到默认目标，并被目标供应商
+/// 自己的路由表改写模型名——「选 A 家的 1M 变体，实际打到 B 家的模型」。
 pub fn resolve_target(
     db: &crate::database::Database,
     app_type: &str,
@@ -324,9 +371,12 @@ pub fn resolve_target(
             )
         })?;
 
+    let requested =
+        crate::claude_desktop_config::strip_one_m_suffix_for_route_lookup(request_model);
+
     // 直接按持久化的槽位 ID 查表（ID 由前端编辑时生成并随表单提交，运行时不重新生成）
     for slot in &routes.slots {
-        if slot.route_id == request_model {
+        if slot.route_id == requested {
             let target = load_provider(db, app_type, &slot.provider_id)?;
             return Ok((target, Some(slot.upstream_model.clone())));
         }

@@ -797,7 +797,9 @@ pub fn map_proxy_request_model(mut body: Value, provider: &Provider) -> Result<V
     Ok(body)
 }
 
-fn strip_one_m_suffix_for_route_lookup(model: &str) -> &str {
+/// 剥离模型名尾部的 `[1m]` 标记（大小写不敏感，容忍分隔空白），供路由查找使用。
+/// 聚合路由的槽位查找也复用它（见 `aggregate::resolve_target`）。
+pub(crate) fn strip_one_m_suffix_for_route_lookup(model: &str) -> &str {
     let trimmed = model.trim();
     let marker = ONE_M_CONTEXT_MARKER.as_bytes();
     let bytes = trimmed.as_bytes();

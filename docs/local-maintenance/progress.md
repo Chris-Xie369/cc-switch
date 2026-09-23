@@ -873,3 +873,33 @@ typecheck ✓ / 26 单测 ✓ / prettier ✓。后端零改动。
 1. `de0051cf`：行尾槽位 ID 预览撤除（悬停 title 可查）；卡列表上方加共用列头。
 2. 列头挪进每张卡内（供应商行之下、档位行之上）——用户确认草图后实施；
    卡内共享内边距，列对齐由近似变精确。
+
+## 2026-09-24 上游同步：v3.20.3 → v3.20.4（merge `ab2d92f1`）
+
+**上游内容**：Linux 端 Claude Desktop 3P 支持（#7331）、Mcode 供应商、代理修复若干
+（Codex 转换 / Copilot stop / GPT-5.6 effort）、价格与预设更新。`main` 与 tag 一致。
+
+**补丁 A 仍必需**：核实 v3.20.4 的 `claude_desktop_config.rs:1007` 依旧是
+`write_json_file(&paths.profile_path, &profile)` 整份覆盖；PR #5417 仍未合并。
+
+**冲突 4 处**（其余全部自动合并，含 `claude_desktop_config.rs`、`services/provider/mod.rs`、
+`proxy/*`、i18n、`types.ts`）：
+- `Cargo.toml` / `Cargo.lock` / `tauri.conf.json`：机械改 `3.20.4-local`（补丁 C）；
+  updater 三处确认仍处于移除状态
+- `ProviderCard.tsx`：`onTest` 门控合并双方条件——上游加 `appId !== "mcode"`，
+  我方保留 `!isAggregateProvider(provider)`
+
+**测试**：`cargo test --release --lib` **2917 passed / 10 failed**——10 项与合并前
+账本记录的既有环境性失败**逐条一致**（model_pricing×5 读真实用户配置、hermes、
+端口 10048 被运行中的应用占用、symlink×2、commands::misc），**零新增**；
+多出的 61 个通过项即上游新测试。前端 typecheck ✓ / aggregate 26 例 ✓ /
+全量 vitest 的 8 项失败均为并发抖动（4 文件单独跑 88 例全过）。
+
+**部署与验收**：安装包 `CC Switch_3.20.4-local_x64-setup.exe`（md5 与应用一致、
+前端资源 `index-CCsR0JnK.js` 已嵌入、无官方 pubkey）。验收全部通过：
+- profile 22 键、`deploymentDisplayName` 存活；DB 槽位与 profile `inferenceModels`
+  **完全一致**（6 条：fable-1/2/3、opus-4-6/4-7/4-8）
+- 逐槽位真实请求 6/6 + `claude-fable-1[1m]` 全 200，归属正确
+  （fable-1→智谱 glm-5.3、fable-2→DeepSeek v4-pro、fable-3→Ark auto、
+   opus-4-6→Ark kimi-k2-8-preview、opus-4-7→DeepSeek flash、opus-4-8→智谱 flash）
+- main.log `picker = 6 (inferenceModels)` 零拒收警告

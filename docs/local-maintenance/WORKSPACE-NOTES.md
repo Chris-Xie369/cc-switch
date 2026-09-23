@@ -14,17 +14,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | 资产 | 位置 | 状态 |
 |---|---|---|
-| CC Switch 源码（本地 clone） | `src/`（本目录下） | 分支 `fix/profile-merge`，基线 tag `v3.20.3`；`upstream`=官方、`origin`=自己的 fork（[Chris-Xie369/cc-switch](https://github.com/Chris-Xie369/cc-switch)），**绝不推送到 upstream** |
+| CC Switch 源码（本地 clone） | `src/`（本目录下） | 分支 `fix/profile-merge`，基线 tag `v3.20.4`；`upstream`=官方、`origin`=自己的 fork（[Chris-Xie369/cc-switch](https://github.com/Chris-Xie369/cc-switch)），**绝不推送到 upstream** |
 | 上游同步 / 本地维护流程 | [UPSTREAM-SYNC.md](UPSTREAM-SYNC.md) | 补丁清单、merge 流程、冲突热点、构建与部署命令、推送通道的坑 |
 | 文档快照（异地备份） | `src/docs/local-maintenance/` | 本目录各文档的副本，随代码进了 fork。**改原件后需刷新快照**（命令见该目录 README） |
 | 本地部署脚本 | [tools/install-local.bat](tools/install-local.bat) | 覆盖安装到现有目录（必须经它，Git Bash 会转写参数） |
 | 修复设计 / 实施计划 | `src/docs/superpowers/specs|plans/` | 设计已获确认；计划含 8 个任务 |
 | **聚合供应商**（Claude Desktop 多供应商共存） | spec `2026-09-22-claude-desktop-multi-provider-design.md`、plan 同名 | 目的：一次启用多家 → 重启一次 → 在 Claude 模型列表里自由选用任意一家的模型。实现完成（补丁 E），待本机验收 |
 | 执行进度账本 | `src/.superpowers/sdd/progress.md` | 各任务状态、审查结论、环境坑记录 |
-| 本地构建产物 | `src/src-tauri/target/release/bundle/nsis/CC Switch_3.20.3-local_x64-setup.exe` | 已构建 |
-| 本机已安装版本 | `C:\Users\Jason\AppData\Local\Programs\CC Switch\` | **运行 3.20.3-local，验收通过**；官方 exe 备份为同目录 `cc-switch.exe.official-3.20.3` |
+| 本地构建产物 | `src/src-tauri/target/release/bundle/nsis/CC Switch_3.20.4-local_x64-setup.exe` | 已构建 |
+| 本机已安装版本 | `C:\Users\Jason\AppData\Local\Programs\CC Switch\` | **运行 3.20.4-local，验收通过**；官方 exe 备份为同目录 `cc-switch.exe.official-3.20.3` |
 | guard 守护进程 | `D:\Workspace\Claude Desktop\Code\Tmp\claude3p-profile-guard\` | 独立 git 仓库，**已卸载**（2026-09-20 20:04；overlay 存于同目录 `overlay-preserved-20260920.json`，需要时 `--install` 可恢复） |
-| Claude Desktop 3P profile | `%LOCALAPPDATA%\Claude-3p\configLibrary\00000000-0000-4000-8000-000000157210.json` | 22 键（无 guard 托管，由 CC Switch 3.20.3-local 的合并语义保护） |
+| Claude Desktop 3P profile | `%LOCALAPPDATA%\Claude-3p\configLibrary\00000000-0000-4000-8000-000000157210.json` | 22 键（无 guard 托管，由 CC Switch 3.20.4-local 的合并语义保护） |
 
 动手前先读 [doc/claude-desktop-3p-profile-overwrite-report.md](doc/claude-desktop-3p-profile-overwrite-report.md)（结论与证据）和 [doc/cc-switch-fix-brief.md](doc/cc-switch-fix-brief.md)（补丁与验证步骤），再看 `src/.superpowers/sdd/progress.md` 的当前进度。本文件只做导航，不替代它们。
 
@@ -65,7 +65,7 @@ guard（取差值恢复）──┘        （last-writer-wins）
 - **Windows GPO 注册表托管配置**——代价是应用进入「受组织管理」状态、部分设置变只读、需写 HKLM，为一个显示名属过度设计。
 - **补丁式方案（计划任务看门狗）**——**用户已明确拒绝**，已被上游 PR 路径取代。
 
-**当前状态**（核实于 2026-09-21）：PR #5417 `OPEN` / `MERGEABLE`，作者 huang-mian，自 2026-07-15 创建**仍未合并**；最新 release 仍是 `v3.20.3`（上游 `main` 已领先 15 个提交但未发版）。核实命令：
+**当前状态**（核实于 2026-09-24）：PR #5417 创建于 2026-07-15，**仍未合并**；最新 release 已是 `v3.20.4`（本工作区已同步），其 `claude_desktop_config.rs` 第 1007 行依旧是 `write_json_file(&paths.profile_path, &profile)` 整份覆盖 —— 补丁 A 仍然必需。核实命令：
 
 ```bash
 gh pr view 5417 --repo farion1231/cc-switch --json state,mergeable,title,updatedAt

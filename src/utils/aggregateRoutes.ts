@@ -1,4 +1,9 @@
-import type { AggregateRoutes, AggregateTier, Provider } from "@/types";
+import type {
+  AggregateRouteSlot,
+  AggregateRoutes,
+  AggregateTier,
+  Provider,
+} from "@/types";
 
 /**
  * 每个档位的 **Claude Desktop 认得**的真模型 ID 池，按优先级排列。
@@ -88,6 +93,61 @@ export function canSaveAggregateRoutes(
   return Boolean(
     routes && routes.slots.length > 0 && routes.defaultTarget?.value.trim(),
   );
+}
+
+/**
+ * 供应商卡内档位行的固定顺序（从强到弱）。槽位在 `slots[]` 里的持久化顺序
+ * 就是按这个序展平的（见 `flattenProviderGroups`），保证 ID 分配确定。
+ */
+export const TIER_ROW_ORDER: readonly AggregateTier[] = [
+  "fable",
+  "opus",
+  "sonnet",
+  "haiku",
+];
+
+/** 供应商卡的视图形状：一家供应商 + 各档位已映射的槽位（未映射的档位无键）。 */
+export interface ProviderTierRows {
+  providerId: string;
+  rows: Partial<Record<AggregateTier, AggregateRouteSlot>>;
+}
+
+/**
+ * 扁平槽位按供应商分组（编辑器渲染用）。卡序 = 供应商在列表里的首次出现顺序。
+ * 同供应商同档位的存量重复取首个——新的固定档位行 UI 造不出这种重复，此处仅
+ * 归一旧数据，编辑后保存即消失。
+ */
+export function groupSlotsByProvider(
+  slots: AggregateRouteSlot[],
+): ProviderTierRows[] {
+  const cards: ProviderTierRows[] = [];
+  const byProvider = new Map<string, ProviderTierRows>();
+  for (const slot of slots) {
+    let card = byProvider.get(slot.providerId);
+    if (!card) {
+      card = { providerId: slot.providerId, rows: {} };
+      byProvider.set(slot.providerId, card);
+      cards.push(card);
+    }
+    if (!card.rows[slot.tier]) {
+      card.rows[slot.tier] = slot;
+    }
+  }
+  return cards;
+}
+
+/** 卡序 × 档位序（`TIER_ROW_ORDER`）重建扁平槽位数组，未映射档位不产出。 */
+export function flattenProviderGroups(
+  cards: ProviderTierRows[],
+): AggregateRouteSlot[] {
+  return cards.flatMap((card) => {
+    const rows: AggregateRouteSlot[] = [];
+    for (const tier of TIER_ROW_ORDER) {
+      const slot = card.rows[tier];
+      if (slot) rows.push(slot);
+    }
+    return rows;
+  });
 }
 
 /** 为所有槽位重新生成 routeId（按档位分别编号），并让默认目标按位置跟随。

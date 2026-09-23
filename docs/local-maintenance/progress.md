@@ -850,3 +850,21 @@ YNt = { effortLevels:[low,medium,high,xhigh,max], recommended:high }
 
 **待用户执行**：重启 Claude Desktop —— 它只在启动时读 profile，重启后选择器才显示
 「Zhipu GLM · glm-5.3」这类名字，opus 槽位才会出现推理强度档位。
+
+## 2026-09-23 聚合编辑器改版：供应商卡 + 固定档位行（用户提出，方案 B）
+
+**两个改善点**：①「获取模型列表」按钮挤在「上游模型」标签行里，两列输入框错位；
+②同一供应商每个模型都要单独建槽。用户心智模型：一家供应商一张卡，卡内固定
+fable/opus/sonnet/haiku 四行，填了模型才算映射（「映射几个就有几个」）。
+
+**设计（已确认）**：数据层零改动——slots[] 仍扁平，分组是纯视图概念。卡头 =
+供应商 Select（排除他卡已用）+ 获取模型列表（每卡一次，缓存按供应商共享）+ 删卡；
+档位行 = 档名 | 上游模型输入（非空=映射，清空=移除）| 显示名（未映射置灰）| 1M
+开关（未映射置灰）| 槽位 ID 预览（固定宽，未映射留空保对齐）。空卡（选了供应商
+还没填模型）由 pendingProviders 本地状态记住。i18n：+addProvider
++upstreamModelPlaceholder，-addSlot -tier（ja/zh-TW 回落 en，不动）。
+
+**实现**：aggregateRoutes.ts 增 TIER_ROW_ORDER / groupSlotsByProvider /
+flattenProviderGroups（+6 单测：分组保序、重复归一取首、展平确定性、空列表、
+未映射不产出、行序常量）；AggregateProviderFields.tsx 全量重写渲染层。
+typecheck ✓ / 26 单测 ✓ / prettier ✓。后端零改动。

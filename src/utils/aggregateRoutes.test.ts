@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   assignSlotIds,
   canSaveAggregateRoutes,
+  flattenProviderGroups,
+  groupSlotsByProvider,
   slotId,
   slotLabel,
+  TIER_ROW_ORDER,
 } from "./aggregateRoutes";
 
 const TIERS = ["sonnet", "opus", "haiku", "fable"] as const;
@@ -66,7 +69,10 @@ describe("slotId", () => {
 describe("slotLabel", () => {
   it("显式显示名优先（去掉首尾空白）", () => {
     expect(
-      slotLabel({ upstreamModel: "glm-5.3", label: "  智谱 GLM  " }, "智谱 GLM"),
+      slotLabel(
+        { upstreamModel: "glm-5.3", label: "  智谱 GLM  " },
+        "智谱 GLM",
+      ),
     ).toBe("智谱 GLM");
   });
 
@@ -74,9 +80,9 @@ describe("slotLabel", () => {
     expect(slotLabel({ upstreamModel: "glm-5.3" }, "智谱 GLM")).toBe(
       "智谱 GLM · glm-5.3",
     );
-    expect(slotLabel({ upstreamModel: "glm-5.3", label: "   " }, "智谱 GLM")).toBe(
-      "智谱 GLM · glm-5.3",
-    );
+    expect(
+      slotLabel({ upstreamModel: "glm-5.3", label: "   " }, "智谱 GLM"),
+    ).toBe("智谱 GLM · glm-5.3");
   });
 
   it("缺任一侧时只显示存在的一侧", () => {
@@ -164,7 +170,12 @@ describe("assignSlotIds", () => {
       slots: [
         { routeId: "", tier: "sonnet", providerId: "p-ds", upstreamModel: "a" },
         { routeId: "", tier: "opus", providerId: "p-ds", upstreamModel: "b" },
-        { routeId: "", tier: "sonnet", providerId: "p-glm", upstreamModel: "c" },
+        {
+          routeId: "",
+          tier: "sonnet",
+          providerId: "p-glm",
+          upstreamModel: "c",
+        },
       ],
     });
     expect(next.slots.map((s) => s.routeId)).toEqual([
@@ -292,5 +303,70 @@ describe("assignSlotIds", () => {
       kind: "slotId",
       value: "claude-fable-gone",
     });
+  });
+});
+
+describe("groupSlotsByProvider / flattenProviderGroups", () => {
+  const slot = (
+    routeId: string,
+    tier: "fable" | "opus" | "sonnet" | "haiku",
+    providerId: string,
+    upstreamModel: string,
+  ) => ({ routeId, tier, providerId, upstreamModel });
+
+  it("卡序 = 供应商在扁平列表里的首次出现顺序（槽位交错也不乱）", () => {
+    const cards = groupSlotsByProvider([
+      slot("a", "fable", "p-glm", "glm-5.3"),
+      slot("b", "opus", "p-ds", "deepseek-flash"),
+      slot("c", "opus", "p-glm", "glm-5.3-flash"),
+    ]);
+    expect(cards.map((card) => card.providerId)).toEqual(["p-glm", "p-ds"]);
+    expect(Object.keys(cards[0].rows)).toEqual(["fable", "opus"]);
+    expect(cards[1].rows.opus?.upstreamModel).toBe("deepseek-flash");
+  });
+
+  it("同供应商同档位的存量重复取首个（新 UI 固定档位行造不出重复）", () => {
+    const cards = groupSlotsByProvider([
+      slot("keep", "opus", "p-glm", "glm-5.3"),
+      slot("drop", "opus", "p-glm", "glm-5.3-flash"),
+    ]);
+    expect(cards).toHaveLength(1);
+    expect(cards[0].rows.opus?.routeId).toBe("keep");
+  });
+
+  it("空列表得空卡片数组", () => {
+    expect(groupSlotsByProvider([])).toEqual([]);
+  });
+
+  it("展平按卡序 × 档位固定顺序重建（fable→opus→sonnet→haiku）", () => {
+    const flat = flattenProviderGroups([
+      { providerId: "p-ds", rows: { opus: slot("x", "opus", "p-ds", "d1") } },
+      {
+        providerId: "p-glm",
+        rows: {
+          haiku: slot("h", "haiku", "p-glm", "g3"),
+          fable: slot("f", "fable", "p-glm", "g1"),
+        },
+      },
+    ]);
+    expect(flat.map((s) => [s.providerId, s.tier])).toEqual([
+      ["p-ds", "opus"],
+      ["p-glm", "fable"],
+      ["p-glm", "haiku"],
+    ]);
+  });
+
+  it("未映射的档位不产生槽位（映射几个就有几个）", () => {
+    const flat = flattenProviderGroups([
+      {
+        providerId: "p-glm",
+        rows: { fable: slot("f", "fable", "p-glm", "g1") },
+      },
+    ]);
+    expect(flat).toHaveLength(1);
+  });
+
+  it("档位行序常量与卡片渲染一致", () => {
+    expect(TIER_ROW_ORDER).toEqual(["fable", "opus", "sonnet", "haiku"]);
   });
 });

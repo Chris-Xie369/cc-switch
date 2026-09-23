@@ -3275,6 +3275,7 @@
     "enable": "启用聚合路由",
     "title": "聚合供应商",
     "hint": "自身不存端点与密钥，按模型把请求分流到其他供应商。启用后需重启 Claude Desktop 生效。",
+    "tier": "档位",
     "targetProvider": "目标供应商",
     "upstreamModel": "上游模型",
     "upstreamModelPlaceholder": "留空 = 不映射该档",

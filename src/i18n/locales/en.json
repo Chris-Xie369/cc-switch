@@ -3275,6 +3275,7 @@
     "enable": "Enable aggregate routing",
     "title": "Aggregate provider",
     "hint": "Holds no endpoint or key; routes requests to other providers by model. Restart Claude Desktop after enabling.",
+    "tier": "Tier",
     "targetProvider": "Target provider",
     "upstreamModel": "Upstream model",
     "upstreamModelPlaceholder": "Leave empty to skip this tier",

@@ -220,6 +220,18 @@ export function AggregateProviderFields({
       </div>
 
       <div className="space-y-3">
+        {/* 列头（对齐「模型映射」表格的样式，2026-09-23 用户反馈）。
+            所有卡共用同一套列，放在卡列表上方一次即可。 */}
+        {cards.length > 0 && (
+          <div className="flex items-center gap-2 px-3 text-xs text-muted-foreground">
+            <span className="w-14 shrink-0">{t("aggregate.tier")}</span>
+            <span className="min-w-0 flex-1">
+              {t("aggregate.upstreamModel")}
+            </span>
+            <span className="min-w-0 flex-1">{t("aggregate.displayName")}</span>
+            <span className="shrink-0">{t("aggregate.supports1m")}</span>
+          </div>
+        )}
         {cards.map((card, cardIndex) => {
           const usedElsewhere = new Set(
             cards.filter((_, i) => i !== cardIndex).map((c) => c.providerId),
@@ -292,7 +304,13 @@ export function AggregateProviderFields({
                 const mapped = Boolean(slot?.upstreamModel.trim());
                 const switchId = `agg-1m-${cardIndex}-${tier}`;
                 return (
-                  <div key={tier} className="flex items-center gap-2">
+                  <div
+                    key={tier}
+                    className="flex items-center gap-2"
+                    // 槽位 ID 不占版面（2026-09-23 用户反馈：纯内部代号没必要常显），
+                    // 悬停可查——排查代理日志里的 request_model 时用得上
+                    title={slot?.routeId || undefined}
+                  >
                     <span className="w-14 shrink-0 text-xs text-muted-foreground">
                       {tier}
                     </span>
@@ -342,10 +360,6 @@ export function AggregateProviderFields({
                         {t("aggregate.supports1m")}
                       </Label>
                     </div>
-                    {/* 槽位 ID 预览占固定宽度，未映射行留空以保持各列对齐 */}
-                    <code className="w-28 shrink-0 truncate text-right text-[10px] text-muted-foreground">
-                      {slot?.routeId}
-                    </code>
                   </div>
                 );
               })}

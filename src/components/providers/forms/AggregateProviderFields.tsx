@@ -220,18 +220,6 @@ export function AggregateProviderFields({
       </div>
 
       <div className="space-y-3">
-        {/* 列头（对齐「模型映射」表格的样式，2026-09-23 用户反馈）。
-            所有卡共用同一套列，放在卡列表上方一次即可。 */}
-        {cards.length > 0 && (
-          <div className="flex items-center gap-2 px-3 text-xs text-muted-foreground">
-            <span className="w-14 shrink-0">{t("aggregate.tier")}</span>
-            <span className="min-w-0 flex-1">
-              {t("aggregate.upstreamModel")}
-            </span>
-            <span className="min-w-0 flex-1">{t("aggregate.displayName")}</span>
-            <span className="shrink-0">{t("aggregate.supports1m")}</span>
-          </div>
-        )}
         {cards.map((card, cardIndex) => {
           const usedElsewhere = new Set(
             cards.filter((_, i) => i !== cardIndex).map((c) => c.providerId),
@@ -294,6 +282,19 @@ export function AggregateProviderFields({
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
+              </div>
+
+              {/* 列头：紧贴供应商行、每卡一份（2026-09-23 用户确认的草图）。
+                  在卡内与行内容共享内边距，四列对齐是精确的。 */}
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="w-14 shrink-0">{t("aggregate.tier")}</span>
+                <span className="min-w-0 flex-1">
+                  {t("aggregate.upstreamModel")}
+                </span>
+                <span className="min-w-0 flex-1">
+                  {t("aggregate.displayName")}
+                </span>
+                <span className="shrink-0">{t("aggregate.supports1m")}</span>
               </div>
 
               {/* 固定四档行（从强到弱）。上游模型非空即映射该档，清空即移除；

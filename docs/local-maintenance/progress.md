@@ -903,3 +903,32 @@ typecheck ✓ / 26 单测 ✓ / prettier ✓。后端零改动。
   （fable-1→智谱 glm-5.3、fable-2→DeepSeek v4-pro、fable-3→Ark auto、
    opus-4-6→Ark kimi-k2-8-preview、opus-4-7→DeepSeek flash、opus-4-8→智谱 flash）
 - main.log `picker = 6 (inferenceModels)` 零拒收警告
+
+## 2026-09-24 「1M 行名字后缀」调查结案（结论：app 结构上不可达，接受现状）
+
+**现象**：Cowork 面的模型选择器里，1M 变体与基础模型**同名**，只靠副标题
+「1M context window」区分；Code 面的模型药丸则会显示 1M。
+
+**调查过程（三条路都试过）**：
+1. profile 里显式加 `X[1m]` 拼写 → 无效（app 在导入边界把 `X[1m]` 归一成
+   `{name:X, supports1m:true}`，折叠后不产生 `variantOf`）
+2. 摘掉 `inferenceModels` 测「动态发现」通道 → 运行中不重跑发现（要重启才触发）；
+   且发现通道解析器读的是 snake_case `supports_1m`（我们发的是 camelCase `supports1m`）
+3. 逆向新版 asar 找到根因：**`[1m]` 拼写在名字层面被显式排除**
+   ```js
+   // 折叠 X + X[1m] → 一条，且不产生 variantOf（1M 拼写被丢弃）
+   n = e => { let n = eC(e.id), r = n === e.id ? void 0 : t.get(n); return r && _Lt(r) && _Lt(e) ? r : void 0 }
+   return t ? (i.has(t) ? [] : (i.add(t), [{...t, supports1m: !0}])) : [e]
+   // 产生 variantOf 的入组函数显式排除 [1m]
+   function gLt(e){ return qo(e.id) && !e.id.endsWith("[1m]") ? `${e.name}\n${hLt(e)}` : void 0 }
+   ```
+   → 名字后缀只为「同族版本拼写」服务，`[1m]` 永远拿不到 `variantOf`。
+   即：**这是 Anthropic 的设计**（副标题即 1M 标记），非 CC Switch 缺陷。
+
+**副作用发现：Claude Desktop 已自动更新 2.2553.1.0 → 2.7032.0.0**（2026-09-24 08:31）。
+逐项复核新版 asar：厂商词黑名单、推理强度精确表、fable 族正则、选择器名字构造
+**全部与旧版逐字一致** → 我们的 ID 池与强度控件设计在新版依然成立。
+新版另引入「宿主模型目录」（`model-catalog: resolved … version 1061, surfaces
+[cowork, code, chat]`），与网关自定义模型无关。
+
+**结论**：接受现状（方案 A）。若要日后重开，先看上面第 3 条的代码证据。

@@ -123,6 +123,60 @@ mod tests {
         assert_eq!(routes[0].route_id, "claude-sonnet-1");
     }
 
+    #[test]
+    fn aggregate_model_routes_preserves_provider_grouped_order() {
+        // profile 的 inferenceModels 顺序 = Claude Desktop 选择器顺序。
+        // UI 提交时已按「供应商分组 × fable→opus→sonnet→haiku」展平 slots，后端必须
+        // 原样保留——按 route_id 字典序重排会把不同供应商的模型交错穿插
+        // （用户 2026-09-24 反馈：Zhipu/DeepSeek/Ark/OpenCode 的模型混在一起）。
+        let grouped = |provider_id: &str, tier: AggregateTier, route_id: &str, model: &str| {
+            AggregateRouteSlot {
+                route_id: route_id.to_string(),
+                tier,
+                provider_id: provider_id.to_string(),
+                upstream_model: model.to_string(),
+                label: None,
+                supports_1m: false,
+            }
+        };
+        let provider = aggregate_provider(vec![
+            grouped("p-zhipu", AggregateTier::Fable, "claude-fable-1", "glm-5.3"),
+            grouped("p-zhipu", AggregateTier::Opus, "claude-opus-4-8", "glm-5.3-flash"),
+            grouped("p-ds", AggregateTier::Fable, "claude-fable-2", "deepseek-v4-pro"),
+            grouped("p-ds", AggregateTier::Opus, "claude-opus-4-7", "deepseek-flash"),
+            grouped("p-ark", AggregateTier::Fable, "claude-fable-3", "kimi-k3"),
+            grouped("p-oc", AggregateTier::Sonnet, "claude-sonnet-4-5", "space-bunny-free"),
+        ]);
+
+        let routes = aggregate_model_routes(&provider).expect("routes");
+
+        let order: Vec<&str> = routes.iter().map(|r| r.route_id.as_str()).collect();
+        assert_eq!(
+            order,
+            vec![
+                "claude-fable-1",      // Zhipu
+                "claude-opus-4-8",     // Zhipu
+                "claude-fable-2",      // DeepSeek
+                "claude-opus-4-7",     // DeepSeek
+                "claude-fable-3",      // Ark
+                "claude-sonnet-4-5",   // OpenCode
+            ],
+            "必须保持供应商分组顺序，不能按 route_id 字典序重排"
+        );
+        // 字典序会把 sonnet 排到 opus 之前，正是要避免的交错
+        let mut lexical = order.clone();
+        lexical.sort_unstable();
+        assert_ne!(order, lexical, "本用例应能区分分组序与字典序");
+    }
+
+    #[test]
+    fn aggregate_model_routes_carries_tier_for_ordering() {
+        // tier 随槽位带出（供 profile 写入侧按档位强弱呈现），普通供应商路径恒为 None
+        let provider = aggregate_provider(vec![slot("claude-fable-1", "glm-5.3")]);
+        let routes = aggregate_model_routes(&provider).expect("routes");
+        assert_eq!(routes[0].tier.as_deref(), Some("sonnet")); // fixture 默认 sonnet
+    }
+
     #[tokio::test]
     async fn resolve_target_hits_slot_by_generated_id() {
         let db = crate::database::Database::memory().expect("db");
@@ -329,9 +383,17 @@ pub fn aggregate_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRo
                 .filter(|l| !l.is_empty())
                 .map(str::to_string),
             supports_1m: slot.supports_1m,
+            // 枚举带 serde(rename_all="lowercase")，序列化结果即 profile/前端用的
+            // 小写档位名（fable/opus/sonnet/haiku）
+            tier: serde_json::to_value(slot.tier)
+                .ok()
+                .and_then(|value| value.as_str().map(str::to_string)),
         });
     }
-    out.sort_by(|a, b| a.route_id.cmp(&b.route_id));
+    // 保持 slots 的既有顺序（UI 提交时已按「供应商分组 × 档位强弱」展平），让
+    // Claude Desktop 的选择器里同一家供应商的模型聚在一起、内部按 fable→opus→
+    // sonnet→haiku 排列。**不要**按 route_id 字典序重排——那会把不同供应商的
+    // 模型交错穿插（用户 2026-09-24 反馈）。去重仍按 route_id（重复只保留首次）。
     out.dedup_by(|a, b| a.route_id == b.route_id);
 
     if out.is_empty() {

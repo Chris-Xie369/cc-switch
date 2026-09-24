@@ -117,6 +117,10 @@ pub struct ResolvedModelRoute {
     pub upstream_model: String,
     pub label_override: Option<String>,
     pub supports_1m: bool,
+    /// 聚合路由的档位（fable/opus/sonnet/haiku）。`Some` 时按
+    /// 「供应商分组 × 档位强弱」排序写 profile，避免不同供应商的模型在
+    /// Claude Desktop 的选择器里交错；普通供应商无档位概念，恒为 `None`。
+    pub tier: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -648,6 +652,7 @@ pub fn proxy_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRoute>
                     (!is_claude_safe_model_id(route_id)).then(|| upstream_model.to_string())
                 }),
             supports_1m,
+            tier: None,
         });
     }
 

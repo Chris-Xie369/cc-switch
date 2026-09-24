@@ -1019,3 +1019,33 @@ fable 自造 ID 永远有（族正则）。故"把需要控件的模型挪到 fa
 
 **验证**：互换后 10 槽位全 200（claude-fable-4→mimo、claude-opus-4→qwen 实测归属正确）。
 定价数据 → doc/opencode-go-models.md；DB/profile 互换均带 .bak-swap-* 备份。
+
+## 2026-09-24 三个问题的答案 + 排序改造
+
+**① 模型列表顺序** = profile `inferenceModels` 数组顺序。后端原先在
+`aggregate_model_routes` 里 `sort_by(route_id)` 按 **ID 字典序**重排，把不同供应商
+的模型交错（用户反馈）。UI 提交时 `flattenProviderGroups` 已按
+「供应商卡序 × fable→opus→sonnet→haiku」展平 → **后端改为原样保留该顺序**（去重仍按
+route_id）。`ResolvedModelRoute` 增 `tier: Option<String>`（普通供应商恒 None，
+排序逻辑不变）。新测试 `aggregate_model_routes_preserves_provider_grouped_order`
+（含「本用例应能区分分组序与字典序」的自检断言）+ `…carries_tier_for_ordering`。
+`cargo test --release --lib aggregate::tests` 9 passed。
+
+**② 序号 1-9** 是 Claude Desktop 内置的 `quick_select: true` 固定模型集（官方给那几
+个 ID 编号以便快捷选择），**profile 无法控制**——ID 命中官方集合才有序号，自造 ID
+（如 claude-sonnet-4-5）就没有。不可扩充。
+
+**③ 默认目标 vs 默认模型**（两个不同概念，易混）：
+- 默认模型 = inferenceModels 第一条 = claude-fable-1；profile 另有
+  `alwaysStartWithDefaultModel` 控制「新会话是否从这里起步」（用户自己加的）
+- 默认目标 = 聚合路由的**兜底供应商**：请求模型未命中任何槽位时发给它、且不改模型名
+  （Claude 内部辅助调用/子代理会走这条）。当前 = DeepSeek，与手动选模型时的路由无关
+
+**附带修正**：`claude-opus-4-6` 的 label 缺「Ark Agent Plan · 」前缀（裸模型名），
+已归一为「供应商 · 模型」（备份 DB.bak-label-20260924_172737）。
+
+**maxEffort 封顶（重要维护项）**：为规避 mimo 系在 reasoning_effort=xhigh/max 时
+400（实测），给两个 mimo 槽位的 profile 条目写了 `maxEffort: "high"`——schema 文案
+「更高的档位会被隐藏、且永不被请求」，裁剪逻辑按它过滤滑块。
+**⚠️ CC Switch 保存供应商时不写该字段**（只写 name/labelOverride/supports1m），
+日后在 UI 里保存会抹掉 maxEffort，需重跑脚本或把它做进 CC Switch。

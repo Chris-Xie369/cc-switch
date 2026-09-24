@@ -558,6 +558,7 @@ mod tests {
                     supports_1m: false,
                 }],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("target".into()),
+                default_model: None,
             }),
             ..Default::default()
         });

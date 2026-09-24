@@ -1355,6 +1355,7 @@ mod tests {
                 default_target: crate::aggregate::DefaultTarget::ProviderId(
                     "default-target".to_string(),
                 ),
+                default_model: None,
             }),
             ..Default::default()
         });

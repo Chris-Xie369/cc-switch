@@ -2592,19 +2592,20 @@ mod tests {
                 },
             ],
             default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
+            default_model: None,
         });
 
         let routes = proxy_model_routes(&provider).expect("routes");
-        // 按 route_id 排序（与既有实现一致）
+        // 顺序保留 slots 的供应商分组序（2026-09-24 改造，不再按 route_id 字典序）
         assert_eq!(routes.len(), 2);
-        assert_eq!(routes[0].route_id, "claude-haiku-1");
-        assert_eq!(routes[0].upstream_model, "deepseek-flash");
-        assert_eq!(routes[0].label_override, None);
-        assert!(!routes[0].supports_1m);
-        assert_eq!(routes[1].route_id, "claude-sonnet-1");
-        assert_eq!(routes[1].upstream_model, "glm-5.3");
-        assert_eq!(routes[1].label_override.as_deref(), Some("智谱 GLM-5.3"));
-        assert!(routes[1].supports_1m);
+        assert_eq!(routes[0].route_id, "claude-sonnet-1");
+        assert_eq!(routes[0].upstream_model, "glm-5.3");
+        assert_eq!(routes[0].label_override.as_deref(), Some("智谱 GLM-5.3"));
+        assert!(routes[0].supports_1m);
+        assert_eq!(routes[1].route_id, "claude-haiku-1");
+        assert_eq!(routes[1].upstream_model, "deepseek-flash");
+        assert_eq!(routes[1].label_override, None);
+        assert!(!routes[1].supports_1m);
     }
 
     /// 构造一个仅带聚合路由表、`settings_config` 为空对象的供应商（无端点无凭据）。
@@ -2626,6 +2627,7 @@ mod tests {
                     supports_1m: false,
                 }],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
+                default_model: None,
             }),
             ..Default::default()
         });

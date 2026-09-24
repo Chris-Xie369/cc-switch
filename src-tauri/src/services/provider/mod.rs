@@ -1713,6 +1713,7 @@ GEMINI_TIMEOUT_MS=30000
             crate::aggregate::AggregateRoutes {
                 slots: vec![],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("x".into()),
+                default_model: None,
             },
         );
         let err = ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
@@ -1727,6 +1728,7 @@ GEMINI_TIMEOUT_MS=30000
             crate::aggregate::AggregateRoutes {
                 slots: vec![slot("claude-sonnet-agg", "agg")], // 指向自己
                 default_target: crate::aggregate::DefaultTarget::ProviderId("agg".into()),
+                default_model: None,
             },
         );
         let err = ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
@@ -1741,6 +1743,7 @@ GEMINI_TIMEOUT_MS=30000
             crate::aggregate::AggregateRoutes {
                 slots: vec![slot("claude-sonnet-a", "p1"), slot("claude-sonnet-a", "p1")],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
+                default_model: None,
             },
         );
         assert!(
@@ -1756,6 +1759,7 @@ GEMINI_TIMEOUT_MS=30000
             crate::aggregate::AggregateRoutes {
                 slots: vec![slot("glm-5.3", "p1")],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
+                default_model: None,
             },
         );
         let err = ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
@@ -1773,6 +1777,7 @@ GEMINI_TIMEOUT_MS=30000
             crate::aggregate::AggregateRoutes {
                 slots: vec![bad_target],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
+                default_model: None,
             },
         );
         let err = ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
@@ -1786,6 +1791,7 @@ GEMINI_TIMEOUT_MS=30000
             crate::aggregate::AggregateRoutes {
                 slots: vec![bad_model],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
+                default_model: None,
             },
         );
         let err = ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
@@ -1800,6 +1806,7 @@ GEMINI_TIMEOUT_MS=30000
             crate::aggregate::AggregateRoutes {
                 slots: vec![slot("claude-sonnet-1", "p1"), slot("claude-opus-1", "p1")],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
+                default_model: None,
             },
         );
         ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
@@ -1814,6 +1821,7 @@ GEMINI_TIMEOUT_MS=30000
             crate::aggregate::AggregateRoutes {
                 slots: vec![slot("claude-sonnet-1", "p1")],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("   ".into()),
+                default_model: None,
             },
         );
         let err = ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
@@ -1840,6 +1848,7 @@ GEMINI_TIMEOUT_MS=30000
                 default_target: crate::aggregate::DefaultTarget::SlotId(
                     "claude-opus-gone".into(),
                 ),
+                default_model: None,
             },
         );
         let err = ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
@@ -1866,6 +1875,7 @@ GEMINI_TIMEOUT_MS=30000
                 default_target: crate::aggregate::DefaultTarget::SlotId(
                     "claude-sonnet-1".into(),
                 ),
+                default_model: None,
             },
         );
         ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
@@ -1895,6 +1905,7 @@ GEMINI_TIMEOUT_MS=30000
                 crate::aggregate::AggregateRoutes {
                     slots: vec![slot("claude-sonnet-1", "p-glm")],
                     default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
+                    default_model: None,
                 },
             );
             state
@@ -1907,6 +1918,7 @@ GEMINI_TIMEOUT_MS=30000
                 crate::aggregate::AggregateRoutes {
                     slots: vec![slot("claude-sonnet-nested", "target-agg")],
                     default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
+                    default_model: None,
                 },
             );
             let err = ProviderService::add(state, AppType::ClaudeDesktop, nested, false)
@@ -1939,6 +1951,7 @@ GEMINI_TIMEOUT_MS=30000
                 crate::aggregate::AggregateRoutes {
                     slots: vec![slot("claude-sonnet-target", "target")],
                     default_target: crate::aggregate::DefaultTarget::ProviderId("target".into()),
+                    default_model: None,
                 },
             );
             ProviderService::add(state, AppType::ClaudeDesktop, agg, false)
@@ -1950,6 +1963,7 @@ GEMINI_TIMEOUT_MS=30000
                 crate::aggregate::AggregateRoutes {
                     slots: vec![slot("claude-sonnet-other", "other")],
                     default_target: crate::aggregate::DefaultTarget::ProviderId("other".into()),
+                    default_model: None,
                 },
             );
             let err = ProviderService::update(
@@ -1997,6 +2011,7 @@ GEMINI_TIMEOUT_MS=30000
                 crate::aggregate::AggregateRoutes {
                     slots: vec![slot("claude-sonnet-target", "target")],
                     default_target: crate::aggregate::DefaultTarget::ProviderId("target".into()),
+                    default_model: None,
                 },
             );
             state

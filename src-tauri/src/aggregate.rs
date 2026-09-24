@@ -50,6 +50,11 @@ pub enum DefaultTarget {
 pub struct AggregateRoutes {
     pub slots: Vec<AggregateRouteSlot>,
     pub default_target: DefaultTarget,
+    /// 默认模型（槽位 routeId）：写 profile 时置顶到 inferenceModels 首位
+    /// —— Claude Desktop 认第一条为默认模型、启动新会话从它起步。
+    /// None（含旧数据，serde default）= 跟随排序首位，行为同 v3 之前。
+    #[serde(default)]
+    pub default_model: Option<String>,
 }
 
 #[cfg(test)]
@@ -78,6 +83,7 @@ mod tests {
             aggregate_routes: Some(AggregateRoutes {
                 slots,
                 default_target: DefaultTarget::ProviderId("p-target".to_string()),
+                default_model: None,
             }),
             ..Default::default()
         });
@@ -177,6 +183,67 @@ mod tests {
         assert_eq!(routes[0].tier.as_deref(), Some("sonnet")); // fixture 默认 sonnet
     }
 
+    #[test]
+    fn aggregate_model_routes_pins_default_model_to_front() {
+        // defaultModel 命中槽位 → 该槽置顶（inferenceModels 第一条 = Claude Desktop
+        // 的默认模型），其余保持供应商分组序
+        let grouped = |provider_id: &str, tier: AggregateTier, route_id: &str, model: &str| {
+            AggregateRouteSlot {
+                route_id: route_id.to_string(),
+                tier,
+                provider_id: provider_id.to_string(),
+                upstream_model: model.to_string(),
+                label: None,
+                supports_1m: false,
+            }
+        };
+        let slots = vec![
+            grouped("p-zhipu", AggregateTier::Fable, "claude-fable-1", "glm-5.3"),
+            grouped("p-ds", AggregateTier::Fable, "claude-fable-2", "deepseek-v4-pro"),
+            grouped("p-ds", AggregateTier::Opus, "claude-opus-4-7", "deepseek-flash"),
+        ];
+        let mut provider = aggregate_provider(slots);
+        if let Some(routes) = provider.meta.as_mut().unwrap().aggregate_routes.as_mut() {
+            routes.default_model = Some("claude-opus-4-7".to_string());
+        }
+
+        let routes = aggregate_model_routes(&provider).expect("routes");
+        let order: Vec<&str> = routes.iter().map(|r| r.route_id.as_str()).collect();
+        assert_eq!(order, vec!["claude-opus-4-7", "claude-fable-1", "claude-fable-2"]);
+    }
+
+    #[test]
+    fn aggregate_model_routes_ignores_dangling_default_model() {
+        // 引用已删除的槽位 → 静默忽略、顺序不变（只影响启动默认，不影响路由）
+        let provider = aggregate_provider(vec![
+            slot("claude-sonnet-1", "glm-5.3"),
+            slot("claude-sonnet-2", "glm-5.3-flash"),
+        ]);
+        let mut provider = provider;
+        if let Some(routes) = provider.meta.as_mut().unwrap().aggregate_routes.as_mut() {
+            routes.default_model = Some("claude-sonnet-gone".to_string());
+        }
+
+        let routes = aggregate_model_routes(&provider).expect("routes");
+        let order: Vec<&str> = routes.iter().map(|r| r.route_id.as_str()).collect();
+        assert_eq!(order, vec!["claude-sonnet-1", "claude-sonnet-2"]);
+    }
+
+    #[test]
+    fn aggregate_routes_deserializes_without_default_model() {
+        // 旧数据无 defaultModel 字段 → serde default 反序列化为 None，零迁移
+        let legacy = serde_json::json!({
+            "slots": [{
+                "routeId": "claude-sonnet-1", "tier": "sonnet",
+                "providerId": "p1", "upstreamModel": "glm-5.3",
+            }],
+            "defaultTarget": {"kind": "providerId", "value": "p1"},
+        });
+        let routes: AggregateRoutes = serde_json::from_value(legacy).expect("legacy json");
+        assert!(routes.default_model.is_none());
+        assert_eq!(routes.slots.len(), 1);
+    }
+
     #[tokio::test]
     async fn resolve_target_hits_slot_by_generated_id() {
         let db = crate::database::Database::memory().expect("db");
@@ -206,6 +273,7 @@ mod tests {
                     supports_1m: false,
                 }],
                 default_target: DefaultTarget::ProviderId("p-glm".into()),
+                default_model: None,
             }),
             ..Default::default()
         });
@@ -257,6 +325,7 @@ mod tests {
             aggregate_routes: Some(AggregateRoutes {
                 slots,
                 default_target,
+                default_model: None,
             }),
             ..Default::default()
         });
@@ -395,6 +464,16 @@ pub fn aggregate_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRo
     // sonnet→haiku 排列。**不要**按 route_id 字典序重排——那会把不同供应商的
     // 模型交错穿插（用户 2026-09-24 反馈）。去重仍按 route_id（重复只保留首次）。
     out.dedup_by(|a, b| a.route_id == b.route_id);
+    // 默认模型置顶：Claude Desktop 认 inferenceModels 第一条为默认模型。引用
+    // 悬空（槽已删/ID 改名）时静默忽略、保持原序——只影响启动默认，不影响路由。
+    if let Some(default_model) = routes.default_model.as_deref().map(str::trim) {
+        if !default_model.is_empty() {
+            if let Some(pos) = out.iter().position(|route| route.route_id == default_model) {
+                let pinned = out.remove(pos);
+                out.insert(0, pinned);
+            }
+        }
+    }
 
     if out.is_empty() {
         return Err(AppError::localized(

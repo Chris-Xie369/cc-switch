@@ -145,6 +145,9 @@ export type DefaultTarget =
 export interface AggregateRoutes {
   slots: AggregateRouteSlot[];
   defaultTarget: DefaultTarget;
+  /** 默认模型（槽位 routeId）：写 profile 时置顶（第一条 = Claude Desktop 的启动默认）。
+   *  未设置 = 跟随排序首位。旧数据无此字段。 */
+  defaultModel?: string;
 }
 
 export type CodexChatThinkingParam =

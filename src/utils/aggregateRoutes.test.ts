@@ -370,3 +370,62 @@ describe("groupSlotsByProvider / flattenProviderGroups", () => {
     expect(TIER_ROW_ORDER).toEqual(["fable", "opus", "sonnet", "haiku"]);
   });
 });
+
+describe("assignSlotIds · defaultModel 跟随", () => {
+  const base = {
+    defaultTarget: { kind: "providerId" as const, value: "p-glm" },
+  };
+
+  it("引用的槽位重编号后按位置跟随", () => {
+    const next = assignSlotIds({
+      ...base,
+      defaultModel: "claude-opus-deepseek",
+      slots: [
+        {
+          routeId: "claude-fable-zhipu-glm",
+          tier: "fable",
+          providerId: "p-glm",
+          upstreamModel: "glm-5.3",
+        },
+        {
+          routeId: "claude-opus-deepseek",
+          tier: "opus",
+          providerId: "p-ds",
+          upstreamModel: "deepseek-flash",
+        },
+      ],
+    });
+    expect(next.defaultModel).toBe("claude-opus-4-8");
+  });
+
+  it("引用的槽位被删时置空（回落到排序首位）", () => {
+    const next = assignSlotIds({
+      ...base,
+      defaultModel: "claude-fable-gone",
+      slots: [
+        {
+          routeId: "claude-sonnet-1",
+          tier: "sonnet",
+          providerId: "p-ds",
+          upstreamModel: "a",
+        },
+      ],
+    });
+    expect(next.defaultModel).toBeUndefined();
+  });
+
+  it("未设置时保持未设置", () => {
+    const next = assignSlotIds({
+      ...base,
+      slots: [
+        {
+          routeId: "claude-sonnet-1",
+          tier: "sonnet",
+          providerId: "p-ds",
+          upstreamModel: "a",
+        },
+      ],
+    });
+    expect(next.defaultModel).toBeUndefined();
+  });
+});

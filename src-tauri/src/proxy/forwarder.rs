@@ -33,6 +33,7 @@ use bytes::Bytes;
 use futures::StreamExt;
 use http::Extensions;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tauri::Manager;
 use tokio::sync::RwLock;
@@ -52,6 +53,53 @@ fn codex_bearer_access_token(headers: &http::HeaderMap) -> Option<&str> {
         return None;
     }
     Some(token)
+}
+
+/// 上游是否属于 OpenCode 网关（opencode.ai）。
+///
+/// 该网关（<https://opencode.ai/docs/go/>）对客户端有三条要求：发典型
+/// coding-agent 流量、**自带 User-Agent 标识自己**、以及**每个对话在
+/// `x-opencode-session` 里带稳定会话 ID**；缺会话头直接 400 `MissingSessionID`
+/// （本机实测 2026-09-24）。Claude Code / Codex 自带 Go 认得的原生会话头，
+/// Claude Desktop 没有，故由代理补上（见 `forward` 内的注入处）。
+fn is_opencode_upstream(upstream_host: Option<&str>) -> bool {
+    upstream_host
+        .map(|host| {
+            let host = host.rsplit_once(':').map_or(host, |(h, _)| h);
+            host.trim_matches(['[', ']']).to_ascii_lowercase()
+        })
+        .is_some_and(|host| host == "opencode.ai" || host.ends_with(".opencode.ai"))
+}
+
+/// 由请求体推导**同一对话内稳定**的会话指纹：摘要 system + 首条 user 消息。
+///
+/// OpenCode Go 的会话 ID 服务于上游路由与提示缓存，要求「每个对话一个稳定值」；
+/// 而 Claude Desktop 的请求在 CC Switch 里每个都会生成新 ID（不稳定）。用对话
+/// 前缀做指纹既满足稳定性，又不会把不同对话混成一个会话。
+fn conversation_fingerprint(body: &Value) -> Option<String> {
+    let mut hasher = Sha256::new();
+    let mut fed = false;
+    if let Some(system) = body.get("system") {
+        hasher.update(system.to_string().as_bytes());
+        fed = true;
+    }
+    if let Some(first_user) = body
+        .get("messages")
+        .and_then(Value::as_array)
+        .and_then(|messages| {
+            messages
+                .iter()
+                .find(|m| m.get("role").and_then(Value::as_str) == Some("user"))
+        })
+    {
+        hasher.update(first_user.to_string().as_bytes());
+        fed = true;
+    }
+    if !fed {
+        return None;
+    }
+    let digest = format!("{:x}", hasher.finalize());
+    Some(format!("ccsw-{}", &digest[..32]))
 }
 
 fn validate_codex_official_authorization(
@@ -1282,6 +1330,11 @@ impl RequestForwarder {
         // 与 CCH 对齐：请求前不做 thinking 主动改写（仅保留兼容入口）
         let mut mapped_body = normalize_thinking_type(mapped_body);
 
+        // OpenCode Go 需要「每个对话稳定」的会话 ID（见下方注入处）。Claude Desktop
+        // 在 CC Switch 里每请求都会拿到新生成的会话 ID，故用请求体推导对话指纹；
+        // 必须在此处算——mapped_body 在后面的格式转换里会被 move。
+        let opencode_conversation_fingerprint = conversation_fingerprint(&mapped_body);
+
         // Grok Build exposes a stable client-side model profile in config.toml.
         // Route requests to the provider's real upstream model before applying
         // the optional Responses -> Chat/Anthropic bridge.
@@ -2011,6 +2064,45 @@ impl RequestForwarder {
             .parse::<http::Uri>()
             .ok()
             .and_then(|u| u.authority().map(|a| a.to_string()));
+
+        // OpenCode Go：网关对客户端有两条硬要求（<https://opencode.ai/docs/go/>），
+        // 这里分别补齐——Claude Code / Codex 自带 Go 认得的东西，不受影响。
+        //
+        // 其一，User-Agent：客户端须"用自己的 User-Agent 标识自己"。该网关在
+        // Cloudflare 后面并按指纹拦截未标识的客户端（实测：不带 UA 被 403
+        // Access denied，带上即放行）。用户显式配置的自定义 UA 优先。
+        let custom_user_agent = if custom_user_agent.is_none()
+            && is_opencode_upstream(upstream_host.as_deref())
+        {
+            Some(http::HeaderValue::from_static(concat!(
+                "cc-switch/",
+                env!("CARGO_PKG_VERSION")
+            )))
+        } else {
+            custom_user_agent
+        };
+
+        // 其二，会话头：缺 `x-opencode-session` 直接 400 MissingSessionID。
+        // 客户端已带（如 Claude Code 的原生会话头）就原样透传，否则补：
+        //   1. 客户端提供过会话 ID → 用它（CC Switch 已解析，同一对话稳定）
+        //   2. 否则用请求体推导的对话指纹（Claude Desktop 的会话 ID 每请求都变）
+        if is_opencode_upstream(upstream_host.as_deref())
+            && !headers.contains_key("x-opencode-session")
+        {
+            let session = if self.session_client_provided {
+                Some(self.session_id.trim().to_string())
+            } else {
+                opencode_conversation_fingerprint
+                    .clone()
+                    .or_else(|| Some(self.session_id.trim().to_string()))
+            };
+            if let Some(session) = session.filter(|s| !s.is_empty()) {
+                if let Ok(value) = http::HeaderValue::from_str(&session) {
+                    auth_headers
+                        .push((http::HeaderName::from_static("x-opencode-session"), value));
+                }
+            }
+        }
 
         let should_send_anthropic_headers = adapter.name() == "Claude"
             && matches!(resolved_claude_api_format.as_deref(), Some("anthropic"));
@@ -3873,6 +3965,51 @@ mod tests {
     use serde_json::json;
     use std::collections::HashMap;
     use std::time::Duration;
+
+    #[test]
+    fn opencode_upstream_host_matching() {
+        // 带/不带端口、子域名都算 OpenCode；其它上游不能误判（否则会平白多一个头）
+        for host in ["opencode.ai", "opencode.ai:443", "zen.opencode.ai"] {
+            assert!(is_opencode_upstream(Some(host)), "{host} 应判为 OpenCode");
+        }
+        for host in ["api.anthropic.com", "notopencode.ai", "example.com", "127.0.0.1:15721"] {
+            assert!(!is_opencode_upstream(Some(host)), "{host} 不应判为 OpenCode");
+        }
+        assert!(!is_opencode_upstream(None));
+    }
+
+    #[test]
+    fn conversation_fingerprint_is_stable_per_conversation() {
+        let turn1 = json!({
+            "system": "你是助手",
+            "messages": [{"role": "user", "content": "第一个问题"}]
+        });
+        // 同一对话的后续轮次：首条 user 消息与 system 不变，只是追加了内容
+        let turn2 = json!({
+            "system": "你是助手",
+            "messages": [
+                {"role": "user", "content": "第一个问题"},
+                {"role": "assistant", "content": "回答"},
+                {"role": "user", "content": "追问"}
+            ]
+        });
+        let other = json!({
+            "system": "你是助手",
+            "messages": [{"role": "user", "content": "另一个对话"}]
+        });
+
+        let a = conversation_fingerprint(&turn1).expect("fingerprint");
+        let b = conversation_fingerprint(&turn2).expect("fingerprint");
+        let c = conversation_fingerprint(&other).expect("fingerprint");
+        assert_eq!(a, b, "同一对话的后续轮次必须得到同一个会话 ID");
+        assert_ne!(a, c, "不同对话必须得到不同的会话 ID");
+        assert!(a.starts_with("ccsw-"), "前缀便于在上游侧辨认来源: {a}");
+    }
+
+    #[test]
+    fn conversation_fingerprint_requires_conversation_content() {
+        assert!(conversation_fingerprint(&json!({"model": "x"})).is_none());
+    }
 
     fn test_provider_with_type(provider_type: Option<&str>) -> Provider {
         Provider {

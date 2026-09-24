@@ -932,3 +932,43 @@ typecheck ✓ / 26 单测 ✓ / prettier ✓。后端零改动。
 [cowork, code, chat]`），与网关自定义模型无关。
 
 **结论**：接受现状（方案 A）。若要日后重开，先看上面第 3 条的代码证据。
+
+## 2026-09-24 OpenCode Go 在 Claude Desktop 不可用：根因与修复
+
+**现象**：用户订阅了 OpenCode Go，但在 Claude Desktop 里用不了。代理日志显示该供应商
+（claude-desktop/OpenCode Go, id 772bbddc）**历史 39 次请求零成功**：早期 28 次 401
+（当时密钥问题），今天 11 次 400。
+
+**根因（网关侧硬要求，CC Switch 代理未满足）**：官方文档
+<https://opencode.ai/docs/go/> 要求客户端三条：发典型 coding-agent 流量、**自带
+User-Agent 标识自己**、**每个对话在 `x-opencode-session` 带稳定会话 ID**。
+Claude Code / Codex 自带 Go 认得的原生会话头，Claude Desktop 没有，代理也不补
+→ 网关 400 `MissingSessionID`。
+
+**决定性实验**（直连 opencode.ai/zen/go/v1/messages）：
+- 不带会话头 → 400 MissingSessionID；**带 `x-opencode-session` → 200** ✓
+- 不带 UA（Python 默认）→ Cloudflare `403 Access denied`（Ray ID）；带
+  `User-Agent: cc-switch/…` → 放行（拿到 app 自己的响应）→ **UA 是过关条件，不是客套**
+
+**另一处发现**：Claude Desktop 的请求在 CC Switch 里**每请求都生成新会话 ID**
+（proxy_request_logs 中每个 ID 只出现一次），不满足「每对话稳定」，故需自行推导。
+
+**修复**（`proxy/forwarder.rs`）：
+1. `is_opencode_upstream(host)`：上游 host 为 `opencode.ai`（含子域、容忍端口）才生效
+2. 补 `User-Agent: cc-switch/<版本>`（用户配置的自定义 UA 优先）
+3. 补 `x-opencode-session`：客户端已带则不动；客户端提供过会话 ID 则用之；否则用
+   `conversation_fingerprint`（sha256(system + 首条 user 消息)，前缀 ccsw-）——同对话
+   稳定、跨对话不同，正好服务 Go 的路由与提示缓存
+4. 单测 3 例（host 匹配不误伤、指纹稳定性与区分度、无对话内容不生成）
+
+**给用户的配置建议**：该 provider 的「上游格式」应为 **Anthropic Messages（原生）**
+（上游预设注释：/messages 收除 grok-4.5 外全部模型，Chat 组由服务端转换）；用户当前
+设的是 OpenAI Chat，会让只在 /messages 上的模型（Qwen/MiniMax 组）失效。
+
+**端到端验证（2026-09-24 11:53，经 CC Switch 代理的真实请求）**：
+- 临时在聚合供应商加一张 OpenCode Go 卡（`claude-fable-4` → glm-5.3），
+  请求 **200**，日志归属 `claude-fable-4 -> glm-5.3 -> OpenCode Go` ✓
+  （修复前同一路径是 Cloudflare 403 / 网关 400，该供应商历史零成功）
+- 对照组 `claude-opus-4-7` → DeepSeek 200 不受影响 ✓
+- 中途踩坑：先只补会话头仍被 Cloudflare 403 → 补 User-Agent 后放行，
+  印证「UA 是过关条件」；两次构建分别验证

@@ -972,3 +972,50 @@ Claude Code / Codex 自带 Go 认得的原生会话头，Claude Desktop 没有�
 - 对照组 `claude-opus-4-7` → DeepSeek 200 不受影响 ✓
 - 中途踩坑：先只补会话头仍被 Cloudflare 403 → 补 User-Agent 后放行，
   印证「UA 是过关条件」；两次构建分别验证
+
+## 2026-09-24 OpenCode Go 全模型 × 端点实测（42 模型，矩阵见 doc/opencode-go-models.md）
+
+**结论：端点差异真实存在，且按模型而非按厂商分**（复测 74 个失败项零翻转 → 结构性）：
+- 全端点可用 5：deepseek-v4-pro / v4-flash / flash / v4.1-flash / v4-flash-vision-exp
+- Anthropic+Chat 9：minimax-m3/m2.5、kimi-k3、qwen3.6/3.7/3.8-plus、qwen3.7/3.8-max、qwen3.8-flash、space-bunny-free
+- 仅 Chat 14：glm-5.1/5.2/5.3/5.3-flash、kimi-k2.6/k2.7-code、longcat-2.0、
+  mimo-v2.5/2.5-pro/2.6-flash/2.6-pro、hy3/hy4-preview、omen-alpha
+- 仅 Responses 4：grok-4.6/4.7、gpt-5.6-luna、gpt-6-luna
+- 仅 messages 1：minimax-m2.7
+- 需开通隐私设置 2：muse-spark-1.2/1.3-contributor
+  （原文："This Go model trains on request data. Allow paid endpoints that train on
+  request data in your workspace's Privacy settings to use it."）
+- 当前不可用 7：kimi-k2.5、glm-5、qwen3.5-plus、mimo-v2-pro、mimo-v2-omni、hy3-preview、grok-4.5
+
+**⚠️ 更正之前的建议**：我曾据上游预设注释（"/messages 收除 grok-4.5 外全部模型"）
+建议把该 provider 的上游格式改成 anthropic——**实测证明该注释与实际不符**：
+`glm-5.3` 在 /v1/messages 稳定 503、在 /v1/chat/completions 200。用户现有配置
+（openai_chat）覆盖 28 个模型，是**更优**选择；改 anthropic 反而会让 glm-5.3-flash
+等 14 个模型失效。此注释值得提 upstream 修正。
+
+**按 CC Switch 四种上游格式的分类（补测 Gemini 原生路径后）**：
+- ① Anthropic Messages（/v1/messages）→ 15 个模型
+- ② OpenAI Chat（/v1/chat/completions）→ **28 个**（覆盖最广）
+- ③ OpenAI Responses（/v1/responses）→ 9 个
+- ④ **Gemini Native：42/42 全 404** —— 网关根本没有 `/v1beta/models/...` 路由，
+  该格式对 OpenCode Go 完全不可用
+- 逐模型对照表与选型建议 → 工作区 `doc/opencode-go-models.md`
+
+## 2026-09-24 OpenCode Go 额度规划 + mimo 强度控件互换
+
+**背景**：用户 OpenCode Go 月额度 $60，kimi-k3 等按官方定价（$110/5h 档）太贵避开。
+实测 3 天消耗仅 $0.0002，额度充裕；选型避开 kimi 系即可。
+
+**最终 OpenCode Go 四档**（经用户确认采纳）：
+- fable → mimo-v2.6-flash（3万 req/5h 量大价低；**互换到 fable 档是为了拿强度控件**——
+  fable 族正则让任意 claude-fable-N 都有五档控件，而 claude-opus-4 不在精确表里）
+- opus → qwen3.8-flash（$30 档；claude-opus-4 无控件，接受）
+- sonnet → space-bunny-free（**无限量 0 成本**，限时模型，日常主力）
+- haiku → deepseek-v4.1-flash（$15 档 6500 req/5h，1M；真 ID 有 extended 模式）
+
+**关键机制确认（新版 asar 复核）**：强度表 opus 侧只有 4-6/4-7/4-8/5（+5.5/6 不存在），
+族正则只覆盖 fable/mythos——**opus 自造 ID（claude-opus-4）永远无控件**；
+fable 自造 ID 永远有（族正则）。故"把需要控件的模型挪到 fable 档"是零成本解法。
+
+**验证**：互换后 10 槽位全 200（claude-fable-4→mimo、claude-opus-4→qwen 实测归属正确）。
+定价数据 → doc/opencode-go-models.md；DB/profile 互换均带 .bak-swap-* 备份。

@@ -121,3 +121,16 @@ export interface AggregateRoutes {
 3. 组件重构（DnD → 折叠 → 按需行 → 默认模型下拉，分步可编译）
 4. i18n；typecheck + vitest 全绿
 5. 构建部署（UPSTREAM-SYNC §5–§6）+ 实机验收 + 账本
+
+---
+
+## 实施记录（2026-09-25）
+
+- 代码提交 `0608a231`（本 spec `e84b9bbf`），工作区干净，构建部署中。
+- 四点全落地；「兜底目标」文案落地。
+- 测试：Rust aggregate 相关全绿（3 个新用例 pins/dangling/serde + 25 既有）；
+  typecheck ✓；vitest 29 例 ✓。
+- ⚠️ 断言随语义更新：`claude_desktop_config.rs` 的
+  `aggregate_provider_derives_model_routes_from_slots` 从「字典序」改「保 provider
+  分组序」——它测的正是 09-24 已替换的旧行为，非回归。
+- 22 处 AggregateRoutes 字面量构造补 `default_model: None`（跨行 SlotId 两处曾误插、已修）。

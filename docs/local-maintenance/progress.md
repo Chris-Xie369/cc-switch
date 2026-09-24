@@ -1049,3 +1049,26 @@ route_id）。`ResolvedModelRoute` 增 `tier: Option<String>`（普通供应商�
 「更高的档位会被隐藏、且永不被请求」，裁剪逻辑按它过滤滑块。
 **⚠️ CC Switch 保存供应商时不写该字段**（只写 name/labelOverride/supports1m），
 日后在 UI 里保存会抹掉 maxEffort，需重跑脚本或把它做进 CC Switch。
+
+## 2026-09-25 聚合编辑器 v3 实施（spec: 2026-09-24-aggregate-editor-v3-design.md）
+
+**代码**：`0608a231`（feat）+ `e84b9bbf`（spec），工作区干净。
+
+**四点全部落地**：
+1. `defaultModel` 置顶（Rust `Option<String>` + serde default 零迁移；命中槽 → profile
+   首位；悬空 → 忽略；前端 assignSlotIds 跟随/置空；UI 独立下拉方案 B）
+2. 拖拽（@dnd-kit，本地简化 sensors，拖完走 commitCards）
+3. 折叠（expandedIds 集合，默认全折叠；全部展开/折叠按钮；「默认」徽标标生效卡）
+4. 按需档位行（+ 新增模型选未占用档、行尾 × 删除、满 4 档隐藏）
+「默认目标」→ UI 文案「兜底目标」（结构不动）。
+
+**测试**：
+- Rust aggregate 相关全绿，含 3 个新用例（pins_default_model_to_front /
+  ignores_dangling_default_model / deserializes_without_default_model）
+- typecheck ✓；vitest aggregate 29 例 ✓
+- ⚠️ 一处测试随语义更新：claude_desktop_config 的
+  `aggregate_provider_derives_model_routes_from_slots` 断言从「按 route_id 字典序」
+  改为「保 provider 分组序」——它测的正是被 09-24 改造替换掉的旧行为，非回归。
+
+**已知**：22 处 AggregateRoutes 字面量构造补 default_model: None（跨行 SlotId 构造
+两处曾误插、已修）；全量 lib test 中 9 项环境性失败为既有（model_pricing×5 等）。

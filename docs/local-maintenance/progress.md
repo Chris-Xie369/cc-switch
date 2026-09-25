@@ -1072,3 +1072,42 @@ route_id）。`ResolvedModelRoute` 增 `tier: Option<String>`（普通供应商�
 
 **已知**：22 处 AggregateRoutes 字面量构造补 default_model: None（跨行 SlotId 构造
 两处曾误插、已修）；全量 lib test 中 9 项环境性失败为既有（model_pricing×5 等）。
+
+## 2026-09-26 根治：诊断面板误报「Gateway was unreachable」+ 默认模型
+
+### 现象
+Claude Desktop 设置页「检测连通」报 `Can't reach 127.0.0.1:15721` /
+`Gateway was unreachable: timeout`，probedModel 多为 claude-haiku-4-5。
+重启后仍现。
+
+### 根因（**不是网关故障，是诊断面板的预算不足**）
+1. 那个橙色框是**设置页「检测连通」的诊断**，不是会话报错。会话侧无硬编码超时
+   （流式，代理侧首字节 60s / 非流式 600s 兜底，很宽松）。
+2. 逆向 Claude Desktop asar（**版本已自动更新到 2.9939.2.0**）找到探测函数：
+   ```js
+   async function yT({..., timeoutMs: r}) { ... AbortSignal.timeout(r) }
+   u = Math.max(3e3, e - (Date.now() - o))   // e=总预算，o=已耗时；下限 3 秒
+   IJt({ target, cred, model, timeoutMs: u })  // 推理探测只拿「剩余预算」
+   ```
+   → 前面步骤（发现 / 鉴权）分摊后，推理探测常只剩 3~5 秒。
+3. 实测各上游延迟（诊断同款 max_tokens=1，**直连也慢 → 慢在网关本身**）：
+   - DeepSeek / Zhipu / Ark：**0.8–1.9s**
+   - **OpenCode Go：6.7–8.5s**（cloudflare + 多层转发）
+   → OpenCode Go 必然撞穿探测预算；实测同一时刻这些模型 24/24 全部 200。
+
+### 根治
+- **haiku 档（子代理高频 + 诊断常探）从 OpenCode Go 换到 Zhipu GLM**：
+  `deepseek-v4.1-flash` → `glm-5.3-flash`（claude-desktop 的 Zhipu id 4854557c）
+  → 7.4s 降到 **1.2–1.6s**。OpenCode Go 保留 sonnet/fable 两个低频档。
+  ⚠️ 踩坑：Zhipu 有 4 个同名条目（claude / claude-desktop / codex / hermes），
+  首次改错成 claude 的那个 → 报「目标供应商不存在」，已修正。
+- **删除 `alwaysStartWithDefaultModel`**（true → 键移除）：解决用户反馈的
+  「切模型后换会话再回来被重置」。该键是 Anthropic 的设计（asar 原文：
+  "the model and effort choices a person makes are **no longer saved**"），
+  删后各 tab 记住自己的选择；新会话仍从第一条（= defaultModel 置顶的 DeepSeek）起步。
+
+### 验证
+12 槽全量（诊断同款请求）**12/12 全 200**，最慢 4.65s（原 OpenCode Go 槽 7–9s）。
+profile 21 键；默认模型 = 第一条 = claude-opus-4-7（DeepSeek · deepseek-flash）。
+
+备份：DB.bak-latency-* / DB.bak-slowfix-* / before-latency-prof-* / before-alwaysstart-*

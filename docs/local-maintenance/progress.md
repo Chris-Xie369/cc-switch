@@ -1111,3 +1111,34 @@ Claude Desktop 设置页「检测连通」报 `Can't reach 127.0.0.1:15721` /
 profile 21 键；默认模型 = 第一条 = claude-opus-4-7（DeepSeek · deepseek-flash）。
 
 备份：DB.bak-latency-* / DB.bak-slowfix-* / before-latency-prof-* / before-alwaysstart-*
+
+## 2026-09-26 subagent 档位机制（官方文档证实）+ Zhipu 档位去重
+
+### subagent 继承机制：**官方默认，完整继承父档位，不降级**
+官方文档（https://code.claude.com/docs/en/sub-agents）原文：
+> "A subagent is **not fixed to Haiku or Sonnet** by default. For custom subagents,
+> `general-purpose`, and `Plan`, the default is the **main conversation's model**"
+> 优先级：① per-invocation `model` 参数 ② 定义文件 `model` frontmatter（`inherit`=跟随）
+> ③ `CLAUDE_CODE_SUBAGENT_MODEL` 环境变量 ④ **主会话模型**（无配置即走这步 → 继承）
+> 另有同族规则：请求别名与主模型同族时，subagent 用**主模型的精确版本**（含 [1m] 后缀）。
+
+- 本机实证（workflow 8 个 subagent）：request_model 全等于父的 claude-sonnet-3，
+  无一条混入 haiku/sonnet-4 → 继承成立。
+- **唯一例外**：`Explore` 是 "inherits… **capped at Opus**"（CLI 里 inheritCap=opus），
+  fable 父模型派生 Explore 会降到 opus；Plan/general-purpose/工作流 subagent 纯继承。
+- 对聚合路由的含义：subagent 打**与父完全相同的槽位 ID、同一家上游**；想省钱只能
+  `agent({model:'sonnet'})` 或 agent 定义 frontmatter。
+
+### 修复：Zhipu 档位重复 + 删除 Desktop 下失效的死配置
+- 起因：09-26 延迟根治时把 haiku 档也指向 `glm-5.3-flash`，与 sonnet 档重复
+  （列表里出现两条同名）。Zhipu 账号实际有 **11 个**可用模型（/v1/models 实测：
+  glm-4.5/4.5-air/4.6/4.7/5/5-turbo/5.1/5.2/5.3/5.3-flash/5.3-flashx）。
+- 处理：sonnet 档 `glm-5.3-flash` → **`glm-5.2`**（实测 200/1.2s，与 fable 的
+  glm-5.3、opus 的 flashx、haiku 的 flash 均不重复）；haiku 保留 `glm-5.3-flash`
+  （subagent 高频继承，最快 1.1s）。
+- 删除 `~/.claude/settings.json` 的 `env.CLAUDE_CODE_SUBAGENT_MODEL`
+  （值为 glm-5.3-flashx[1M]）：**在 Claude Desktop 下不生效**——Desktop 启动
+  Claude Code 子进程不透传该 env（子进程 env 里 ANTHROPIC_DEFAULT_* 全空、
+  BASE_URL 指向本地代理），只有终端直接跑 CLI 才有效。留着会误导。
+  需要固定 subagent 档位时用 agent 定义 frontmatter（优先级高于 env，不依赖透传）。
+- 结果：12 条目零重复，12/12 全 200，最慢 2.5s。

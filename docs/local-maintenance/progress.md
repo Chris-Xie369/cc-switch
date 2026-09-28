@@ -1157,3 +1157,17 @@ profile 21 键；默认模型 = 第一条 = claude-opus-4-7（DeepSeek · deepse
 **教训**：厂商下线的模型 ID 仍会返回 200（静默路由到新版），**"能用"不等于"是你要的
 那个模型"**。判断模型是否真实存在要看响应里的 `model` 字段与官方模型表，
 不能只看状态码。
+
+## 2026-09-28 haiku 归组 + 删除 Zhipu 重复 opus 槽
+
+- **haiku 归组**：09-26 直接改 DB 换供应商时只改 providerId 未挪位置，且 profile 同步
+  脚本用数组原序而非分组序 → Zhipu 的 haiku 槽（glm-5.3-flash）孤悬列表末尾。
+  已挪入 Zhipu 组（ID 零变动）。
+- **删除 Zhipu 的 opus 槽（claude-opus-4-8，glm-5.3 与 fable 重复）**：用户采纳建议。
+  opus 档轮换：DeepSeek 4-7→4-8、Ark 4-6→4-7、OC opus-4→**4-6**（mimo 升格真 ID，
+  获得强度控件）；defaultModel 位置跟随 4-7→4-8（仍指 DeepSeek flash）。
+- 最终 11 槽（零重复）：opus-4-8(默认置顶)/fable-1/sonnet-4-6/haiku-4-5(Zhipu 四连)、
+  fable-2(DeepSeek)、fable-3/opus-4-7/sonnet-4-5(Ark)、fable-4/opus-4-6/sonnet-3(OC)。
+- 实测 11/11 全 200（claude-opus-4-6 首测偶发超时 40s，复测 3/3 过，6-8s 为 OC 常态）。
+- 已知代价（已告知用户）：Claude Desktop 记住的旧 opus 档选择（4-7/4-6/opus-4）
+  会错位/回落默认；需重启生效。

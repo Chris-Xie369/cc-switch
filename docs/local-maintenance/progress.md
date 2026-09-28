@@ -1171,3 +1171,20 @@ profile 21 键；默认模型 = 第一条 = claude-opus-4-7（DeepSeek · deepse
 - 实测 11/11 全 200（claude-opus-4-6 首测偶发超时 40s，复测 3/3 过，6-8s 为 OC 常态）。
 - 已知代价（已告知用户）：Claude Desktop 记住的旧 opus 档选择（4-7/4-6/opus-4）
   会错位/回落默认；需重启生效。
+
+## 2026-09-28 新增 longcat-2.5-preview-free（OC 免费备胎转正）
+
+OpenCode Go 上线新免费模型 `longcat-2.5-preview-free`（实测：仅 Chat 端点——
+Anthropic/Responses 均 400 ModelProtocolUnsupported；思考参数全收但 reasoning_len=0
+且**连 xhigh/max 都不 400**（比 mimo 系宽容）；延迟 2.6–6.1s，慢于 space-bunny 的
+1.6–1.8s）。
+
+用户选 A：加为 OC 卡 haiku 档 → OC 卡四档齐全。ID 分配：haiku 池首
+（claude-haiku-4-5）已归 Zhipu（卡序第一），OC 第二个 haiku 溢出为 **claude-haiku-2**
+（不在强度表 → 无思考控件，与 claude-opus-4 同理，可接受——longcat 思考本无实效）。
+supports1m 未实证不标。
+
+最终 12 槽全 200。两个免费模型分工：space-bunny（sonnet，快）为日常主力，
+longcat（haiku）为免费冗余/备胎（space-bunny 是"限时"模型，下线时 haiku/sonnet
+可互切）。注意 haiku 档 subagent 高频继承延迟 4.1s——主 haiku 仍是 Zhipu flash(1.4s)，
+无回归。

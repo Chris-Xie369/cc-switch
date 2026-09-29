@@ -341,7 +341,8 @@ Expected: FAIL（模块不存在）
  * ```bash
  * python - <<'PYEOF'
  * import glob
- * p = glob.glob(r'C:\Program Files\WindowsApps\Claude_*\app\resources\app.asar')[0]
+ * paths = sorted(glob.glob(r'C:\Program Files\WindowsApps\Claude_*\app\resources\app.asar'))
+ * p = paths[-1]  # 多版本共存时须确认取到的是正在运行的版本：Get-Process Claude | Select Path
  * data = open(p, 'rb').read().decode('utf-8', 'replace')
  * i = data.find('czt={')
  * print(data[i:data.find('},lzt=', i) + 1])
@@ -523,14 +524,18 @@ import { effortCapability } from "@/utils/claudeDesktopCapability";
 ```tsx
 function EffortBadge({ routeId }: { routeId: string }) {
   const { t } = useTranslation();
+  // 测试环境 i18n 是空资源：t() 必须带 defaultValue，否则返回键名本身、组件测试必挂
   const conf = {
-    ladder: { key: "effortLadder", tipKey: "effortLadderTip", cls: "text-emerald-600 dark:text-emerald-400" },
-    extended: { key: "effortToggle", tipKey: "effortToggleTip", cls: "text-muted-foreground" },
-    none: { key: "effortNone", tipKey: "effortNoneTip", cls: "text-muted-foreground/50" },
+    ladder: { key: "effortLadder", tipKey: "effortLadderTip", cls: "text-emerald-600 dark:text-emerald-400", text: "强度✓", tip: "完整思考强度阶梯（low…max），来自真模型 ID" },
+    extended: { key: "effortToggle", tipKey: "effortToggleTip", cls: "text-muted-foreground", text: "思考开关", tip: "仅扩展思考开/关，无强度档位" },
+    none: { key: "effortNone", tipKey: "effortNoneTip", cls: "text-muted-foreground/50", text: "✗", tip: "溢出 ID：Claude Desktop 不认识，无思考控件" },
   }[effortCapability(routeId)];
   return (
-    <span className={`w-16 shrink-0 text-[10px] ${conf.cls}`} title={t(`aggregate.${conf.tipKey}`)}>
-      {t(`aggregate.${conf.key}`)}
+    <span
+      className={`w-16 shrink-0 text-[10px] ${conf.cls}`}
+      title={t(`aggregate.${conf.tipKey}`, { defaultValue: conf.tip })}
+    >
+      {t(`aggregate.${conf.key}`, { defaultValue: conf.text })}
     </span>
   );
 }
@@ -564,7 +569,7 @@ function EffortBadge({ routeId }: { routeId: string }) {
 
 ⑥ i18n：`zh.json` 的 aggregate 段加 `"modelsSummaryLadder": "{{count}} 个模型 · {{ladder}} 强度"`，
 `en.json` 加 `"modelsSummaryLadder": "{{count}} models · {{ladder}} effort"`。
-然后 `grep -rn "aggregate.modelsSummary\"" src/ tests/`——若旧键 `modelsSummary` 已无使用者，
+然后 `grep -rn "aggregate.modelsSummary" src/ tests/`——若旧键 `modelsSummary` 已无使用者，
 从两个语言文件删除。
 
 - [ ] **Step 5: 跑测试确认绿 + typecheck**
@@ -598,6 +603,26 @@ cd "D:/Workspace/Project/cc-switch/src" && git add src/components/providers/form
     `export type AggregateMaxEffort = "low"|"medium"|"high"|"xhigh"|"max"`
   - Rust: `AggregateRouteSlot.max_effort: Option<String>`（serde default）、
     `ResolvedModelRoute.max_effort: Option<String>`（非法值过滤后）
+
+- [ ] **Step 0: asar 复核 maxEffort 的条目字段形状（spec 风险表要求）**
+
+```bash
+python - <<'PYEOF'
+import subprocess, re
+out = subprocess.run(["powershell","-NoProfile","-Command",
+  "(Get-Process Claude | Select-Object -First 1 -ExpandProperty Path)"],
+  capture_output=True, text=True).stdout.strip()
+asar = out[:out.rfind("\\")] + r"\resources\app.asar"
+print("asar:", asar)
+data = open(asar, 'rb').read().decode('utf-8', 'replace')
+for m in list(re.finditer(r'maxEffort', data))[:6]:
+    s = m.start(); print(repr(data[max(0,s-120):s+120])); print('-'*60)
+PYEOF
+```
+
+Expected: 确认 `inferenceModels` 条目解析路径上存在 per-entry `maxEffort`
+（已知证据：`{...t.plain,supports1m:!0,...r&&{maxEffort:r}}` 的折叠取值逻辑）。
+若形状不同（如顶层键），只调整 Step 5 的写入目标，TS/Rust 字段定义不变。
 
 - [ ] **Step 1: TS 类型**
 
@@ -775,12 +800,22 @@ function MaxEffortSelect({
     >
       <SelectTrigger
         className="h-7 w-24 shrink-0 text-xs"
-        title={disabled ? t("aggregate.effortNoneTip") : undefined}
+        title={
+          disabled
+            ? t("aggregate.effortNoneTip", {
+                defaultValue: "溢出 ID：Claude Desktop 不认识，无思考控件",
+              })
+            : undefined
+        }
       >
-        <SelectValue placeholder={t("aggregate.maxEffort")} />
+        <SelectValue
+          placeholder={t("aggregate.maxEffort", { defaultValue: "上限" })}
+        />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={UNSET}>{t("aggregate.maxEffortOff")}</SelectItem>
+        <SelectItem value={UNSET}>
+          {t("aggregate.maxEffortOff", { defaultValue: "不限制" })}
+        </SelectItem>
         {effortLevelsFor(routeId).map((lv) => (
           <SelectItem key={lv} value={lv}>
             {lv}
@@ -808,18 +843,21 @@ function MaxEffortSelect({
 />
 ```
 
-⑤ `commit` 归一化（非 ladder 槽剥离 maxEffort，防止 ID 轮换后残留无意义上限）：
+⑤ `commit` 归一化（非 ladder 槽剥离 maxEffort）。**必须先 `assignSlotIds` 再判定**：
+槽位增删会让序号轮换、ID 在溢出↔池内之间变档，用旧 ID 判定会剥错方向：
 
 ```ts
-const commit = (next: AggregateRoutes) =>
-  onChange(
-    assignSlotIds({
-      ...next,
-      slots: next.slots.map((s) =>
-        effortCapability(s.routeId) === "ladder" ? s : { ...s, maxEffort: undefined },
-      ),
-    }),
-  );
+const commit = (next: AggregateRoutes) => {
+  const assigned = assignSlotIds(next);
+  return onChange({
+    ...assigned,
+    slots: assigned.slots.map((s) =>
+      effortCapability(s.routeId) === "ladder"
+        ? s
+        : { ...s, maxEffort: undefined },
+    ),
+  });
+};
 ```
 
 - [ ] **Step 3: 扩展组件测试**

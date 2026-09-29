@@ -82,6 +82,7 @@ git log --oneline upstream/main --grep="preserve non-gateway" | head -3
 | `src/i18n/locales/*.json` | 各 11 次 | 补丁 B 也改它 | 我们只加 `settings` 下 6 个连续键；取上游版本后重加这 6 个即可 |
 | `src-tauri/tauri.conf.json` | — | 补丁 C 每次必冲突（版本号 + 删 updater） | 机械处理：版本号改成新 tag 的 `<版本>-local`，再删一次 updater 三处 |
 | `src-tauri/src/claude_desktop_config.rs` | — | 补丁 A/B 的主战场 | **最需要小心**：上游若重构 profile 写入路径，需人工判断合并逻辑是否仍成立 |
+| `README.md` | 上游高频 | 2026-09-29 我们自建 fork 门面 README | 上游改 README 时取上游版，再重放我们的门面内容（内容多为自有，冲突机械解） |
 
 ---
 

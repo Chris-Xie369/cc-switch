@@ -1027,10 +1027,13 @@ pnpm tauri build --bundles nsis
 
 （正文中的 `​```bash` 转义写进 README 时去掉零宽字符，就是普通代码围栏。）
 
-- [ ] **Step 2: 提交 README + 账本**
+- [ ] **Step 2: 提交 README + 刷新账本快照**
+
+（注意：`.superpowers/sdd/progress.md` 被 `.superpowers/` 的 gitignore 忽略、不能直接
+add——Task 1 实测确认。账本入库走快照机制：cp 到 `docs/local-maintenance/progress.md`。）
 
 ```bash
-cd "D:/Workspace/Project/cc-switch/src" && git add README.md .superpowers/sdd/progress.md && git commit -m "docs: fork README（构建/部署/已知耦合/怪癖/验收口径）+ 账本"
+cd "D:/Workspace/Project/cc-switch/src" && cp .superpowers/sdd/progress.md docs/local-maintenance/progress.md && git add README.md docs/local-maintenance/progress.md && git commit -m "docs: fork README（构建/部署/已知耦合/怪癖/验收口径）+ 账本快照刷新"
 ```
 
 - [ ] **Step 3: 推送 origin**（命令同 Task 1 Step 7，含代理 fallback）

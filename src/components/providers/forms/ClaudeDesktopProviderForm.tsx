@@ -230,7 +230,8 @@ function isClaudeSafeRoute(route: string) {
 
   // 角色前缀后必须还有实际模型标识，拒绝 claude-sonnet- 这类退化值
   // （否则会写入 profile 并触发 Claude Desktop fail-all 拒收整组）。
-  // 与后端 is_claude_safe_model_id 镜像；fable 自 Desktop 1.12603.1+ 起被校验放行。
+  // 后端 is_claude_safe_model_id 是唯一权威（还含厂商词黑名单等本函数未镜像的
+  // 规则），此处只做形状预检；fable 自 Desktop 1.12603.1+ 起被校验放行。
   return ["sonnet-", "opus-", "haiku-", "fable-"].some(
     (prefix) =>
       routeTail.startsWith(prefix) && routeTail.length > prefix.length,
@@ -589,30 +590,38 @@ export function ClaudeDesktopProviderForm({
     setProxyRoutes(normalizeProxyRows(defaultProxyRouteRows));
   }, [defaultProxyRouteRows, effectiveMode, proxyRoutes.length]);
 
-  const handleFetchModels = async () => {
-    if (!baseUrl.trim() || !apiKey.trim()) {
-      showFetchModelsError(null, t, {
-        hasBaseUrl: Boolean(baseUrl.trim()),
-        hasApiKey: Boolean(apiKey.trim()),
-      });
-      return;
+  // 校验凭据 → 拉取模型列表：凭据缺失或请求失败走既有错误提示并返回 null，
+  // 两个入口（表单自身 / 聚合槽位按目标供应商）共用同一套流程与文案。
+  const fetchModelsOrToast = async (
+    baseUrl: string,
+    apiKey: string,
+  ): Promise<FetchedModel[] | null> => {
+    const hasBaseUrl = Boolean(baseUrl.trim());
+    const hasApiKey = Boolean(apiKey.trim());
+    if (!hasBaseUrl || !hasApiKey) {
+      showFetchModelsError(null, t, { hasBaseUrl, hasApiKey });
+      return null;
     }
-
-    setIsFetchingModels(true);
     try {
       const models = await fetchModelsForConfig(baseUrl.trim(), apiKey.trim());
-      setFetchedModels(models);
       toast.success(
         t("providerForm.fetchModelsSuccess", {
           count: models.length,
           defaultValue: `已获取 ${models.length} 个模型`,
         }),
       );
+      return models;
     } catch (error) {
-      showFetchModelsError(error, t, {
-        hasBaseUrl: Boolean(baseUrl.trim()),
-        hasApiKey: Boolean(apiKey.trim()),
-      });
+      showFetchModelsError(error, t, { hasBaseUrl, hasApiKey });
+      return null;
+    }
+  };
+
+  const handleFetchModels = async () => {
+    setIsFetchingModels(true);
+    try {
+      const models = await fetchModelsOrToast(baseUrl, apiKey);
+      if (models) setFetchedModels(models);
     } finally {
       setIsFetchingModels(false);
     }
@@ -636,29 +645,16 @@ export function ClaudeDesktopProviderForm({
       provider.settingsConfig,
       "ANTHROPIC_AUTH_TOKEN",
     ).trim();
-    if (!targetBaseUrl || !targetApiKey) {
-      showFetchModelsError(null, t, {
-        hasBaseUrl: Boolean(targetBaseUrl),
-        hasApiKey: Boolean(targetApiKey),
-      });
-      return;
-    }
 
     setFetchingAggregateProviderId(provider.id);
     try {
-      const models = await fetchModelsForConfig(targetBaseUrl, targetApiKey);
-      setAggregateModelsByProvider((current) => ({
-        ...current,
-        [provider.id]: models,
-      }));
-      toast.success(
-        t("providerForm.fetchModelsSuccess", {
-          count: models.length,
-          defaultValue: `已获取 ${models.length} 个模型`,
-        }),
-      );
-    } catch (error) {
-      showFetchModelsError(error, t, { hasBaseUrl: true, hasApiKey: true });
+      const models = await fetchModelsOrToast(targetBaseUrl, targetApiKey);
+      if (models) {
+        setAggregateModelsByProvider((current) => ({
+          ...current,
+          [provider.id]: models,
+        }));
+      }
     } finally {
       setFetchingAggregateProviderId(null);
     }
@@ -698,7 +694,7 @@ export function ClaudeDesktopProviderForm({
       });
       return;
     }
-    if (!baseUrl.trim() && !usesManagedOAuth && !aggregateRoutes) {
+    if (!baseUrl.trim() && !usesManagedOAuth && !isAggregate) {
       toast.error(
         t("providerForm.fetchModelsNeedEndpoint", {
           defaultValue: "请先填写接口地址",
@@ -783,7 +779,7 @@ export function ClaudeDesktopProviderForm({
       );
       return;
     }
-    if (!usesManagedOAuth && !apiKey.trim() && !aggregateRoutes) {
+    if (!usesManagedOAuth && !apiKey.trim() && !isAggregate) {
       toast.error(
         t("providerForm.fetchModelsNeedApiKey", {
           defaultValue: "请先填写 API Key",
@@ -804,7 +800,7 @@ export function ClaudeDesktopProviderForm({
     // 聚合供应商的模型规格由槽位派生（后端 aggregate_model_routes），不使用自身的
     // claudeDesktopModelRoutes，故不在此做直连/映射的校验与回填——否则聚合会被
     // 强迫填一份无意义的模型映射才能保存。
-    if (effectiveMode === "proxy" && !aggregateRoutes) {
+    if (effectiveMode === "proxy" && !isAggregate) {
       // 固定四档（Sonnet / Opus / Fable / Haiku），route_id 由 UI 生成、恒合法，
       // 因此只要求至少填一个实际请求模型；留空档继承第一个已填档（Sonnet 优先），
       // 对齐 Claude Code 的兜底，保证落库四档齐全、子 agent 不会找不到模型。
@@ -890,7 +886,7 @@ export function ClaudeDesktopProviderForm({
 
     // 聚合供应商不使用自身的 claudeDesktopModelRoutes（模型规格由槽位派生），
     // 不写入，避免 meta 里出现与聚合语义无关、易误导的四档映射。
-    if (aggregateRoutes) {
+    if (isAggregate) {
       delete meta.claudeDesktopModelRoutes;
     } else {
       meta.claudeDesktopModelRoutes = routeMap;
@@ -923,7 +919,7 @@ export function ClaudeDesktopProviderForm({
     delete meta.isFullUrl;
 
     // 开关打开时写入聚合路由表；关闭时彻底移除，保证普通供应商的 meta 不变。
-    if (aggregateRoutes) {
+    if (isAggregate) {
       // 空显示名在这里落成默认值「供应商 · 上游模型」：profile 里每条都要带上
       // labelOverride，留空的话 Claude Desktop 会退回按 ID 自动格式化，
       // 选择器里只剩 claude-opus-2[1m] 这种看不出实际调用哪家模型的名字。
@@ -1026,12 +1022,12 @@ export function ClaudeDesktopProviderForm({
               </Label>
               <Switch
                 id="claude-desktop-aggregate"
-                checked={aggregateRoutes !== undefined}
+                checked={isAggregate}
                 onCheckedChange={handleAggregateToggle}
               />
             </div>
 
-            {aggregateRoutes && (
+            {isAggregate && (
               <AggregateProviderFields
                 value={aggregateRoutes}
                 onChange={setAggregateRoutes}

@@ -188,15 +188,6 @@ export function AggregateProviderFields({
     commitCards(next);
   };
 
-  /** 上游模型只改值，不再承担行的生死——删行走行尾 × 按钮（v3 语义）。 */
-  const setUpstream = (cardIndex: number, tier: AggregateTier, raw: string) => {
-    const next = cloneCards(cards);
-    const slot = next[cardIndex].rows[tier];
-    if (!slot) return;
-    next[cardIndex].rows[tier] = { ...slot, upstreamModel: raw };
-    commitCards(next);
-  };
-
   const patchRow = (
     cardIndex: number,
     tier: AggregateTier,
@@ -436,11 +427,11 @@ export function AggregateProviderFields({
                 (tier) => !card.rows[tier],
               );
               const expanded = expandedIds.has(card.providerId);
-              const isDefaultCard = mappedSlots[0]?.routeId
-                ? Object.values(card.rows).some(
-                    (slot) => slot?.routeId === effectiveDefault,
-                  )
-                : false;
+              // routeId 恒非空（每次 commit 都经 assignSlotIds 赋真 ID），无已映射
+              // 槽位时 effectiveDefault 为 ""，恒不命中，无需再挡空值。
+              const isDefaultCard = Object.values(card.rows).some(
+                (slot) => slot?.routeId === effectiveDefault,
+              );
               return (
                 <SortableCard key={card.providerId} id={card.providerId}>
                   {(handle) => (
@@ -562,6 +553,8 @@ export function AggregateProviderFields({
                                   {tier}
                                 </span>
                                 <div className="flex min-w-0 flex-1 gap-1">
+                                {/* 上游模型只改值，不再承担行的生死——删行走
+                                    行尾 × 按钮（v3 语义）。 */}
                                   <Input
                                     className="h-8 min-w-0 flex-1"
                                     value={slot.upstreamModel}
@@ -570,18 +563,18 @@ export function AggregateProviderFields({
                                       { defaultValue: "上游模型名" },
                                     )}
                                     onChange={(e) =>
-                                      setUpstream(
-                                        cardIndex,
-                                        tier,
-                                        e.target.value,
-                                      )
+                                      patchRow(cardIndex, tier, {
+                                        upstreamModel: e.target.value,
+                                      })
                                     }
                                   />
                                   {fetched.length > 0 && (
                                     <ModelDropdown
                                       models={fetched}
                                       onSelect={(id) =>
-                                        setUpstream(cardIndex, tier, id)
+                                        patchRow(cardIndex, tier, {
+                                          upstreamModel: id,
+                                        })
                                       }
                                     />
                                   )}

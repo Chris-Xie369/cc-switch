@@ -45,9 +45,9 @@ pnpm tauri build --bundles nsis
 
 | 能力 | ID | 表现 |
 |---|---|---|
-| 完整强度阶梯（含 xhigh） | `claude-sonnet-5`、`claude-opus-4-7/4-8/5`、fable/mythos 族 | low…max 滑条 |
+| 完整强度阶梯（含 xhigh） | `claude-sonnet-5`、`claude-opus-4-7/4-8`、fable/mythos 族 | low…max 滑条 |
 | 完整强度阶梯（无 xhigh） | `claude-sonnet-4-6`、`claude-opus-4-6` | low/medium/high/max |
-| 完整强度阶梯（池不收） | `claude-opus-5`（`disallowThinkingDisabled`，强制思考） | low…max 滑条 |
+| 完整强度阶梯（池不收，强制思考） | `claude-opus-5`（`disallowThinkingDisabled`） | low…max 滑条 |
 | 仅扩展思考开关 | `claude-sonnet-4-5`、`claude-haiku-4-5` | 只有开/关 |
 | 无 | 其余全部（自造溢出 ID） | 无任何控件 |
 

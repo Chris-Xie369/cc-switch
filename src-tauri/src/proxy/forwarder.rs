@@ -1333,7 +1333,26 @@ impl RequestForwarder {
         // OpenCode Go 需要「每个对话稳定」的会话 ID（见下方注入处）。Claude Desktop
         // 在 CC Switch 里每请求都会拿到新生成的会话 ID，故用请求体推导对话指纹；
         // 必须在此处算——mapped_body 在后面的格式转换里会被 move。
-        let opencode_conversation_fingerprint = conversation_fingerprint(&mapped_body);
+        //
+        // 但指纹只被 OpenCode 上游消费（客户端未带 x-opencode-session 且未提供过
+        // 会话时，见下方注入处），其成本是对 system + 首条 user 消息的全量序列化
+        // ——首条 user 消息常含文件与图片，可达 MB 级。故以同样的条件做守卫，其余
+        // 流量不付这笔钱。host 判定用 base_url：所有 URL 构造分支（append_query /
+        // rewrite_codex_standalone / gemini native / adapter.build_url）都不改
+        // authority；唯一会整体替换 host 的是 Copilot 动态端点（GitHub 官方域名，
+        // 不会是 opencode.ai）。
+        let base_url_host = base_url
+            .parse::<http::Uri>()
+            .ok()
+            .and_then(|u| u.authority().map(|a| a.to_string()));
+        let opencode_conversation_fingerprint = if !self.session_client_provided
+            && !headers.contains_key("x-opencode-session")
+            && is_opencode_upstream(base_url_host.as_deref())
+        {
+            conversation_fingerprint(&mapped_body)
+        } else {
+            None
+        };
 
         // Grok Build exposes a stable client-side model profile in config.toml.
         // Route requests to the provider's real upstream model before applying

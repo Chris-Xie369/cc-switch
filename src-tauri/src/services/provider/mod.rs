@@ -7621,6 +7621,28 @@ impl ProviderService {
         Ok(())
     }
 
+    /// 同 app 下是否有聚合供应商的槽位引用了 target_id。
+    /// 禁嵌套的反向检查与删除保护共用同一「引用关系」判定，规则一处维护。
+    fn referencing_aggregate_exists(
+        state: &AppState,
+        app_type: &AppType,
+        target_id: &str,
+    ) -> Result<bool, AppError> {
+        Ok(state
+            .db
+            .get_all_providers(app_type.as_str())?
+            .values()
+            .any(|other| {
+                other
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.aggregate_routes.as_ref())
+                    .is_some_and(|routes| {
+                        routes.slots.iter().any(|slot| slot.provider_id == target_id)
+                    })
+            }))
+    }
+
     /// 禁嵌套：聚合供应商的槽位不得指向另一个聚合供应商。
     ///
     /// 该判定需要跨供应商信息（目标供应商自身是否带 `aggregate_routes`），
@@ -7656,28 +7678,12 @@ impl ProviderService {
         // 反向检查：被保存者 P 自身带路由表（即本题分支），若它已被同 app 下其他聚合
         // 供应商的槽位引用，则保存后即形成 A→P 的嵌套。正向检查只覆盖「P 指向别人」，
         // 这一步封堵「普通供应商先被引用、之后被改造成聚合」的单向漏洞。
-        for other in state.db.get_all_providers(app_type.as_str())?.values() {
-            if other.id == provider.id {
-                continue;
-            }
-            let Some(other_routes) = other
-                .meta
-                .as_ref()
-                .and_then(|meta| meta.aggregate_routes.as_ref())
-            else {
-                continue;
-            };
-            if other_routes
-                .slots
-                .iter()
-                .any(|slot| slot.provider_id == provider.id)
-            {
-                return Err(AppError::localized(
-                    "aggregate.provider_becomes_aggregate_while_referenced",
-                    "该供应商已被聚合供应商引用，不能再改造成聚合供应商",
-                    "This provider is referenced by an aggregate provider and cannot itself become an aggregate provider",
-                ));
-            }
+        if Self::referencing_aggregate_exists(state, app_type, &provider.id)? {
+            return Err(AppError::localized(
+                "aggregate.provider_becomes_aggregate_while_referenced",
+                "该供应商已被聚合供应商引用，不能再改造成聚合供应商",
+                "This provider is referenced by an aggregate provider and cannot itself become an aggregate provider",
+            ));
         }
         Ok(())
     }
@@ -7688,26 +7694,12 @@ impl ProviderService {
         app_type: &AppType,
         provider_id: &str,
     ) -> Result<(), AppError> {
-        let all = state.db.get_all_providers(app_type.as_str())?;
-        for other in all.values() {
-            let Some(routes) = other
-                .meta
-                .as_ref()
-                .and_then(|meta| meta.aggregate_routes.as_ref())
-            else {
-                continue;
-            };
-            if routes
-                .slots
-                .iter()
-                .any(|slot| slot.provider_id == provider_id)
-            {
-                return Err(AppError::localized(
-                    "aggregate.provider_in_use",
-                    "该供应商被聚合供应商引用，需先移除对应槽位",
-                    "This provider is referenced by an aggregate provider; remove the slot first",
-                ));
-            }
+        if Self::referencing_aggregate_exists(state, app_type, provider_id)? {
+            return Err(AppError::localized(
+                "aggregate.provider_in_use",
+                "该供应商被聚合供应商引用，需先移除对应槽位",
+                "This provider is referenced by an aggregate provider; remove the slot first",
+            ));
         }
         Ok(())
     }

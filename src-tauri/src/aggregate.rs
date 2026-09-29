@@ -136,14 +136,7 @@ mod tests {
         // 原样保留——按 route_id 字典序重排会把不同供应商的模型交错穿插
         // （用户 2026-09-24 反馈：Zhipu/DeepSeek/Ark/OpenCode 的模型混在一起）。
         let grouped = |provider_id: &str, tier: AggregateTier, route_id: &str, model: &str| {
-            AggregateRouteSlot {
-                route_id: route_id.to_string(),
-                tier,
-                provider_id: provider_id.to_string(),
-                upstream_model: model.to_string(),
-                label: None,
-                supports_1m: false,
-            }
+            slot_for(route_id, provider_id, tier, model)
         };
         let provider = aggregate_provider(vec![
             grouped("p-zhipu", AggregateTier::Fable, "claude-fable-1", "glm-5.3"),
@@ -188,14 +181,7 @@ mod tests {
         // defaultModel 命中槽位 → 该槽置顶（inferenceModels 第一条 = Claude Desktop
         // 的默认模型），其余保持供应商分组序
         let grouped = |provider_id: &str, tier: AggregateTier, route_id: &str, model: &str| {
-            AggregateRouteSlot {
-                route_id: route_id.to_string(),
-                tier,
-                provider_id: provider_id.to_string(),
-                upstream_model: model.to_string(),
-                label: None,
-                supports_1m: false,
-            }
+            slot_for(route_id, provider_id, tier, model)
         };
         let slots = vec![
             grouped("p-zhipu", AggregateTier::Fable, "claude-fable-1", "glm-5.3"),
@@ -298,15 +284,16 @@ mod tests {
         }
     }
 
-    /// 槽位构造器：指向 `provider_id`。
+    /// 槽位构造器：指向 `provider_id`、按 `tier` 档位。
     fn slot_for(
         route_id: &str,
         provider_id: &str,
+        tier: AggregateTier,
         upstream_model: &str,
     ) -> AggregateRouteSlot {
         AggregateRouteSlot {
             route_id: route_id.to_string(),
-            tier: AggregateTier::Sonnet,
+            tier,
             provider_id: provider_id.to_string(),
             upstream_model: upstream_model.to_string(),
             label: None,
@@ -338,7 +325,7 @@ mod tests {
         // 默认目标指向一个不存在的槽位 id —— 必须显式报错，
         // **不得**静默回落到「第一个槽位」（那会把用户的兜底配置悄悄改掉）。
         let aggregate = aggregate_with(
-            vec![slot_for("claude-sonnet-1", "p-glm", "glm-5.3")],
+            vec![slot_for("claude-sonnet-1", "p-glm", AggregateTier::Sonnet, "glm-5.3")],
             DefaultTarget::SlotId("claude-sonnet-missing".into()),
         );
 
@@ -355,7 +342,7 @@ mod tests {
         let db = crate::database::Database::memory().expect("db");
         // 命中槽位，但它引用的目标供应商在库里不存在 → 明确错误
         let aggregate = aggregate_with(
-            vec![slot_for("claude-sonnet-1", "p-missing", "glm-5.3")],
+            vec![slot_for("claude-sonnet-1", "p-missing", AggregateTier::Sonnet, "glm-5.3")],
             DefaultTarget::ProviderId("p-missing".into()),
         );
 
@@ -391,7 +378,7 @@ mod tests {
             .expect("save fallback");
 
         let aggregate = aggregate_with(
-            vec![slot_for("claude-fable-1", "p-glm", "glm-5.3")],
+            vec![slot_for("claude-fable-1", "p-glm", AggregateTier::Sonnet, "glm-5.3")],
             DefaultTarget::ProviderId("p-other".into()),
         );
 
@@ -417,10 +404,9 @@ pub fn is_aggregate_provider(provider: &Provider) -> bool {
         .is_some()
 }
 
-/// 由槽位派生模型规格（供 profile 的 inferenceModels 与 /models 端点共用）。
-/// 槽位 ID 由前端在编辑时生成并持久化，这里直接取用；按 route_id 排序与既有实现保持一致。
-pub fn aggregate_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRoute>, AppError> {
-    let routes = provider
+/// 取聚合供应商的路由表；profile 派生与运行时路由解析共用同一报错。
+fn routes_of(provider: &Provider) -> Result<&AggregateRoutes, AppError> {
+    provider
         .meta
         .as_ref()
         .and_then(|meta| meta.aggregate_routes.as_ref())
@@ -430,7 +416,13 @@ pub fn aggregate_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRo
                 "聚合供应商缺少路由表",
                 "Aggregate provider is missing its route table",
             )
-        })?;
+        })
+}
+
+/// 由槽位派生模型规格（供 profile 的 inferenceModels 与 /models 端点共用）。
+/// 槽位 ID 由前端在编辑时生成并持久化，这里直接取用；按 route_id 排序与既有实现保持一致。
+pub fn aggregate_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRoute>, AppError> {
+    let routes = routes_of(provider)?;
 
     let mut out = Vec::with_capacity(routes.slots.len());
     for slot in &routes.slots {
@@ -500,17 +492,7 @@ pub fn resolve_target(
     aggregate: &Provider,
     request_model: &str,
 ) -> Result<(Provider, Option<String>), AppError> {
-    let routes = aggregate
-        .meta
-        .as_ref()
-        .and_then(|meta| meta.aggregate_routes.as_ref())
-        .ok_or_else(|| {
-            AppError::localized(
-                "aggregate.routes_missing",
-                "聚合供应商缺少路由表",
-                "Aggregate provider is missing its route table",
-            )
-        })?;
+    let routes = routes_of(aggregate)?;
 
     let requested =
         crate::claude_desktop_config::strip_one_m_suffix_for_route_lookup(request_model);

@@ -167,13 +167,14 @@ export function AggregateProviderFields({
   // 默认模型悬空置空回落排序首位）。
   //
   // 归一化必须先 assignSlotIds 再判定：槽位增删会让序号轮换、ID 在溢出↔池内
-  // 之间变档，用旧 ID 判定会剥错方向。
+  // 之间变档，用旧 ID 判定会剥错方向。判定用该 ID 的具体阶梯（effortLevelsFor，
+  // 非 ladder 返回 []）而非三态——同为完整阶梯的 4-6 系不含 xhigh，越阶值同样要剥。
   const commit = (next: AggregateRoutes) => {
     const assigned = assignSlotIds(next);
     return onChange({
       ...assigned,
       slots: assigned.slots.map((s) =>
-        effortCapability(s.routeId) === "ladder"
+        s.maxEffort && effortLevelsFor(s.routeId).includes(s.maxEffort)
           ? s
           : { ...s, maxEffort: undefined },
       ),

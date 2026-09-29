@@ -146,4 +146,53 @@ describe("聚合编辑器上限下拉", () => {
       ["claude-sonnet-4-5", undefined], // extended：剥离
     ]);
   });
+
+  it("重编号后阶梯收窄（sonnet-5→4-6）的槽剥离越阶残留 maxEffort", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    // 存量数据：p1 槽存的是 sonnet-5 + xhigh（删槽轮换前的旧编号）。提交必先
+    // assignSlotIds 重编号——删掉 p2 的槽后，p1 槽按序号 1 重算为 claude-sonnet-4-6，
+    // 同为「完整阶梯」但阶梯不含 xhigh。只判三态的实现会把它留成隐形残留
+    // （Radix Select 值不在选项中只显 placeholder，用户看不见）。
+    render(
+      <AggregateProviderFields
+        value={{
+          slots: [
+            {
+              routeId: "claude-sonnet-5",
+              tier: "sonnet",
+              providerId: "p1",
+              upstreamModel: "m1",
+              supports1m: false,
+              maxEffort: "xhigh",
+            },
+            {
+              routeId: "claude-sonnet-4-5",
+              tier: "sonnet",
+              providerId: "p2",
+              upstreamModel: "m2",
+              supports1m: false,
+            },
+          ],
+          defaultTarget: { kind: "providerId", value: "p1" },
+        }}
+        onChange={onChange}
+        candidates={[
+          { id: "p1", name: "P1" } as unknown as Provider,
+          { id: "p2", name: "P2" } as unknown as Provider,
+        ]}
+        modelsForProvider={() => []}
+        fetchingProviderId={null}
+        onFetchModels={vi.fn()}
+      />,
+    );
+    // 展开第二张卡，删掉它的槽 → 触发重编号
+    await user.click(screen.getAllByRole("button", { expanded: false })[1]);
+    await user.click(screen.getByTitle("删除该模型"));
+
+    const next = onChange.mock.calls.at(-1)?.[0] as AggregateRoutes;
+    expect(next.slots.map((s) => [s.routeId, s.maxEffort])).toEqual([
+      ["claude-sonnet-4-6", undefined],
+    ]);
+  });
 });

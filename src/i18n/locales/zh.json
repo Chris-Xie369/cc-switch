@@ -3311,6 +3311,8 @@
     "effortToggleTip": "仅扩展思考开/关，无强度档位",
     "effortNone": "✗",
     "effortNoneTip": "溢出 ID：Claude Desktop 不认识，无思考控件",
+    "maxEffort": "上限",
+    "maxEffortOff": "不限制",
     "removeModel": "删除该模型"
   }
 }

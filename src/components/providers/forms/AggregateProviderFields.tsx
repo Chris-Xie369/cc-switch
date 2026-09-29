@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/select";
 import { useTranslation } from "react-i18next";
 import type {
+  AggregateMaxEffort,
   AggregateRouteSlot,
   AggregateRoutes,
   AggregateTier,
@@ -65,7 +66,10 @@ import {
   TIER_ROW_ORDER,
   type ProviderTierRows,
 } from "@/utils/aggregateRoutes";
-import { effortCapability } from "@/utils/claudeDesktopCapability";
+import {
+  effortCapability,
+  effortLevelsFor,
+} from "@/utils/claudeDesktopCapability";
 
 interface Props {
   value: AggregateRoutes;
@@ -161,7 +165,20 @@ export function AggregateProviderFields({
   // assignSlotIds 会按档位从零重编号，并让默认目标/默认模型按位置跟随，
   // 故增删槽位后引用不会悬空（默认目标悬空保持原值交由保存校验拦截；
   // 默认模型悬空置空回落排序首位）。
-  const commit = (next: AggregateRoutes) => onChange(assignSlotIds(next));
+  //
+  // 归一化必须先 assignSlotIds 再判定：槽位增删会让序号轮换、ID 在溢出↔池内
+  // 之间变档，用旧 ID 判定会剥错方向。
+  const commit = (next: AggregateRoutes) => {
+    const assigned = assignSlotIds(next);
+    return onChange({
+      ...assigned,
+      slots: assigned.slots.map((s) =>
+        effortCapability(s.routeId) === "ladder"
+          ? s
+          : { ...s, maxEffort: undefined },
+      ),
+    });
+  };
 
   /** 提交编辑后的卡片列表：有行的卡展平回 slots，空卡（选了供应商还没映射
    *  任何档位）存进 pendingProviders。 */
@@ -531,6 +548,9 @@ export function AggregateProviderFields({
                             <span className="min-w-0 flex-1">
                               {t("aggregate.displayName")}
                             </span>
+                            <span className="w-24 shrink-0 text-right">
+                              {t("aggregate.maxEffort")}
+                            </span>
                             <span className="w-20 shrink-0 text-right">
                               {t("aggregate.supports1m")}
                             </span>
@@ -604,6 +624,13 @@ export function AggregateProviderFields({
                                     </span>
                                   )}
                                 </div>
+                                <MaxEffortSelect
+                                  routeId={slot.routeId}
+                                  value={slot.maxEffort}
+                                  onChange={(v) =>
+                                    patchRow(cardIndex, tier, { maxEffort: v })
+                                  }
+                                />
                                 <div className="flex w-20 shrink-0 items-center justify-end gap-1.5">
                                   <Switch
                                     id={switchId}
@@ -741,5 +768,53 @@ function EffortBadge({ routeId }: { routeId: string }) {
     >
       {t(`aggregate.${conf.key}`, { defaultValue: conf.text })}
     </span>
+  );
+}
+
+/** 槽位行的思考强度上限下拉：只有完整阶梯 ID 有档位可选，其余禁用并给出原因。 */
+function MaxEffortSelect({
+  routeId,
+  value,
+  onChange,
+}: {
+  routeId: string;
+  value: AggregateMaxEffort | undefined;
+  onChange: (v: AggregateMaxEffort | undefined) => void;
+}) {
+  const { t } = useTranslation();
+  const disabled = effortCapability(routeId) !== "ladder";
+  return (
+    <Select
+      value={value ?? UNSET}
+      disabled={disabled}
+      onValueChange={(v) =>
+        onChange(v === UNSET ? undefined : (v as AggregateMaxEffort))
+      }
+    >
+      <SelectTrigger
+        className="h-7 w-24 shrink-0 text-xs"
+        title={
+          disabled
+            ? t("aggregate.effortNoneTip", {
+                defaultValue: "溢出 ID：Claude Desktop 不认识，无思考控件",
+              })
+            : undefined
+        }
+      >
+        <SelectValue
+          placeholder={t("aggregate.maxEffort", { defaultValue: "上限" })}
+        />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={UNSET}>
+          {t("aggregate.maxEffortOff", { defaultValue: "不限制" })}
+        </SelectItem>
+        {effortLevelsFor(routeId).map((lv) => (
+          <SelectItem key={lv} value={lv}>
+            {lv}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

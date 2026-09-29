@@ -3311,6 +3311,8 @@
     "effortToggleTip": "Extended-thinking on/off only, no effort levels",
     "effortNone": "✗",
     "effortNoneTip": "Overflow ID unknown to Claude Desktop; no thinking controls",
+    "maxEffort": "Cap",
+    "maxEffortOff": "Unlimited",
     "removeModel": "Remove this model"
   }
 }

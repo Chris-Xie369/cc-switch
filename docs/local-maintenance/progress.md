@@ -1303,3 +1303,5 @@ Task 8: complete (无代码提交；构建部署三重校验全过、/v1/models 
 - GUI 验收 4 项留用户（徽标一致性/maxEffort 设置/OC sonnet 可选/Zhipu sonnet 禁用）
 - 安全待办：Ark 的 ANTHROPIC_AUTH_TOKEN 曾在诊断时打到终端（报告/账本未复述值）——建议用户轮换
 Minor 留档：429 屡发归属表述（火山 Coding Plan 与 Ark Agent Plan 同平台不同名）；/v1/models 断言载体未点明（来自 retry 脚本）；账本 429 分布摘录省略 23 时 6 次
+Task 9: complete (commit a93986e8 + controller 收口 6e3fa866/后续，review approved；README 链接偏离判定正确；origin 双向确认)
+Minor 留档：README 死路径与三态表缺 opus-5 行已由 controller 顺手修；报告"50 行"记述滑误（实为新增行数）；快照含被取代的 Task 8 BLOCKED 条目（append-only 惯例）

@@ -33,7 +33,7 @@ pnpm tauri build --bundles nsis
 
 - 镜像与绕代理是**必需**的：tauri CLI 经 9674 代理下载 NSIS 工具会被 gh-proxy 拒 400
 - 产物：`src-tauri/target/release/bundle/nsis/CC Switch_<版本>-local_x64-setup.exe`
-- 部署经 `tools/install-local.bat`（Git Bash 直跑安装器会转写 `/S` `/D=` 参数）；
+- 部署经 `docs/local-maintenance/install-local.bat`（原件在工作区 `tools/`，不在本仓库根）（Git Bash 直跑安装器会转写 `/S` `/D=` 参数）；
   装前必须轮询确认旧进程退出（exe 被占用时 NSIS 静默失败且 EXITCODE=0）
 - 装后校验（**不看版本号**）：`md5sum` 对比 `target/release/cc-switch.exe`；
   `grep -a -c "<dist/assets/index-*.js 名>" <安装 exe>` 应为 1（确认前端也换了）；
@@ -46,6 +46,7 @@ pnpm tauri build --bundles nsis
 | 能力 | ID | 表现 |
 |---|---|---|
 | 完整强度阶梯 | `claude-sonnet-4-6/5`、`claude-opus-4-6/4-7/4-8`、fable/mythos 族 | low…max 滑条 |
+| 完整强度阶梯（池不收） | `claude-opus-5`（`disallowThinkingDisabled`，强制思考） | low…max 滑条 |
 | 仅扩展思考开关 | `claude-sonnet-4-5`、`claude-haiku-4-5` | 只有开/关 |
 | 无 | 其余全部（自造溢出 ID） | 无任何控件 |
 

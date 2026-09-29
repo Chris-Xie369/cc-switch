@@ -16,6 +16,7 @@ describe("slotId", () => {
     expect(slotId("opus", 1)).toBe("claude-opus-4-8");
     expect(slotId("opus", 2)).toBe("claude-opus-4-7");
     expect(slotId("sonnet", 1)).toBe("claude-sonnet-4-6");
+    expect(slotId("sonnet", 4)).toBe("claude-sonnet-5");
     expect(slotId("haiku", 1)).toBe("claude-haiku-4-5");
   });
 
@@ -24,17 +25,38 @@ describe("slotId", () => {
     expect(slotId("fable", 7)).toBe("claude-fable-7");
   });
 
+  it("池子留空位时该序号走溢出（sonnet 池 3 位留空，保住存量 claude-sonnet-3）", () => {
+    expect(slotId("sonnet", 2)).toBe("claude-sonnet-4-5");
+    expect(slotId("sonnet", 3)).toBe("claude-sonnet-3");
+  });
+
+  it("溢出让开池内已占用的名字（claude-sonnet-5 入池后，序号 5 顺移）", () => {
+    expect(slotId("sonnet", 5)).toBe("claude-sonnet-6");
+    expect(slotId("sonnet", 6)).toBe("claude-sonnet-6"); // 单次调用无状态，见下条批量保证
+  });
+
   it("池子用尽后退回 claude-{档位}-{序号}", () => {
     expect(slotId("haiku", 2)).toBe("claude-haiku-2");
-    expect(slotId("sonnet", 4)).toBe("claude-sonnet-4");
     expect(slotId("opus", 4)).toBe("claude-opus-4");
   });
 
-  it("同档位的 ID 互不相同（池内 + 溢出混合）", () => {
+  it("同档位的 ID 互不相同（assignSlotIds 批量路径，池内 + 溢出混合）", () => {
     // 池里若混进 claude-{档位}-{数字} 形状的 ID，就会和溢出生成值撞名，
     // 两条槽位同 ID 会被后端去重吃掉一条（claude-sonnet-5 踩过）。
+    // 批量分配时溢出还会让开本次已分配的 ID（如序号 5 让出 sonnet-5 后取 6，
+    // 序号 6 不能再取 6）。唯一性由 assignSlotIds 的有状态分配保证。
     for (const tier of TIERS) {
-      const ids = Array.from({ length: 20 }, (_, i) => slotId(tier, i + 1));
+      const routes = {
+        slots: Array.from({ length: 20 }, () => ({
+          routeId: "",
+          tier,
+          providerId: "p",
+          upstreamModel: "m",
+          supports1m: false,
+        })),
+        defaultTarget: { kind: "providerId" as const, value: "p" },
+      };
+      const ids = assignSlotIds(routes).slots.map((s) => s.routeId);
       expect(new Set(ids).size).toBe(ids.length);
     }
   });

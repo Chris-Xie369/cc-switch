@@ -27,17 +27,25 @@ import type {
  * 会强制开启思考）。池子用尽后退回 `claude-{档位}-{序号}`：形状合法、可路由，
  * 只是那条不再有强度控件。
  *
- * **池内 ID 不得形如 `claude-{档位}-{数字}`**，否则会与溢出生成值撞名
- * （`claude-sonnet-5` 就踩过：同档第 5 个槽位也生成 `claude-sonnet-5`，两条槽位同 ID，
- * 后端去重会吃掉一条）。故 sonnet 池从 `4-6` 起，不取 `claude-sonnet-5`
- * ——两者的强度阶梯本就一样。
+ * 池 keyed by 槽位序号（该档位第几个槽），可以留空位——空位序号走溢出，
+ * 用于「存量槽已占溢出 ID、新槽拿真 ID」的场景（sonnet 3 位留空即此）。
+ *
+ * 池内 ID 形如 `claude-{档位}-{数字}` 时会与溢出生成值撞名（`claude-sonnet-5` 踩过：
+ * 同档第 5 个槽位也生成 `claude-sonnet-5`，两条槽位同 ID，后端去重吃掉一条），
+ * 故 slotId 的溢出路径会跳过池内已占用的名字；assignSlotIds 批量分配时再传一个
+ * 本次已分配的集合，溢出同时让开同伴（序号 5 让出 sonnet-5 取 6 后，序号 6 取 7）。
  */
-const RECOGNIZED_IDS: Record<AggregateTier, readonly string[]> = {
-  opus: ["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6"],
-  sonnet: ["claude-sonnet-4-6", "claude-sonnet-4-5"],
-  haiku: ["claude-haiku-4-5"],
+const RECOGNIZED_IDS: Record<
+  AggregateTier,
+  Readonly<Partial<Record<number, string>>>
+> = {
+  opus: { 1: "claude-opus-4-8", 2: "claude-opus-4-7", 3: "claude-opus-4-6" },
+  // 3 位留空：存量第 3 个 sonnet 槽（OpenCode Go space-bunny）已用溢出 ID
+  // claude-sonnet-3，保持不动；4 位收 claude-sonnet-5（强度阶梯比 4-6 还全，含 xhigh）。
+  sonnet: { 1: "claude-sonnet-4-6", 2: "claude-sonnet-4-5", 4: "claude-sonnet-5" },
+  haiku: { 1: "claude-haiku-4-5" },
   // fable 族的强度阶梯由族正则兜底，序号可无限生成，无需 ID 池。
-  fable: [],
+  fable: {},
 };
 
 /**
@@ -57,8 +65,23 @@ const RECOGNIZED_IDS: Record<AggregateTier, readonly string[]> = {
  * `claude-fable-zhipu-glm`），四个槽位被删光、选择器变空。故 ID 与供应商名无关，
  * 可读性交给「显示名」（`labelOverride`，不受该校验约束）。
  */
-export function slotId(tier: AggregateTier, ordinal: number): string {
-  return RECOGNIZED_IDS[tier][ordinal - 1] ?? `claude-${tier}-${ordinal}`;
+export function slotId(
+  tier: AggregateTier,
+  ordinal: number,
+  taken: ReadonlySet<string> = new Set(),
+): string {
+  const pooled = RECOGNIZED_IDS[tier][ordinal];
+  if (pooled) return pooled;
+  const poolValues = new Set(Object.values(RECOGNIZED_IDS[tier]));
+  let n = ordinal;
+  let candidate = `claude-${tier}-${n}`;
+  // 溢出：跳过池内已占用的名字（如 sonnet-5 入池后序号 5 顺移）以及与同批
+  // 已分配同伴的撞名（assignSlotIds 传入 taken）。
+  while (poolValues.has(candidate) || taken.has(candidate)) {
+    n += 1;
+    candidate = `claude-${tier}-${n}`;
+  }
+  return candidate;
 }
 
 /** 供应商是否为聚合供应商。 */
@@ -159,10 +182,13 @@ export function flattenProviderGroups(
  *  （只影响启动默认、回落到排序首位，无需拦截）。 */
 export function assignSlotIds(routes: AggregateRoutes): AggregateRoutes {
   const ordinalByTier = new Map<AggregateTier, number>();
+  const taken = new Set<string>();
   const ids = routes.slots.map((slot) => {
     const ordinal = (ordinalByTier.get(slot.tier) ?? 0) + 1;
     ordinalByTier.set(slot.tier, ordinal);
-    return slotId(slot.tier, ordinal);
+    const id = slotId(slot.tier, ordinal, taken);
+    taken.add(id);
+    return id;
   });
 
   const slots = routes.slots.map((slot, index) => ({

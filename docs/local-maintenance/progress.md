@@ -1188,3 +1188,118 @@ supports1m 未实证不标。
 longcat（haiku）为免费冗余/备胎（space-bunny 是"限时"模型，下线时 haiku/sonnet
 可互切）。注意 haiku 档 subagent 高频继承延迟 4.1s——主 haiku 仍是 Zhipu flash(1.4s)，
 无回归。
+
+## 2026-09-29 修复：编辑器「新增模型」下拉点不开
+
+**现象**：编辑聚合供应商时，卡内「+ 新增模型」点击无反应（下拉不出现）。
+
+**根因**：`FullScreenPanel` 内容区是 `overflow-y-auto` 且面板自身 `z-[60]`；下拉内容
+经 Portal 挂到 body 上，`DropdownMenuContent` 却只有 `z-50`——**层级低于面板**，被整块
+盖住，表现为「点不动」。
+
+这是 2026-01-16 `f349d85e` 修复的**同一个 bug**，那次只把 `SelectContent` 提到
+`z-[100]`，`Popover` 后来也提了，唯独 `DropdownMenu` 漏改。仓库里 `Select`/`Popover`
+均 `z-[100]`、`DropdownMenu` `z-50` 的不一致即是证据。
+
+**影响面不止该按钮**：`DropdownMenu` 仅 3 处使用者，另两处
+（`CustomUserAgentField`→`ClaudeFormFields`/`CodexFormFields`、
+`ProviderActions`→`ProviderCard`）同样在 FullScreenPanel 家族内，一并失效。
+
+**修复**：`dropdown-menu.tsx:61` `z-50` → `z-[100]`，与 Select/Popover 对齐。
+新增 `tests/components/DropdownMenuZIndex.test.tsx`（渲染断言浮层层级，红→绿）。
+
+**未做**：`DropdownMenuSubContent`（L43）同为 `z-50`，但本项目无子菜单使用者，
+不在本次范围。
+
+**验证**：typecheck 通过；新测试通过；全量 1189/1194，失败项
+（`PiProviderForm`/`App.test.tsx`）为并发 flaky——单跑带修复与不带修复均 55/55 通过。
+
+## 2026-09-29 sonnet 池收 claude-sonnet-5 + Kimi 槽位改档
+
+- **代码**（aggregateRoutes.ts）：RECOGNIZED_IDS 改为 keyed by 序号（可留空位）；
+  slotId 溢出跳过池内已占用名；assignSlotIds 批量分配传 taken 集合保证同批唯一
+  （序号 5 让出 sonnet-5 取 6 后，序号 6 取 7）。sonnet 池 = {1:4-6, 2:4-5, 4:5}，
+  **3 位留空**——存量 OC space-bunny 占溢出 claude-sonnet-3 不动，新槽拿真 ID。
+  测试 31 例全绿（唯一性测试改走 assignSlotIds 批量路径，裸 slotId 无状态不保证）。
+- **数据**：Kimi For Coding 卡 opus 槽（kimi-for-coding，claude-opus-4）→ **sonnet 槽
+  （claude-sonnet-5）**。DB meta + profile 同步改（备份 .bak-20260929-sonnet5）。
+  k3 仍在 fable 档 → **claude-fable-5 不变**。
+- **部署**：重建+重装+回归 **14/14 全 200**；[1m] 变体路由正确
+  （sonnet-5[1m]→kimi-for-coding）；/v1/models 已含 claude-sonnet-5。
+- **k3 的 1M（2026-09-29 更正）**：早先"no-op"结论有误。`k3[1M]` 直连上游 401 只是
+  Kimi 不认带后缀的字面模型名；Kimi 侧 `k3` 本身就是 1M 版（`k3-256k` 才是 256K
+  版，官方文档：1M 需 Allegretto/Pro+）。Desktop 侧 `supports1m` 是能力声明
+  （asar 原文 "capability assertion"）：选择器多出 `[1m]` 变体、按 1M 窗口管理
+  上下文；代理转发上游仍是 `k3`。开关有效，保留。
+
+## 2026-09-29 新增 k3-256k（Kimi 省配额档，haiku 位）
+
+- 实测 `k3-256k` 上游可用（200、thinking 正常；`k3-256k[1M]` 401，与 k3 同理——
+  256K 版无 1M 写法）。官方定位：与 k3 在 256K 内结果一致、约省一半配额。
+- 落位：Kimi 卡 **haiku 档 → `claude-haiku-3`**（溢出 ID，无思考档位；opus/haiku
+  两空位都无控件，fable 唯一给控件的档已被 k3 占）。supports1m=false（256K 版）。
+- DB + profile 同步（备份 .bak-20260929-256k）；重启 CC Switch；
+  **15/15 全 200**，新槽归属 k3-256k 正确。
+- 档位现状：Kimi 卡 fable=k3(1M)/sonnet=kimi-for-coding(1M)/haiku=k3-256k，三槽。
+
+## 诚实化计划执行（2026-09-29，subagent-driven）
+
+Task 1: complete (commits c62b52be..74413855, review clean/approved；批次 F 流程偏离已由 controller 追认；账本 gitignore 实测确认，入库改走 docs/local-maintenance 快照，plan Task 9 已修正)
+Minor 留档（最终全分支审查 triage）：
+- 74413855 提交信息称「纯提取」但顺带去掉一处自排除检查（aggregate.rs 反向引用检查的 other.id==provider.id continue；实害≈0，语义由正向检查兜住）
+- 7937cc46 主题行未覆盖批内 UpdateContext.tsx 的 resetDismiss 删除（全仓零残留调用者）
+- 6ad40dad 主题行未提 fetchModelsOrToast 提取与错误提示布尔化
+- 01102048 守卫用 base_url_host、注入点用 upstream_host，来源不同（不变式已注释，回落旧行为非新故障）
+- 487138e9 含 AggregateProviderFields.tsx 去掉空值前置（routeId 恒非空不变式下纯视觉影响）
+Task 2: complete (commit 5b8e7b11, review approved)
+Minor 留档：
+- 池留空位机制现无实例用例（brief 要求删，与用尽同分支，非回归；后续可补合成池用例）
+- aggregateRoutes.ts:25「按强度齐全排序」叙事与新池实序有张力（brief 逐字指定文本，留整分支评审校准）
+Task 3: complete（本机迁移 + 重启回归；**无代码 diff**，产物是 DB `providers` rowid 57 的 meta 与 Claude Desktop profile）
+- 池连续化迁移为「Kimi 卡整组上移到 OC 卡前」：原脚本只改 OC 槽一处会造出两条 `claude-sonnet-5`（Kimi 槽已占该 ID）——Rust `dedup_by(route_id)` 只留首条（Kimi 模型从 profile 消失 → 15 断言失败），或 profile 未被重写时 `resolve_target` 首匹配把两条都打到 space-bunny（回归假绿）；controller 裁决改卡序后 Kimi 成第 3 个 sonnet，保住满配 `claude-sonnet-5`。
+- 迁移内容（DB + profile 同步；profile 备份 `…157210.json.bak-sonnet5-continuous`）：卡序 Zhipu→DeepSeek→Ark→**Kimi→OC**（原 OC→Kimi）；6 处 ID 轮换：k3 `fable-5→fable-4`、mimo-v2.6-pro `fable-4→fable-5`、space-bunny `sonnet-3→sonnet-4`、longcat `haiku-2→haiku-3`、k3-256k `haiku-3→haiku-2`、`defaultModel sonnet-3→sonnet-4`（仍指 space-bunny、仍置顶）；kimi-for-coding 保持 `claude-sonnet-5`。
+- 验收：重启 CC Switch（旧 PID 30004→新 15244）后 **15/15 全 200**；`/v1/models` 15 条唯一、含 sonnet-4 与 sonnet-5、无 sonnet-3；线上槽位 `assignSlotIds` 重算**不动点**（编辑器保存不再变更任何 ID）。
+- 选择记忆一次性回落（已知代价，此处留痕）：旧 `claude-sonnet-3` 失效回落默认；`fable-4/5`、`haiku-2/3` 是**跨卡对调**，若 Desktop 记住过这些 ID，重启后解析到的是对调后另一家的模型（profile 标签已随 ID 正确配对，重选即恢复）。
+Task 3: complete (无代码提交，迁移+回归全过；review approved；spec 级修正：Kimi 卡上移方案，plan 已更新 aec0284b)
+Minor 留档：
+- 报告「HEAD 仍为 5b8e7b11」陈述过时（中断恢复残留草稿；实际 HEAD=aec0284b 为 controller docs 提交，无实质影响）
+- 重启证据的旧 PID 30004 为散文断言（轮询+新 PID 已足够）
+- 报告引用账本用省略号摘录非逐字
+- 需用户动作：Claude Desktop 自身重启一次才会读到新 inferenceModels（CC Switch 重启不替代）
+Task 4: complete (commit 1e4435a0, review approved；转写字节级保真)
+Minor 留档（安排 Task 6 顺手补）：
+- `id in EXACT_LADDERS` 原型链泄漏（"constructor"/"__proto__" 误报 ladder）——输入域不可达；Task 6 替换 import 时顺手改 Object.hasOwn 或 Map
+- 测试强度空隙（变异体可存活）：/i 标志无判别性断言（补 CLAUDE-SONNET-5[1M]→ladder）、FAMILY_RE 锚点无负例（补 claude-fablex→none）、opus-4-7/4-8/5 阶梯值无断言、sonnet-5 用 toContain 弱于 toEqual
+Task 5: complete (commit 9e5fcb8e, review approved)
+Minor 留档：
+- 列头 effortBadgeHeader 的 t() 无 defaultValue（brief 原文、与既有列头一致；收紧口径时的唯一漏点）
+- 空 routeId 新建行显示 ✗+「溢出 ID」tooltip（语义是「未填」非「溢出」，UX 观察）
+Task 6: complete (commits 2722d86e+d2e474b0, review approved；Step 0 asar 复核：Desktop 对未知 maxEffort 是 cap-at-low 非拒收)
+Minor 留档：
+- aggregate.rs:9 注释「不让 Desktop 拒收整个字段」与 asar 实测（cap at low）矛盾——应改为「避免被静默压到 low」（最终审查处理）
+- maxEffort 过滤不做 trim（TS 类型卡死取值，实害有限；label_override 有 trim 不一致）
+- profile 断言按数组下标定位依赖槽位顺序（同测试已先断言 routes 顺序，脆性有限）
+- /v1/models 未透出 maxEffort（可选跟进，显式 inferenceModels 路径不受影响）
+Task 7: complete (commit 1a96a6bd, review approved；两披露偏离均判定合理：按行定位测试、增补归一化顺序判别用例)
+Minor 留档：
+- 列头 maxEffort 的 t() 无 defaultValue（brief 原文，与相邻列头一致）
+- 列头 text-right 与左对齐下拉视觉错位（纯外观）
+- disabled 触发器 title 在部分浏览器不弹原生 tooltip（可改外层 span）
+- scrollIntoView 全局 stub 无还原（仓库既有惯例）
+Task 8: BLOCKED —— 构建/部署/三重校验/不动点断言全过，但 **15/15 回归未达成（12 槽 200 + 3 槽被上游配额挡住）**，非本构建所致
+- 构建：`pnpm tauri build --bundles nsis`（后台，22:50:44→23:07:32，约 16m48s，exit 0）；产物 `src-tauri/target/release/bundle/nsis/CC Switch_3.20.4-local_x64-setup.exe`（10,193,050 B，23:07:32）；release exe md5 `e7604190…`；前端新资源名 `index-IkOTZHR4.js`（旧 `index-aZR37TZO.js`）。
+- 部署：旧 PID 15244 轮询确认退出（1 轮）→ `tools/install-local.bat`（EXITCODE=0）→ **三重校验全过**：md5 双向一致 `e7604190…`（部署前旧 md5 `bcfd3cd5…` 可对照）、资源名 grep 安装 exe 命中 1、官方 pubkey 计数 0；启动后 PID 37188。
+- 回归（复用 Task 3 Step 3 脚本，23:26:54→23:27:25）：**12/15 全 200**；3 个 429 全属同一上游「Ark Agent Plan」（槽 kimi-k3 / kimi-k2.8-preview / ark-code-latest），上游响应体 `{"error":{"code":"AccountQuotaExceeded"…}}`：5 小时配额耗尽，**2026-09-30 02:47:47 +0800 重置**。重试 1/1（仅这 3 槽）同结果——确定性，非抖动。
+- 非本次构建所致（证据链）：CC Switch 日志今日 Ark 同款配额 429 在 17 时 11 次、22 时 11 次，**回归前最后一次 22:03:40**（当时仍是旧版本在跑，新版本 23:07 才构建）；且该配额模式自 9-13 起屡次出现——账号级 5 小时窗口配额，与 maxEffort/徽标等改动无关。
+- `/v1/models` 不动点断言**通过**：15 条唯一、含 `claude-sonnet-4` 与 `claude-sonnet-5`、无 `claude-sonnet-3`。
+- 闭环待办：02:47:47 后复跑该 3 槽即达 15/15；Step 4 GUI 验收 4 项（徽标抽查 / Kimi fable maxEffort 落库 / OC sonnet 下拉含 xhigh / Zhipu sonnet 下拉禁用）**留用户在界面操作**。
+- 四项交付状态：① sonnet 池连续化+本机迁移 complete（Task 2/3）② 三态思考档位徽标 complete（Task 4/5）③ maxEffort 入 UI complete（Task 6/7）④ fork README+推送 待 Task 9。
+Minor 留档：
+- 诊断时一条 DB 查询把 Ark 供应商 `settings_config.env.ANTHROPIC_AUTH_TOKEN` 的值打印到了终端（脚本只脱敏顶层 key，未处理 env 嵌套）——报告与账本均不复述该值；建议轮换该 token 消除暴露面。
+- 首轮回归脚本只记状态码、未捕获响应体（429 根因靠 CC Switch 日志定位）；重试脚本已补响应体捕获（截 200 字符）。
+- 构建日志含 `__TAURI_BUNDLE_TYPE variable not found` 警告（tauri bundler 打补丁阶段的提示，不影响 exit 0 与产物）。
+Task 8: complete (无代码提交；构建部署三重校验全过、/v1/models 不动点断言过；review approved)
+- 回归 12/15：3 条 429 = Ark 上游 AccountQuotaExceeded（02:47:47 重置；旧版本时段已同款 429，与本构建无关；429 语义响应证明路由链路通）——遗留：配额重置后复跑 3 槽补齐 15/15
+- GUI 验收 4 项留用户（徽标一致性/maxEffort 设置/OC sonnet 可选/Zhipu sonnet 禁用）
+- 安全待办：Ark 的 ANTHROPIC_AUTH_TOKEN 曾在诊断时打到终端（报告/账本未复述值）——建议用户轮换
+Minor 留档：429 屡发归属表述（火山 Coding Plan 与 Ark Agent Plan 同平台不同名）；/v1/models 断言载体未点明（来自 retry 脚本）；账本 429 分布摘录省略 23 时 6 次

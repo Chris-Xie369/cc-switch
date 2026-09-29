@@ -169,13 +169,25 @@ cd "D:/Workspace/Project/cc-switch/src" && git add src/utils/aggregateRoutes.ts 
 
 ### Task 3: 本机迁移（DB + defaultModel + profile）+ 重启回归
 
+> **2026-09-29 执行中修正（controller 裁决）**：原脚本只改 OC 槽一处，会造成两条
+> `claude-sonnet-5`（Kimi 槽已是该 ID）→ Rust `dedup_by` 吃掉一条或路由静默顶替。
+> 且 Kimi 直接重算为 `claude-sonnet-4` 会失去思考档位，违背「sonnet-5 给
+> kimi-for-coding」的用户诉求。正解 = **Kimi 卡整组上移到 OC 卡前**（卡序决定池
+> 优先级），Kimi 变第 3 个 sonnet 保住 `sonnet-5`，OC 回溢出（space-bunny 本就
+> 溢出身，无能力损失）。代价：6 槽 ID 轮换（全部无能力损失）+ 选择记忆一次性回落。
+> 迁移后状态 = `assignSlotIds` 重算不动点（编辑器保存不再变更任何 ID）。
+
 **Files:**
 - Modify: CC Switch DB `providers` 表 rowid 57（`meta.aggregateRoutes`）、
   Claude Desktop profile `%LOCALAPPDATA%\Claude-3p\configLibrary\00000000-0000-4000-8000-000000157210.json`
 
 **Interfaces:**
 - Consumes: Task 2 的新池序（迁移后 DB 的槽位 ID 与编辑器重算结果一致）
-- Produces: OC space-bunny 槽位 ID = `claude-sonnet-5`；`defaultModel` 引用同步改
+- Produces: 数组序 = Zhipu, DeepSeek, Ark, **Kimi, OC**（Kimi 组上移）；
+  ID 变化六处：k3 `fable-5→fable-4`、mimo `fable-4→fable-5`、space-bunny
+  `sonnet-3→sonnet-4`、longcat `haiku-2→haiku-3`、k3-256k `haiku-3→haiku-2`、
+  `defaultModel claude-sonnet-3→claude-sonnet-4`（仍指 space-bunny、仍置顶）；
+  kimi-for-coding `claude-sonnet-5` 不变
 
 - [ ] **Step 1: 备份 profile 并执行迁移（一个脚本，含断言）**
 
@@ -186,22 +198,66 @@ db = r'C:\Users\Jason\.cc-switch\cc-switch.db'
 c = sqlite3.connect(db)
 meta = json.loads(c.execute("select meta from providers where rowid=57").fetchone()[0])
 agg = meta['aggregateRoutes']
-hits = [s for s in agg['slots'] if s['routeId'] == 'claude-sonnet-3']
-assert len(hits) == 1 and hits[0]['tier'] == 'sonnet', hits
-hits[0]['routeId'] = 'claude-sonnet-5'
-assert agg.get('defaultModel') == 'claude-sonnet-3', agg.get('defaultModel')
-agg['defaultModel'] = 'claude-sonnet-5'
+slots = agg['slots']
+by_up = {s['upstreamModel']: s for s in slots}
+# 前置断言：六处现状与预期完全一致，防呆
+assert by_up['space-bunny-free']['routeId'] == 'claude-sonnet-3'
+assert by_up['kimi-for-coding']['routeId'] == 'claude-sonnet-5'
+assert by_up['k3']['routeId'] == 'claude-fable-5'
+assert by_up['mimo-v2.6-pro']['routeId'] == 'claude-fable-4'
+assert by_up['longcat-2.5-preview-free']['routeId'] == 'claude-haiku-2'
+assert by_up['k3-256k']['routeId'] == 'claude-haiku-3'
+assert agg['defaultModel'] == 'claude-sonnet-3'
+
+# 迁移前快照：槽对象 → 旧 ID（profile 重建按对象对位，绕开 fable-4/5、haiku-2/3 的名字对调）
+snapshot = [(s, s['routeId']) for s in slots]
+
+# 1) 卡序：Kimi 组上移到 OC 组前
+kimi_pid, oc_pid = by_up['k3']['providerId'], by_up['space-bunny-free']['providerId']
+first = {}
+for i, s in enumerate(slots):
+    first.setdefault(s['providerId'], i)
+order = sorted(first, key=first.get)
+order.remove(kimi_pid)
+order.insert(order.index(oc_pid), kimi_pid)
+groups = {}
+for s in slots:
+    groups.setdefault(s['providerId'], []).append(s)
+agg['slots'] = [s for p in order for s in groups[p]]
+
+# 2) 六处 ID 重写（kimi-for-coding 的 sonnet-5 不动）
+renames = {'k3': 'claude-fable-4', 'mimo-v2.6-pro': 'claude-fable-5',
+           'space-bunny-free': 'claude-sonnet-4', 'longcat-2.5-preview-free': 'claude-haiku-3',
+           'k3-256k': 'claude-haiku-2'}
+for up, new in renames.items():
+    by_up[up]['routeId'] = new
+agg['defaultModel'] = 'claude-sonnet-4'
+
+ids = [s['routeId'] for s in agg['slots']]
+assert len(ids) == len(set(ids)) == 15
 c.execute("update providers set meta=? where rowid=57", (json.dumps(meta, ensure_ascii=False),))
 c.commit()
 
+# 3) profile：备份 → 按新数组序重建 inferenceModels（defaultModel 置顶）
 p = os.path.expandvars(r'%LOCALAPPDATA%\Claude-3p\configLibrary\00000000-0000-4000-8000-000000157210.json')
 shutil.copy2(p, p + '.bak-sonnet5-continuous')
 d = json.load(open(p, encoding='utf-8'))
-m0 = [m for m in d['inferenceModels'] if m['name'] == 'claude-sonnet-3']
-assert len(m0) == 1 and d['inferenceModels'][0]['name'] == 'claude-sonnet-3'
-m0[0]['name'] = 'claude-sonnet-5'
+old_entries = {m['name']: m for m in d['inferenceModels']}
+assert len(old_entries) == 15
+old_by_slot = {s['routeId']: old for s, old in snapshot}  # 新 ID → 旧 ID
+seq = sorted(agg['slots'], key=lambda s: s['routeId'] != agg['defaultModel'])
+out = []
+for s in seq:
+    old = old_by_slot[s['routeId']]
+    base = dict(old_entries[old])
+    base['name'] = s['routeId']
+    out.append(base)
+    del old_entries[old]
+assert len(out) == 15 and not old_entries, f'遗漏 {old_entries.keys()}'
+d['inferenceModels'] = out
 json.dump(d, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-print('迁移完成: DB 槽位+defaultModel、profile 首条均已改名；备份', p + '.bak-sonnet5-continuous')
+print('迁移完成: Kimi 卡上移、6 处 ID 重写、defaultModel→sonnet-4、profile 按新序重建')
+print('新序:', [m['name'] for m in out])
 PYEOF
 ```
 
@@ -234,16 +290,23 @@ for m in models:
     st, el = call(m); ok += st == 200
     print(f"  {m:22s} -> {st}  {el}s")
 print(f"通过 {ok}/{len(models)}")
-assert 'claude-sonnet-5' in models and 'claude-sonnet-3' not in models
 assert ok == len(models) == 15
+# 不动点验证：/v1/models 顺序与 ID 即重算结果，且无重复
+import urllib.request as u2
+req = u2.Request(BASE + "/v1/models", headers={"authorization": f"Bearer {token}","x-api-key":token})
+with u2.urlopen(req, timeout=30) as r:
+    listed = [m['id'] for m in json.load(r).get('data', [])]
+assert len(listed) == len(set(listed)) == 15
+assert 'claude-sonnet-4' in listed and 'claude-sonnet-5' in listed and 'claude-sonnet-3' not in listed
 PYEOF
 ```
 
-Expected: 15/15 全 200，含 `claude-sonnet-5`、无 `claude-sonnet-3`
+Expected: 15/15 全 200；`sonnet-4`（OC）与 `sonnet-5`（Kimi）并存、无 `sonnet-3`
 
 - [ ] **Step 4: 账本记录**
 
-`.superpowers/sdd/progress.md` 追加条目：池连续化迁移（sonnet-3→sonnet-5、defaultModel 同步、15/15 回归）。
+`.superpowers/sdd/progress.md` 追加条目：池连续化迁移（Kimi 卡上移、6 处 ID 轮换、
+defaultModel→sonnet-4、15/15 回归、选择记忆一次性回落）。
 不单独提交，随 Task 9 推送。
 
 ---

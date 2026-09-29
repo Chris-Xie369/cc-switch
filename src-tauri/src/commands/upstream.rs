@@ -14,13 +14,18 @@ pub struct UpstreamStatus {
 }
 
 async fn fetch_json(url: &str) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
+    // 复用全局 HTTP 客户端（含应用内代理配置——自建客户端会绕开代理，在靠代理
+    // 访问 GitHub 的环境下必失败）；探测类请求套 15s 请求级超时，不沿用全局
+    // 客户端的 600s 总超时（与 misc.rs 的 LATEST_PROBE_TIMEOUT 同理）。
+    let client = crate::proxy::http_client::get();
+    let resp = client
+        .get(url)
         // GitHub API 强制要求 User-Agent，缺失会返回 403。
-        .user_agent("cc-switch-local-upstream-check")
-        .build()
+        .header("User-Agent", "cc-switch")
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
         .map_err(|e| e.to_string())?;
-    let resp = client.get(url).send().await.map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status()));
     }
@@ -31,14 +36,10 @@ async fn fetch_json(url: &str) -> Result<serde_json::Value, String> {
 /// 两个请求独立容错；都失败才报错（前端据此显示"检查失败"）。
 #[tauri::command]
 pub async fn check_upstream_status() -> Result<UpstreamStatus, String> {
-    let pr = fetch_json(&format!(
-        "https://api.github.com/repos/{UPSTREAM_REPO}/pulls/{TARGET_PR}"
-    ))
-    .await;
-    let release = fetch_json(&format!(
-        "https://api.github.com/repos/{UPSTREAM_REPO}/releases/latest"
-    ))
-    .await;
+    let pr_url = format!("https://api.github.com/repos/{UPSTREAM_REPO}/pulls/{TARGET_PR}");
+    let release_url =
+        format!("https://api.github.com/repos/{UPSTREAM_REPO}/releases/latest");
+    let (pr, release) = tokio::join!(fetch_json(&pr_url), fetch_json(&release_url));
 
     let pr_merged = pr
         .as_ref()

@@ -128,6 +128,9 @@ export interface ClaudeDesktopModelRoute {
 // 聚合供应商路由：按档位把请求分流到其他供应商的具体模型
 export type AggregateTier = "sonnet" | "opus" | "haiku" | "fable";
 
+/** 思考强度阶梯（与 Claude Desktop 的 low…max 五档一致）。 */
+export type AggregateMaxEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
 export interface AggregateRouteSlot {
   /** 生成的槽位 ID（持久化，稳定的路由键）。由 assignSlotIds 写入，后端只校验。 */
   routeId: string;
@@ -136,6 +139,8 @@ export interface AggregateRouteSlot {
   upstreamModel: string;
   label?: string;
   supports1m?: boolean;
+  /** 思考强度上限（仅完整阶梯 ID 有意义；写入 profile 时透出为 maxEffort） */
+  maxEffort?: AggregateMaxEffort;
 }
 
 export type DefaultTarget =

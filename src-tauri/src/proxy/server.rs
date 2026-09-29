@@ -1351,6 +1351,7 @@ mod tests {
                     upstream_model: "glm-5.3".to_string(),
                     label: None,
                     supports_1m: false,
+                    max_effort: None,
                 }],
                 default_target: crate::aggregate::DefaultTarget::ProviderId(
                     "default-target".to_string(),

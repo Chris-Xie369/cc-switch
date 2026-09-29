@@ -117,6 +117,9 @@ pub struct ResolvedModelRoute {
     pub upstream_model: String,
     pub label_override: Option<String>,
     pub supports_1m: bool,
+    /// 思考强度上限（profile 条目字段 `maxEffort`）。仅聚合槽位会带出，
+    /// 普通供应商路径恒为 `None`。
+    pub max_effort: Option<String>,
     /// 聚合路由的档位（fable/opus/sonnet/haiku）。`Some` 时按
     /// 「供应商分组 × 档位强弱」排序写 profile，避免不同供应商的模型在
     /// Claude Desktop 的选择器里交错；普通供应商无档位概念，恒为 `None`。
@@ -128,6 +131,7 @@ struct InferenceModelSpec {
     name: String,
     label_override: Option<String>,
     supports_1m: bool,
+    max_effort: Option<String>,
 }
 
 pub fn apply_provider(db: &Database, provider: &Provider) -> Result<(), AppError> {
@@ -293,13 +297,16 @@ fn has_non_anthropic_vendor_token(model: &str) -> bool {
 }
 
 fn inference_model_json(spec: &InferenceModelSpec) -> Value {
-    if spec.supports_1m || spec.label_override.is_some() {
+    if spec.supports_1m || spec.label_override.is_some() || spec.max_effort.is_some() {
         let mut item = json!({ "name": spec.name });
         if let Some(label_override) = spec.label_override.as_deref() {
             item["labelOverride"] = json!(label_override);
         }
         if spec.supports_1m {
             item["supports1m"] = json!(true);
+        }
+        if let Some(effort) = spec.max_effort.as_deref() {
+            item["maxEffort"] = json!(effort);
         }
         item
     } else {
@@ -586,6 +593,7 @@ fn direct_inference_model_specs(provider: &Provider) -> Result<Vec<InferenceMode
                 .filter(|value| !value.is_empty())
                 .map(str::to_string),
             supports_1m,
+            max_effort: None,
         });
     }
 
@@ -652,6 +660,7 @@ pub fn proxy_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRoute>
                     (!is_claude_safe_model_id(route_id)).then(|| upstream_model.to_string())
                 }),
             supports_1m,
+            max_effort: None,
             tier: None,
         });
     }
@@ -1055,6 +1064,7 @@ fn apply_provider_to_paths_inner(
                     name: route.route_id.clone(),
                     label_override: route.label_override.clone(),
                     supports_1m: route.supports_1m,
+                    max_effort: route.max_effort.clone(),
                 })
                 .collect::<Vec<_>>();
             build_gateway_profile(&base_url, &api_key, Some(model_specs.as_slice()))
@@ -2581,6 +2591,7 @@ mod tests {
                     upstream_model: "glm-5.3".into(),
                     label: Some("智谱 GLM-5.3".into()),
                     supports_1m: true,
+                    max_effort: None,
                 },
                 crate::aggregate::AggregateRouteSlot {
                     route_id: "claude-haiku-1".into(),
@@ -2589,6 +2600,25 @@ mod tests {
                     upstream_model: "deepseek-flash".into(),
                     label: None,
                     supports_1m: false,
+                    max_effort: None,
+                },
+                crate::aggregate::AggregateRouteSlot {
+                    route_id: "claude-sonnet-2".into(),
+                    tier: crate::aggregate::AggregateTier::Sonnet,
+                    provider_id: "p-glm".into(),
+                    upstream_model: "glm-5.3-flash".into(),
+                    label: None,
+                    supports_1m: false,
+                    max_effort: Some("xhigh".into()),
+                },
+                crate::aggregate::AggregateRouteSlot {
+                    route_id: "claude-sonnet-3".into(),
+                    tier: crate::aggregate::AggregateTier::Sonnet,
+                    provider_id: "p-glm".into(),
+                    upstream_model: "glm-5.3-air".into(),
+                    label: None,
+                    supports_1m: false,
+                    max_effort: Some("ultra".into()),
                 },
             ],
             default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
@@ -2597,7 +2627,7 @@ mod tests {
 
         let routes = proxy_model_routes(&provider).expect("routes");
         // 顺序保留 slots 的供应商分组序（2026-09-24 改造，不再按 route_id 字典序）
-        assert_eq!(routes.len(), 2);
+        assert_eq!(routes.len(), 4);
         assert_eq!(routes[0].route_id, "claude-sonnet-1");
         assert_eq!(routes[0].upstream_model, "glm-5.3");
         assert_eq!(routes[0].label_override.as_deref(), Some("智谱 GLM-5.3"));
@@ -2606,6 +2636,17 @@ mod tests {
         assert_eq!(routes[1].upstream_model, "deepseek-flash");
         assert_eq!(routes[1].label_override, None);
         assert!(!routes[1].supports_1m);
+        // maxEffort 白名单：合法值透出，非法值被过滤为 None（不写会让 Desktop 拒收的字段）
+        assert_eq!(routes[2].max_effort.as_deref(), Some("xhigh"));
+        assert_eq!(routes[3].max_effort, None);
+
+        // 端到端：条目按槽位顺序写入 profile，maxEffort 只随合法值出现在条目对象上
+        let temp = TempDir::new().expect("tempdir");
+        let paths = test_paths(temp.path());
+        apply_provider_to_paths(&test_db(), &provider, &paths).expect("apply aggregate provider");
+        let profile: Value = read_json_file(&paths.profile_path).expect("read profile");
+        assert_eq!(profile["inferenceModels"][2]["maxEffort"], json!("xhigh"));
+        assert!(profile["inferenceModels"][3].get("maxEffort").is_none());
     }
 
     /// 构造一个仅带聚合路由表、`settings_config` 为空对象的供应商（无端点无凭据）。
@@ -2625,6 +2666,7 @@ mod tests {
                     upstream_model: "glm-5.3".into(),
                     label: None,
                     supports_1m: false,
+                    max_effort: None,
                 }],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
                 default_model: None,

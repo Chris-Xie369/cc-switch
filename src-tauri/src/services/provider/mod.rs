@@ -1703,6 +1703,7 @@ GEMINI_TIMEOUT_MS=30000
             upstream_model: "m".into(),
             label: None,
             supports_1m: false,
+            max_effort: None,
         }
     }
 

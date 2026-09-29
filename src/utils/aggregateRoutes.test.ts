@@ -323,6 +323,23 @@ describe("assignSlotIds", () => {
       value: "claude-fable-gone",
     });
   });
+
+  it("assignSlotIds 保留 maxEffort 字段", () => {
+    const routes = {
+      slots: [
+        {
+          routeId: "claude-sonnet-5",
+          tier: "sonnet" as const,
+          providerId: "p",
+          upstreamModel: "m",
+          supports1m: false,
+          maxEffort: "xhigh" as const,
+        },
+      ],
+      defaultTarget: { kind: "providerId" as const, value: "p" },
+    };
+    expect(assignSlotIds(routes).slots[0].maxEffort).toBe("xhigh");
+  });
 });
 
 describe("groupSlotsByProvider / flattenProviderGroups", () => {

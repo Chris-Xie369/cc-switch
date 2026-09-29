@@ -556,6 +556,7 @@ mod tests {
                     upstream_model: "m".into(),
                     label: None,
                     supports_1m: false,
+                    max_effort: None,
                 }],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("target".into()),
                 default_model: None,

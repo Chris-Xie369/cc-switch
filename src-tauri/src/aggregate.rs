@@ -5,6 +5,10 @@ use crate::error::AppError;
 use crate::provider::Provider;
 use serde::{Deserialize, Serialize};
 
+/// 可写入 profile 的 `maxEffort` 合法取值（与 Claude Desktop 的 low…max 阶梯一致）。
+/// 白名单外的值不写入——宁可退回上游默认，也不让 Desktop 拒收整个字段。
+const AGGREGATE_MAX_EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
 /// 档位：决定 Claude Desktop 选择器里那句描述文字来自目录中哪个角色。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -35,6 +39,10 @@ pub struct AggregateRouteSlot {
     /// 勾选后该模型在选择器里会多出一行 "1M context window"
     #[serde(default)]
     pub supports_1m: bool,
+    /// 思考强度上限（camelCase: maxEffort）。仅完整阶梯 ID 有意义。
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_effort: Option<String>,
 }
 
 /// 未命中路由时的兜底目标。按槽位 ID 或供应商 id 引用（不用下标——下标会随增删重排失效）。
@@ -69,6 +77,7 @@ mod tests {
             upstream_model: upstream_model.to_string(),
             label: None,
             supports_1m: false,
+            max_effort: None,
         }
     }
 
@@ -230,6 +239,22 @@ mod tests {
         assert_eq!(routes.slots.len(), 1);
     }
 
+    #[test]
+    fn max_effort_absent_defaults_to_none_and_survives_roundtrip() {
+        let plain: AggregateRouteSlot = serde_json::from_str(
+            r#"{"routeId":"claude-sonnet-5","tier":"sonnet","providerId":"p","upstreamModel":"m","supports1m":false}"#,
+        )
+        .unwrap();
+        assert_eq!(plain.max_effort, None);
+
+        let with: AggregateRouteSlot = serde_json::from_str(
+            r#"{"routeId":"claude-sonnet-5","tier":"sonnet","providerId":"p","upstreamModel":"m","supports1m":false,"maxEffort":"xhigh"}"#,
+        )
+        .unwrap();
+        assert_eq!(with.max_effort.as_deref(), Some("xhigh"));
+        assert!(serde_json::to_string(&with).unwrap().contains(r#""maxEffort":"xhigh""#));
+    }
+
     #[tokio::test]
     async fn resolve_target_hits_slot_by_generated_id() {
         let db = crate::database::Database::memory().expect("db");
@@ -257,6 +282,7 @@ mod tests {
                     upstream_model: "glm-5.3".into(),
                     label: None,
                     supports_1m: false,
+                    max_effort: None,
                 }],
                 default_target: DefaultTarget::ProviderId("p-glm".into()),
                 default_model: None,
@@ -298,6 +324,7 @@ mod tests {
             upstream_model: upstream_model.to_string(),
             label: None,
             supports_1m: false,
+            max_effort: None,
         }
     }
 
@@ -444,6 +471,11 @@ pub fn aggregate_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRo
                 .filter(|l| !l.is_empty())
                 .map(str::to_string),
             supports_1m: slot.supports_1m,
+            max_effort: slot
+                .max_effort
+                .as_deref()
+                .filter(|v| AGGREGATE_MAX_EFFORTS.contains(v))
+                .map(str::to_string),
             // 枚举带 serde(rename_all="lowercase")，序列化结果即 profile/前端用的
             // 小写档位名（fable/opus/sonnet/haiku）
             tier: serde_json::to_value(slot.tier)

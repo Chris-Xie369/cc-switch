@@ -5,6 +5,8 @@ export type UpdateChannel = "stable" | "beta";
 
 export interface UpdateInfo {
   currentVersion: string;
+  /** 上游是否真有比本地新的版本（false = 仅上游修复 PR 合并） */
+  newer: boolean;
   availableVersion: string;
   notes?: string;
   pubDate?: string;
@@ -55,7 +57,10 @@ export async function checkForUpdate(
 
   const info: UpdateInfo = {
     currentVersion,
+    // 「仅 PR 合并」时 availableVersion 回退为当前版本（dismiss 指纹沿用该值）；
+    // 是否有新版读 newer 字段，勿在 UI 里做版本比较反推。
     availableVersion: newer ? latest : currentVersion,
+    newer,
     prMerged: status.prMerged,
   };
 

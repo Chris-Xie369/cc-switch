@@ -23,7 +23,6 @@ interface UpdateContextValue {
 
   // 操作方法
   checkUpdate: () => Promise<boolean>;
-  resetDismiss: () => void;
 }
 
 const UpdateContext = createContext<UpdateContextValue | undefined>(undefined);
@@ -118,12 +117,6 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
     }
   }, [updateInfo]);
 
-  const resetDismiss = useCallback(() => {
-    setIsDismissed(false);
-    localStorage.removeItem(DISMISSED_VERSION_KEY);
-    localStorage.removeItem(LEGACY_DISMISSED_KEY);
-  }, []);
-
   // 应用启动时自动检查更新
   useEffect(() => {
     // 延迟1秒后检查，避免影响启动体验
@@ -142,7 +135,6 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
     isDismissed,
     dismissUpdate,
     checkUpdate,
-    resetDismiss,
   };
 
   return (

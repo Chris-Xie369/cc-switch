@@ -13,12 +13,9 @@ export function UpdateBadge({ className = "", onClick }: UpdateBadgeProps) {
   const { t } = useTranslation();
   const isActive = hasUpdate && updateInfo;
   const availableVersion = updateInfo?.availableVersion ?? "";
-  // 「仅 PR 合并、上游无新版本」时 availableVersion 会回退成当前版本，
-  // 此时应提示上游修复已合并，而不是「检测到新版本：<当前版本>」。
-  const isNewerVersion =
-    updateInfo != null &&
-    availableVersion !== "" &&
-    availableVersion !== updateInfo.currentVersion;
+  // 「仅 PR 合并、上游无新版本」时 newer 为 false，此时应提示上游修复已合并，
+  // 而不是「检测到新版本：<当前版本>」。
+  const isNewerVersion = updateInfo?.newer ?? false;
   const title = !isActive
     ? t("settings.checkForUpdates")
     : isNewerVersion

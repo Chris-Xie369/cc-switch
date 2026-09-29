@@ -468,10 +468,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
       // updater 已禁用（补丁 C），本地构建无法安装更新——不再走安装路径，
       // 改为说明性提示；若确有比本地更新的版本号，顺带打开对应 release 页。
       toast.info(t("settings.upstreamSyncNeeded"), { closeButton: true });
-      if (
-        updateInfo &&
-        updateInfo.availableVersion !== updateInfo.currentVersion
-      ) {
+      if (updateInfo?.newer) {
         await handleOpenReleaseNotes();
       }
       return;
@@ -970,7 +967,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                 {t("settings.upstreamPrMerged")}
               </p>
             )}
-            {updateInfo.availableVersion !== updateInfo.currentVersion && (
+            {updateInfo.newer && (
               <p className="font-medium text-primary mb-1">
                 {t("settings.updateAvailable", {
                   version: updateInfo.availableVersion,

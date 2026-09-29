@@ -16,7 +16,7 @@ describe("slotId", () => {
     expect(slotId("opus", 1)).toBe("claude-opus-4-8");
     expect(slotId("opus", 2)).toBe("claude-opus-4-7");
     expect(slotId("sonnet", 1)).toBe("claude-sonnet-4-6");
-    expect(slotId("sonnet", 4)).toBe("claude-sonnet-5");
+    expect(slotId("sonnet", 3)).toBe("claude-sonnet-5");
     expect(slotId("haiku", 1)).toBe("claude-haiku-4-5");
   });
 
@@ -25,17 +25,14 @@ describe("slotId", () => {
     expect(slotId("fable", 7)).toBe("claude-fable-7");
   });
 
-  it("池子留空位时该序号走溢出（sonnet 池 3 位留空，保住存量 claude-sonnet-3）", () => {
-    expect(slotId("sonnet", 2)).toBe("claude-sonnet-4-5");
-    expect(slotId("sonnet", 3)).toBe("claude-sonnet-3");
-  });
-
-  it("溢出让开池内已占用的名字（claude-sonnet-5 入池后，序号 5 顺移）", () => {
+  it("溢出让开池内已占用的名字（claude-sonnet-5 在池内，序号 5 顺移）", () => {
     expect(slotId("sonnet", 5)).toBe("claude-sonnet-6");
     expect(slotId("sonnet", 6)).toBe("claude-sonnet-6"); // 单次调用无状态，见下条批量保证
   });
 
   it("池子用尽后退回 claude-{档位}-{序号}", () => {
+    expect(slotId("sonnet", 2)).toBe("claude-sonnet-4-5");
+    expect(slotId("sonnet", 4)).toBe("claude-sonnet-4");
     expect(slotId("haiku", 2)).toBe("claude-haiku-2");
     expect(slotId("opus", 4)).toBe("claude-opus-4");
   });

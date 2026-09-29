@@ -28,7 +28,7 @@ import type {
  * 只是那条不再有强度控件。
  *
  * 池 keyed by 槽位序号（该档位第几个槽），可以留空位——空位序号走溢出，
- * 用于「存量槽已占溢出 ID、新槽拿真 ID」的场景（sonnet 3 位留空即此）。
+ * 用于「存量槽已占溢出 ID、新槽拿真 ID」的场景（如需为存量槽保 ID 可留空位）。
  *
  * 池内 ID 形如 `claude-{档位}-{数字}` 时会与溢出生成值撞名（`claude-sonnet-5` 踩过：
  * 同档第 5 个槽位也生成 `claude-sonnet-5`，两条槽位同 ID，后端去重吃掉一条），
@@ -40,9 +40,8 @@ const RECOGNIZED_IDS: Record<
   Readonly<Partial<Record<number, string>>>
 > = {
   opus: { 1: "claude-opus-4-8", 2: "claude-opus-4-7", 3: "claude-opus-4-6" },
-  // 3 位留空：存量第 3 个 sonnet 槽（OpenCode Go space-bunny）已用溢出 ID
-  // claude-sonnet-3，保持不动；4 位收 claude-sonnet-5（强度阶梯比 4-6 还全，含 xhigh）。
-  sonnet: { 1: "claude-sonnet-4-6", 2: "claude-sonnet-4-5", 4: "claude-sonnet-5" },
+  // claude-sonnet-5 在 Desktop 精确表内且阶梯最全（low…xhigh…max）。
+  sonnet: { 1: "claude-sonnet-4-6", 2: "claude-sonnet-4-5", 3: "claude-sonnet-5" },
   haiku: { 1: "claude-haiku-4-5" },
   // fable 族的强度阶梯由族正则兜底，序号可无限生成，无需 ID 池。
   fable: {},

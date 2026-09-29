@@ -23,8 +23,7 @@
  * ```
  */
 
-// 临时本地定义：Task 6 会把 AggregateMaxEffort 加入 @/types 并从那里引入，届时删除本行。
-type AggregateMaxEffort = "low" | "medium" | "high" | "xhigh" | "max";
+import type { AggregateMaxEffort } from "@/types";
 
 export type EffortCapability = "ladder" | "extended" | "none";
 
@@ -48,15 +47,20 @@ function canonical(routeId: string): string {
   return routeId.trim().replace(/\[1m\]$/i, "").toLowerCase();
 }
 
+// 查表用 `hasOwnProperty.call`（只认自有键）而非 `in`：后者会命中原型链，
+// 让 "constructor"/"__proto__" 这类非模型 ID 误报为 ladder。
+// 不用 `Object.hasOwn`——本库 target 为 ES2020。
 export function effortCapability(routeId: string): EffortCapability {
   const id = canonical(routeId);
-  if (id in EXACT_LADDERS) return "ladder";
+  if (Object.prototype.hasOwnProperty.call(EXACT_LADDERS, id)) return "ladder";
   if (EXTENDED_ONLY.has(id)) return "extended";
   return FAMILY_RE.test(id) ? "ladder" : "none";
 }
 
 export function effortLevelsFor(routeId: string): readonly AggregateMaxEffort[] {
   const id = canonical(routeId);
-  if (id in EXACT_LADDERS) return EXACT_LADDERS[id];
+  if (Object.prototype.hasOwnProperty.call(EXACT_LADDERS, id)) {
+    return EXACT_LADDERS[id];
+  }
   return FAMILY_RE.test(id) ? EFFORT_LADDER : [];
 }

@@ -28,12 +28,24 @@ describe("effortCapability（三态，镜像 Desktop asar czt/lzt/szt）", () =>
     expect(effortCapability("CLAUDE-FABLE-1[1M]")).toBe("ladder");
     expect(effortCapability("claude-sonnet-4-5[1m] ")).toBe("extended");
   });
+
+  it("后缀剥离与族判定都大小写不敏感、族正则带尾锚", () => {
+    // 大写后缀：replace 无 /i 时 "CLAUDE-SONNET-5[1M]" 剥不掉 [+1M]，
+    // 小写化后落在表外 → none（本断言杀该变异体）
+    expect(effortCapability("CLAUDE-SONNET-5[1M]")).toBe("ladder");
+    // claude-fablex 不是 fable 族：族正则去掉 (?:-|$) 锚会误判为 ladder
+    expect(effortCapability("claude-fablex")).toBe("none");
+    // Object.prototype 上的键名不是模型 ID：用 `in` 查表会命中原型链而误报 ladder
+    expect(effortCapability("constructor")).toBe("none");
+    expect(effortLevelsFor("constructor")).toEqual([]);
+  });
 });
 
 describe("effortLevelsFor（阶梯明细，供 maxEffort 下拉）", () => {
   it("4-6 与 opus-4-6 无 xhigh；sonnet-5/opus-4-7/4-8 有", () => {
     expect(effortLevelsFor("claude-sonnet-4-6")).toEqual(["low","medium","high","max"]);
     expect(effortLevelsFor("claude-opus-4-6")).toEqual(["low","medium","high","max"]);
+    expect(effortLevelsFor("claude-opus-4-8")).toEqual(["low","medium","high","xhigh","max"]);
     expect(effortLevelsFor("claude-sonnet-5")).toContain("xhigh");
     expect(effortLevelsFor("claude-fable-1")).toEqual(["low","medium","high","xhigh","max"]);
   });

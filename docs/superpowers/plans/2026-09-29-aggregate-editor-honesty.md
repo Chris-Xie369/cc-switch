@@ -957,6 +957,10 @@ Expected: 新用例 PASS；typecheck 0；全量仅已知 flaky（`PiProviderForm
 cd "D:/Workspace/Project/cc-switch/src" && git add src/components/providers/forms/AggregateProviderFields.tsx src/i18n/locales/zh.json src/i18n/locales/en.json tests/components/AggregateProviderFields.effortBadge.test.tsx && git commit -m "feat(aggregate): 槽位行 maxEffort 下拉（仅完整阶梯可选）+ 提交归一化"
 ```
 
+> **2026-09-29 执行中修正（最终审查 I-1）**：归一化从「三态是 ladder」收紧为
+> 「值在该 ID 的具体阶梯内」（`effortLevelsFor` 统一判定）——4-6 系无 xhigh，
+> 删槽轮换后越阶值会隐形残留。
+
 ---
 
 ### Task 8: 构建部署 + 15 槽回归 + 实机验收

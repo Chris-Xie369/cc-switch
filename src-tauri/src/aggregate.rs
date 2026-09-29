@@ -6,7 +6,7 @@ use crate::provider::Provider;
 use serde::{Deserialize, Serialize};
 
 /// 可写入 profile 的 `maxEffort` 合法取值（与 Claude Desktop 的 low…max 阶梯一致）。
-/// 白名单外的值不写入——宁可退回上游默认，也不让 Desktop 拒收整个字段。
+/// 白名单外丢弃——避免用户被 Desktop 静默压到最低档（cap at low，实测 2.9939.4.0）。
 const AGGREGATE_MAX_EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
 /// 档位：决定 Claude Desktop 选择器里那句描述文字来自目录中哪个角色。

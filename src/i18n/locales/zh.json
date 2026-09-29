@@ -3303,7 +3303,14 @@
     "expandAll": "全部展开",
     "collapseAll": "全部折叠",
     "addModel": "新增模型",
-    "modelsSummary": "{{count}} 个模型",
+    "modelsSummaryLadder": "{{count}} 个模型 · {{ladder}} 强度",
+    "effortBadgeHeader": "思考",
+    "effortLadder": "强度✓",
+    "effortLadderTip": "完整思考强度阶梯（low…max），来自真模型 ID",
+    "effortToggle": "思考开关",
+    "effortToggleTip": "仅扩展思考开/关，无强度档位",
+    "effortNone": "✗",
+    "effortNoneTip": "溢出 ID：Claude Desktop 不认识，无思考控件",
     "removeModel": "删除该模型"
   }
 }

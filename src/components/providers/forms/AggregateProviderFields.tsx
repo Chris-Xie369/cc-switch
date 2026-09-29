@@ -65,6 +65,7 @@ import {
   TIER_ROW_ORDER,
   type ProviderTierRows,
 } from "@/utils/aggregateRoutes";
+import { effortCapability } from "@/utils/claudeDesktopCapability";
 
 interface Props {
   value: AggregateRoutes;
@@ -521,6 +522,9 @@ export function AggregateProviderFields({
                             <span className="w-14 shrink-0">
                               {t("aggregate.tier")}
                             </span>
+                            <span className="w-16 shrink-0">
+                              {t("aggregate.effortBadgeHeader")}
+                            </span>
                             <span className="min-w-0 flex-1">
                               {t("aggregate.upstreamModel")}
                             </span>
@@ -552,6 +556,7 @@ export function AggregateProviderFields({
                                 <span className="w-14 shrink-0 text-xs text-muted-foreground">
                                   {tier}
                                 </span>
+                                <EffortBadge routeId={slot.routeId} />
                                 <div className="flex min-w-0 flex-1 gap-1">
                                 {/* 上游模型只改值，不再承担行的生死——删行走
                                     行尾 × 按钮（v3 语义）。 */}
@@ -662,11 +667,16 @@ export function AggregateProviderFields({
                           )}
                         </>
                       ) : (
-                        /* 折叠态摘要：N 个模型 */
+                        /* 折叠态摘要：N 个模型 · M 强度 */
                         <p className="text-xs text-muted-foreground">
-                          {t("aggregate.modelsSummary", {
+                          {t("aggregate.modelsSummaryLadder", {
                             count: mappedTiers.length,
-                            defaultValue: "{{count}} 个模型",
+                            ladder: mappedTiers.filter(
+                              (tier) =>
+                                effortCapability(card.rows[tier]!.routeId) ===
+                                "ladder",
+                            ).length,
+                            defaultValue: "{{count}} 个模型 · {{ladder}} 强度",
                           })}
                         </p>
                       )}
@@ -695,5 +705,41 @@ export function AggregateProviderFields({
         {t("aggregate.addProvider")}
       </Button>
     </section>
+  );
+}
+
+function EffortBadge({ routeId }: { routeId: string }) {
+  const { t } = useTranslation();
+  // 测试环境 i18n 是空资源：t() 必须带 defaultValue，否则返回键名本身、组件测试必挂
+  const conf = {
+    ladder: {
+      key: "effortLadder",
+      tipKey: "effortLadderTip",
+      cls: "text-emerald-600 dark:text-emerald-400",
+      text: "强度✓",
+      tip: "完整思考强度阶梯（low…max），来自真模型 ID",
+    },
+    extended: {
+      key: "effortToggle",
+      tipKey: "effortToggleTip",
+      cls: "text-muted-foreground",
+      text: "思考开关",
+      tip: "仅扩展思考开/关，无强度档位",
+    },
+    none: {
+      key: "effortNone",
+      tipKey: "effortNoneTip",
+      cls: "text-muted-foreground/50",
+      text: "✗",
+      tip: "溢出 ID：Claude Desktop 不认识，无思考控件",
+    },
+  }[effortCapability(routeId)];
+  return (
+    <span
+      className={`w-16 shrink-0 text-[10px] ${conf.cls}`}
+      title={t(`aggregate.${conf.tipKey}`, { defaultValue: conf.tip })}
+    >
+      {t(`aggregate.${conf.key}`, { defaultValue: conf.text })}
+    </span>
   );
 }

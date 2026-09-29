@@ -22,9 +22,9 @@ import type {
  * profile 也是这个套路：`name` 用真 ID（`claude-opus-4-8`）承载能力画像，`labelOverride`
  * 才是给人看的「实际调用的模型」。故这里按档位给出 ID 池，序号逐个取用。
  *
- * 池内顺序按「强度档位是否齐全」排：`claude-opus-4-8`/`4-7` 有 low…max（含 xhigh），
- * `4-6` 只有 extended 开关；不取 `claude-opus-5`（它 `disallowThinkingDisabled`，
- * 会强制开启思考）。池子用尽后退回 `claude-{档位}-{序号}`：形状合法、可路由，
+ * 阶梯明细见 claudeDesktopCapability.ts（EXACT_LADDERS）：`4-8`/`4-7` 含 xhigh，
+ * `4-6` 无 xhigh 但有阶梯（低版本 asar 曾只有 extended 开关，已过时）；不取
+ * `claude-opus-5`（它 `disallowThinkingDisabled`，会强制开启思考）。池子用尽后退回 `claude-{档位}-{序号}`：形状合法、可路由，
  * 只是那条不再有强度控件。
  *
  * 池 keyed by 槽位序号（该档位第几个槽），可以留空位——空位序号走溢出，

@@ -1305,3 +1305,12 @@ Task 8: complete (无代码提交；构建部署三重校验全过、/v1/models 
 Minor 留档：429 屡发归属表述（火山 Coding Plan 与 Ark Agent Plan 同平台不同名）；/v1/models 断言载体未点明（来自 retry 脚本）；账本 429 分布摘录省略 23 时 6 次
 Task 9: complete (commit a93986e8 + controller 收口 6e3fa866/后续，review approved；README 链接偏离判定正确；origin 双向确认)
 Minor 留档：README 死路径与三态表缺 opus-5 行已由 controller 顺手修；报告"50 行"记述滑误（实为新增行数）；快照含被取代的 Task 8 BLOCKED 条目（append-only 惯例）
+
+## 2026-09-30 计划收尾：最终审查 + 修复
+
+- 最终全分支审查（76de4b91..73edf3ba，18 提交）：**With fixes** → 3 Important
+- I-1 归一化收紧到具体阶梯（63b36f10，判别性红→绿用例）；I-2 README 三态表拆行（8b0172ed+ace11c9f 去重）；T6-1 注释动机更正（8b0172ed）；I-3 见用户待办
+- Re-review：三处全验证 ✅；残留 Minor：plan Task 9 草稿与实 README 漂移（重新执行 Task 9 须以实文件为准）、progress.md 快照镜像同源注释
+- aggregateRoutes.ts:25 过时注释（4-6 只有 extended）已更正
+- 用户待办：①Claude Desktop GUI 四项验收 ②Ark 配额重置（02:47）后补跑 3 槽回归至 15/15 ③轮换 Ark token（曾打终端）
+- 新任务排队：平台别名落兜底/撞贵槽根治——快速止血（defaultTarget→space-bunny+别名清单考古）后做

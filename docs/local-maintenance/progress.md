@@ -1361,3 +1361,17 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - **报告文件命名冲突**：`.superpowers/sdd/task-N-report.md` 跨计划复用同名文件，本计划 Task 4 的书面证据实际只有账本段落（实施者两次 API 中断、controller 接手）。后续计划应加计划前缀避免覆盖。
 - **profile 21 键 vs 文档基线 22**：`deploymentDisplayName` 存活、无覆盖事故特征；差异非本计划引入（本会话此前比对时已是 21）。
   归属未定，留观——可能是用户此前移除的某项设置。
+
+### 终审后用户裁决与重建（2026-09-30）
+
+- **Minor-2 裁决：升 info**（用户确认）。实现含一处细分：悬空（slot_id 非空）记 info；
+  半成品规则（slot_id 为空，用户正在编辑）不记——否则编辑期间每次请求都刷一行。
+  spec「仅日志 debug 一条」已由执行中修正取代（spec/plan 同步留痕）。
+- **重建部署**：终审的守卫修复动的是编辑器 TS，而已部署 bin 是 12:49 构建（含缺陷），
+  故重建一次使交付物 = 已验证代码。
+- **清理**（用户要求，已记入记忆 plan-execution-cleanup）：删 18G target/debug、
+  34 个 review-*.diff、本会话 %TEMP% 的 task8-* 与 aliascheck/；保留账本/release/profile 备份。
+- 测试策略调整：因 debug 树已清，Rust 侧改用 `cargo test --release` 避免重建 18G。
+- **重建部署完成**（md5 `121e7d25` 双向一致、前端资源 `index-BUFQXIKH.js` 命中 1、pubkey 0）：
+  部署后别名落点复验通过（sonnet-5-5→space-bunny、haiku-4-5-20251001→longcat）。
+  账本把「交付物 = 已验证代码」这条补齐（此前 12:49 的 bin 含未守卫的编辑器）。

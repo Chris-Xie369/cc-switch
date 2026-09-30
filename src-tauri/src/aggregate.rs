@@ -503,7 +503,8 @@ mod tests {
                 DefaultTarget::ProviderId("p-oc".into()),
             ),
             vec![AggregateAliasRule {
-                prefix: "claude-sonnet".into(),
+                // 混合大小写：前缀侧与请求侧都必须小写化才能命中
+                prefix: "Claude-SONNET".into(),
                 slot_id: "claude-sonnet-4".into(),
             }],
         );

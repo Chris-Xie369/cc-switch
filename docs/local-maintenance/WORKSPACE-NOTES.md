@@ -57,7 +57,7 @@ guard（取差值恢复）──┘        （last-writer-wins）
 
 ## 修复方向
 
-**上游合并语义（唯一推荐路径）**：在上游 PR [farion1231/cc-switch#5417](https://github.com/farion1231/cc-switch/pull/5417) 落地——写入前先 `read_json_or_empty`，将自有键叠到旧对象上再写回。约 10 行改动，完全遵循同文件既有模式，MIT 协议。合并发版后升级即根治，**guard 可以卸载**。
+**上游合并语义（原推荐路径，现已被上游以别的方式实现，见下方「当前状态」）**：在上游 PR [farion1231/cc-switch#5417](https://github.com/farion1231/cc-switch/pull/5417) 落地——写入前先 `read_json_or_empty`，将自有键叠到旧对象上再写回。约 10 行改动，完全遵循同文件既有模式，MIT 协议。合并发版后升级即根治，**guard 可以卸载**。
 
 已否决/降级的备选（不要重复提议）：
 
@@ -65,7 +65,9 @@ guard（取差值恢复）──┘        （last-writer-wins）
 - **Windows GPO 注册表托管配置**——代价是应用进入「受组织管理」状态、部分设置变只读、需写 HKLM，为一个显示名属过度设计。
 - **补丁式方案（计划任务看门狗）**——**用户已明确拒绝**，已被上游 PR 路径取代。
 
-**当前状态**（核实于 2026-09-24）：PR #5417 创建于 2026-07-15，**仍未合并**；最新 release 已是 `v3.20.4`（本工作区已同步），其 `claude_desktop_config.rs` 第 1007 行依旧是 `write_json_file(&paths.profile_path, &profile)` 整份覆盖 —— 补丁 A 仍然必需。核实命令：
+**当前状态**（核实于 2026-09-30）：PR #5417 创建于 2026-07-15，**仍未合并**且已与 `main` 冲突；**但它的行为已由上游另一条路径实现** —— `81df5a08`（2026-09-26，"add a key-field write engine"）把配置写入改成按键打补丁，`gateway_profile_patch` 的 `clear` 只覆盖 `DESKTOP_PROFILE_FLOOR` 的 5 个网关键（`live/floor.rs:180`），其余 profile 字段原位保留。
+
+因此：**当前已发的 `v3.20.4` 仍需补丁 A**（它早于该重构，整份覆盖仍在）；但**同步到含 `81df5a08` 的版本后可删补丁 A**（删前按 UPSTREAM-SYNC §7 复验：切供应商后 profile 非网关键存活）。已在上游 #5417 留言说明（其代码被取代、测试仍有价值）。核实命令：
 
 ```bash
 gh pr view 5417 --repo farion1231/cc-switch --json state,mergeable,title,updatedAt

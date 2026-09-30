@@ -1410,3 +1410,20 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   含该提交的下个 release 消失。
 - **方法教训**：`git apply --check --3way` 在**补丁已应用过的树**上会误报「干净适用」（本次就这样误判过一次）
   ——判定某补丁能否适用，必须在**干净基线**的 worktree 里做。
+
+### PR #7773 评审轮次（2026-09-30，Autofix 事件驱动）
+
+维护者 farion1231 给出实质评审，两处 P 级问题**均已修复并推送**（`49e1bf85`）：
+
+- **P1 不覆盖客户端 UA**：原实现把 `custom_user_agent` 设为 `cc-switch/<版本>`，而该变量在头循环里是**替换**语义
+  ——Claude Code（`claude-cli/…`）与 Codex 的 UA 都会被改写。改为独立的 `opencode_fallback_user_agent`，
+  只在「客户端完全没带 UA」的分支（`!saw_user_agent`）里追加；客户端自带 UA 一律原样透传。
+- **P2 原生会话头优先 + 指纹剥离 `cache_control`**：Claude Code 发 `x-claude-code-session-id`、Codex 发 `session-id`，
+  代理此前都不读 → 白走指纹；且指纹把 `cache_control` 计入，而该标记会随对话增长由首条消息移到末条 → id 变一次。
+  现取值序：原生头 → 客户端 id → 指纹 → 生成 id（抽成纯函数 `pick_opencode_session`，便于表驱动测试）；
+  指纹守卫加「无原生头」条件；哈希前 `without_cache_control` 递归剥离。
+- nit：PR 描述已加 `Fixes #7289` / `Fixes #7409`（两条 issue 确为同一 bug）。
+- 核验：`cargo fmt --check` 0；`cargo clippy -- -D warnings`（维护者口径）通过；`cargo test --release proxy::forwarder::tests`
+  → **85 passed / 0 failed**（含 6 条相关用例）。`--all-targets` 下 `transform_codex_chat.rs:4498` 有**基线既有** lint，非本 PR 引入。
+- 该评审为 summary、无行内评论，故按 Autofix 规则无需逐条回复。
+- 清理：worktree 已移除；clippy 产生的 1.9G `target/debug` 已删（release 4.4G 保留）。

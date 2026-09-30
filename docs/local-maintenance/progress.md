@@ -1386,3 +1386,12 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   - 清理：临时 worktree 已删（junction 经 `.Delete()` 摘除，主仓库 node_modules 完好）；分支保留
 - **上游现状核实（本次实测）**：PR #5417（补丁 A）仍 **OPEN**、最后更新 09-21；PR #5937（CLI+Codex 聚合）仍 **OPEN**、08-28；上游最新 release 仍 **v3.20.4**（= 我们的基线）
 - **阶段 2 候选剩余**：② OpenCode 适配（上游有预设、forwarder 零处理 → 修的是上游 bug）③ 补丁 B 显示名 ④ 催 #5417 合并 ⑤ 补丁 E Desktop 聚合（前置：注释英文化）
+
+- **PR farion1231/cc-switch#7773**：`fix(proxy): satisfy the OpenCode Go gateway's client identity requirements`
+  - 分支 `fix/opencode-go-client-identity`（`9c68d301`），从 v3.20.4 基线开、worktree 制作
+  - 内容：`is_opencode_upstream()` + `conversation_fingerprint()` + 两处注入（UA / x-opencode-session）+ 按需计算守卫 + 3 条单测；**纯新增 174 行、零删除**；注释/日志全部英文化
+  - 核验：`cargo test --release proxy::forwarder::tests` → **82 passed / 0 failed**（含 3 条新用例）；`cargo fmt --check` 0（基线本身 fmt-clean，故只格式化了自己的块）
+  - PR 描述点明证据：无 UA → 403（Cloudflare）；无会话头 → 400 MissingSessionID；上游预设用户 39 次全败
+- **本次两个操作教训**（值得记住）：
+  1. 用 `git stash` 做临时对比后**必须检查 pop 结果**——本次 pop 静默失败，改动被压在 stash 里，差点以为已提交（现象：`git diff` 干净但代码不在文件里）
+  2. Windows 上 worktree + junction 的正确顺序是 **先摘 junction 再 `git worktree remove`**；PS 5.1 的 `Remove-Item -Recurse` 有穿过 junction 的历史风险，务必先摘

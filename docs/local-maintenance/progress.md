@@ -1350,3 +1350,14 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   claude-haiku-4-5-20251001 → longcat-2.5-preview-free ✓（此前漂到 deepseek-flash，已修正）；claude-fable-2 → deepseek-v4-pro ✓（精确槽位不受影响）
 - **plan 预期修正**：`zzz-unmatched-name` 实测 **400**（非预期的兜底 space-bunny）——兜底路径会经目标供应商自己的映射表，未知 shape 的名字直接报错（既有设计：未知 route 显式报错，不默认兜底）。plan Step 4 该行预期有误，行为本身正确
 - **15 槽回归 15/15 全 200**（Ark 配额 02:47 重置后）——同时关闭上个计划（诚实化）遗留的「3 槽待补跑」项
+
+### 别名路由 Task 4 审查后补记（2026-09-30）
+
+- **判别性验收补做**：审查指出 `claude-sonnet-5-5` 两条探针无判别力（别名目标槽 = 兜底槽 = claude-sonnet-4）。
+  已补真对照：临时把 sonnet 规则指向 claude-haiku-3 → `claude-sonnet-5-5` 落 **longcat**（兜底则会给 space-bunny）
+  → 别名层确实覆盖兜底；随后还原正式配置并复验（sonnet→space-bunny、haiku-4-5-20251001→longcat）。
+- **上游名偏离留观**：15 槽回归中 2 槽日志上游名与 DB 配置不同——`claude-opus-4-7`(配置 kimi-k2.8-preview / 观测 kimi-k2-8-preview)、
+  `claude-sonnet-4-5`(配置 ark-code-latest / 观测 auto)。判定为上游供应商侧别名/响应回显（pricing_model 与 model 同值、均 200），非路由错误。
+- **报告文件命名冲突**：`.superpowers/sdd/task-N-report.md` 跨计划复用同名文件，本计划 Task 4 的书面证据实际只有账本段落（实施者两次 API 中断、controller 接手）。后续计划应加计划前缀避免覆盖。
+- **profile 21 键 vs 文档基线 22**：`deploymentDisplayName` 存活、无覆盖事故特征；差异非本计划引入（本会话此前比对时已是 21）。
+  归属未定，留观——可能是用户此前移除的某项设置。

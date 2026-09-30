@@ -525,6 +525,32 @@ describe("assignSlotIds aliasRules 跟随", () => {
     expect(out.aliasRules).toEqual([{ prefix: "claude-haiku", slotId: "" }]);
   });
 
+  it("空 slotId 的规则不被 routeId 为空的新行认领", () => {
+    const routes = {
+      slots: [
+        {
+          routeId: "claude-sonnet-4",
+          tier: "sonnet" as const,
+          providerId: "p1",
+          upstreamModel: "m1",
+          supports1m: false,
+        },
+        {
+          routeId: "",
+          tier: "sonnet" as const,
+          providerId: "p1",
+          upstreamModel: "",
+          supports1m: false,
+        },
+      ],
+      defaultTarget: { kind: "providerId" as const, value: "p1" },
+      aliasRules: [{ prefix: "claude-sonnet", slotId: "" }],
+    };
+    expect(assignSlotIds(routes).aliasRules).toEqual([
+      { prefix: "claude-sonnet", slotId: "" },
+    ]);
+  });
+
   it("无 aliasRules 的旧数据往返后仍为 undefined", () => {
     expect(assignSlotIds(base).aliasRules).toBeUndefined();
   });

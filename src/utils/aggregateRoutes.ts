@@ -215,12 +215,12 @@ export function assignSlotIds(routes: AggregateRoutes): AggregateRoutes {
   }
 
   const aliasRules = routes.aliasRules?.map((rule) => {
-    const index = routes.slots.findIndex(
-      (slot) => slot.routeId === rule.slotId,
-    );
-    return index >= 0
-      ? { ...rule, slotId: ids[index] }
-      : { ...rule, slotId: "" };
+    // 空 slotId = 用户尚未选定目标（或已被清空），不得被 addRow 造出的
+    // routeId:"" 新行认领 —— 否则半成品规则会静默绑到无关槽位。
+    const index = rule.slotId
+      ? routes.slots.findIndex((slot) => slot.routeId === rule.slotId)
+      : -1;
+    return index >= 0 ? { ...rule, slotId: ids[index] } : { ...rule, slotId: "" };
   });
 
   return {

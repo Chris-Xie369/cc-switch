@@ -1314,3 +1314,39 @@ Minor 留档：README 死路径与三态表缺 opus-5 行已由 controller 顺�
 - aggregateRoutes.ts:25 过时注释（4-6 只有 extended）已更正
 - 用户待办：①Claude Desktop GUI 四项验收 ②Ark 配额重置（02:47）后补跑 3 槽回归至 15/15 ③轮换 Ark token（曾打终端）
 - 新任务排队：平台别名落兜底/撞贵槽根治——快速止血（defaultTarget→space-bunny+别名清单考古）后做
+
+## 2026-09-30 平台别名落兜底根治（第 1 步：止血）
+
+- 考古全天 1283 条代理日志：非槽位平台名 = sonnet→claude-sonnet-5-5（433 条 $0.54）、
+  haiku→claude-haiku-4-5-20251001（22 条 $0.01）均落 DeepSeek 兜底；fable→claude-fable-4
+  撞 k3 贵槽（其中 controller 最终审查误派 ≈20 条 ≈$5，其余为用户正常使用）
+- **defaultTarget 已改**：providerId(DeepSeek) → **slotId(claude-sonnet-4 / space-bunny 免费槽)**
+- 重启验证：claude-sonnet-5-5 → space-bunny-free ✓ 200
+- 异常观察（未深挖）：claude-haiku-4-5-20251001 落 OpenCode 的 deepseek-flash（非兜底
+  也非任何槽上游，疑有日期后缀剥离/其他匹配路径），量小（$0.01）留观
+- dispatch 纪律：subagent model 参数不再用平台别名（sonnet/haiku/fable），用槽位名
+  （claude-sonnet-4=space-bunny 等）
+- 后续（第 2 步，未做）：聚合路径支持别名映射层（代码功能，需 spec/plan）
+
+## 别名路由计划执行（2026-09-30）
+
+Task 1: complete (commit 0f00bf93, review approved；21/21 aggregate 测试、22 处字面量补齐经独立复核、5 次变异验证非空转)
+Minor 留档（最终修复波处理）：
+- alias_matching_is_case_insensitive 未覆盖**前缀侧**小写化（若误删 rule.prefix.to_lowercase() 测试全绿）——建议某条规则 prefix 写成 "Claude-Sonnet" 补判别
+- alias_request_with_1m_suffix_still_matches 不严格判别剥除层序（已由代码位置保证）
+- alias_empty_or_whitespace_prefix_skipped 未断言 prov.id（实现路径下无歧义）
+- 边界语义记录：悬空 slot_id 静默 / 悬空 provider_id 报错（与精确命中同路径一致）
+- 空规则时 requested.to_lowercase() 仍分配（开销可忽略，审查建议不动）
+Task 2: complete (commit 26f421ee, review approved；关键点 findIndex 查旧 routes.slots 已核对；两处自曝偏离经审查判定合理)
+Minor 留档：测试 3（旧数据仍 undefined）判别力弱（RED 阶段即通过，属防回归断言）；三处跟随不宜抽公共函数（失效处置各异，YAGNI 判断正确）
+Task 3: complete (commit 4fb16964, review approved；8 i18n 键双语齐、区块位置/UNSET/defaultValue/三 handler 走 commit 全部核对通过)
+Minor 留档（最终修复波处理）：
+- patch 路径（前缀输入 onChange）零测试覆盖——建议补一条「输入前缀→断言 onChange 收到新前缀」；key={index} 可留（列表只增不排序 + 受控组件）
+- 孤儿 i18n 键 aliasTarget 无消费方（brief 逐字要求；可用于 select aria-label 否则删）
+- 悬空槽位与「未设置」在 Select 上不可区分（与既有「默认模型」下拉同模式，非本任务引入）
+- 既有遗留：t("aggregate.defaultTargetHint") 裸调用无 defaultValue（未被本任务触及）
+Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5=71404fb9/资源名 1/pubkey 0；另有两次 harness API 中断由 controller 接手完成机械步骤)
+- 实机验收（落点归属为准）：claude-sonnet-5-5 → space-bunny-free ✓；CLAUDE-SONNET-5-5 → space-bunny-free ✓（大小写不敏感生效）；
+  claude-haiku-4-5-20251001 → longcat-2.5-preview-free ✓（此前漂到 deepseek-flash，已修正）；claude-fable-2 → deepseek-v4-pro ✓（精确槽位不受影响）
+- **plan 预期修正**：`zzz-unmatched-name` 实测 **400**（非预期的兜底 space-bunny）——兜底路径会经目标供应商自己的映射表，未知 shape 的名字直接报错（既有设计：未知 route 显式报错，不默认兜底）。plan Step 4 该行预期有误，行为本身正确
+- **15 槽回归 15/15 全 200**（Ark 配额 02:47 重置后）——同时关闭上个计划（诚实化）遗留的「3 槽待补跑」项

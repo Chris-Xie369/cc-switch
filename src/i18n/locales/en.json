@@ -3313,6 +3313,14 @@
     "effortNoneTip": "Overflow ID unknown to Claude Desktop; no thinking controls",
     "maxEffort": "Cap",
     "maxEffortOff": "Unlimited",
-    "removeModel": "Remove this model"
+    "removeModel": "Remove this model",
+    "aliasRouting": "Alias routing (prefix-based redirect when no slot matches, first match wins)",
+    "aliasPrefix": "Request prefix",
+    "aliasPrefixPlaceholder": "e.g. claude-sonnet",
+    "aliasTarget": "Target slot",
+    "aliasTargetPlaceholder": "Pick a slot",
+    "addAliasRule": "Add rule",
+    "removeAliasRule": "Remove rule",
+    "aliasTip": "An overly broad prefix (e.g. claude-) swallows every unmatched name; mind the scope"
   }
 }

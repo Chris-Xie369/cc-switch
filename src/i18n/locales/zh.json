@@ -3313,6 +3313,14 @@
     "effortNoneTip": "溢出 ID：Claude Desktop 不认识，无思考控件",
     "maxEffort": "上限",
     "maxEffortOff": "不限制",
-    "removeModel": "删除该模型"
+    "removeModel": "删除该模型",
+    "aliasRouting": "别名路由（槽位未命中时按前缀转投，先匹配先赢）",
+    "aliasPrefix": "请求名前缀",
+    "aliasPrefixPlaceholder": "如 claude-sonnet",
+    "aliasTarget": "目标槽位",
+    "aliasTargetPlaceholder": "选择槽位",
+    "addAliasRule": "添加规则",
+    "removeAliasRule": "删除该规则",
+    "aliasTip": "前缀过宽（如 claude-）会吞掉所有未命中槽位的请求名，注意范围"
   }
 }

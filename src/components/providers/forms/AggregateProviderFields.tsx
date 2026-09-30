@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/select";
 import { useTranslation } from "react-i18next";
 import type {
+  AggregateAliasRule,
   AggregateMaxEffort,
   AggregateRouteSlot,
   AggregateRoutes,
@@ -244,6 +245,26 @@ export function AggregateProviderFields({
   const removeCard = (cardIndex: number) =>
     commitCards(cards.filter((_, i) => i !== cardIndex));
 
+  /** 别名规则改动直接走 commit：assignSlotIds 会跟随重编号，maxEffort 归一化不受影响。 */
+  const patchAliasRule = (
+    index: number,
+    patch: Partial<AggregateAliasRule>,
+  ) => {
+    const next = [...(value.aliasRules ?? [])];
+    next[index] = { ...next[index], ...patch };
+    commit({ ...value, aliasRules: next });
+  };
+  const addAliasRule = () =>
+    commit({
+      ...value,
+      aliasRules: [...(value.aliasRules ?? []), { prefix: "", slotId: "" }],
+    });
+  const removeAliasRule = (index: number) =>
+    commit({
+      ...value,
+      aliasRules: (value.aliasRules ?? []).filter((_, i) => i !== index),
+    });
+
   const addCard = () => {
     const used = new Set(cards.map((card) => card.providerId));
     const free = candidates.find((p) => !used.has(p.id));
@@ -390,6 +411,85 @@ export function AggregateProviderFields({
             })}
           </p>
         </div>
+      </div>
+
+      {/* 别名路由规则：槽位未命中时按前缀转投。按序先赢，运行时小写化匹配。 */}
+      <div className="space-y-2 rounded-md border border-border-default p-3">
+        <p
+          className="text-xs text-muted-foreground"
+          title={t("aggregate.aliasTip", {
+            defaultValue:
+              "前缀过宽（如 claude-）会吞掉所有未命中槽位的请求名，注意范围",
+          })}
+        >
+          {t("aggregate.aliasRouting", {
+            defaultValue: "别名路由（槽位未命中时按前缀转投，先匹配先赢）",
+          })}
+        </p>
+        {(value.aliasRules ?? []).map((rule, index) => (
+          <div key={index} className="flex items-center gap-2">
+            <Input
+              className="h-8 w-56 shrink-0"
+              value={rule.prefix}
+              placeholder={t("aggregate.aliasPrefixPlaceholder", {
+                defaultValue: "如 claude-sonnet",
+              })}
+              title={t("aggregate.aliasPrefix", { defaultValue: "请求名前缀" })}
+              onChange={(e) =>
+                patchAliasRule(index, { prefix: e.target.value })
+              }
+            />
+            <span className="text-xs text-muted-foreground">→</span>
+            <Select
+              value={rule.slotId || UNSET}
+              onValueChange={(v) =>
+                patchAliasRule(index, { slotId: v === UNSET ? "" : v })
+              }
+            >
+              <SelectTrigger className="h-8 flex-1">
+                <SelectValue
+                  placeholder={t("aggregate.aliasTargetPlaceholder", {
+                    defaultValue: "选择槽位",
+                  })}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={UNSET}>
+                  {t("aggregate.aliasTargetPlaceholder", {
+                    defaultValue: "选择槽位",
+                  })}
+                </SelectItem>
+                {value.slots.map((slot) => (
+                  <SelectItem key={slot.routeId} value={slot.routeId}>
+                    {labelOf(slot)} ({slot.routeId})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+              title={t("aggregate.removeAliasRule", {
+                defaultValue: "删除该规则",
+              })}
+              onClick={() => removeAliasRule(index)}
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        ))}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1 text-xs text-muted-foreground"
+          onClick={addAliasRule}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          {t("aggregate.addAliasRule", { defaultValue: "添加规则" })}
+        </Button>
       </div>
 
       {/* 全部展开 / 全部折叠（折叠状态不持久化，每次打开表单重置为全折叠） */}

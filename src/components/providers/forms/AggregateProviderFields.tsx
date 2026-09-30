@@ -446,7 +446,12 @@ export function AggregateProviderFields({
                 patchAliasRule(index, { slotId: v === UNSET ? "" : v })
               }
             >
-              <SelectTrigger className="h-8 flex-1">
+              <SelectTrigger
+                className="h-8 flex-1"
+                aria-label={t("aggregate.aliasTarget", {
+                  defaultValue: "目标槽位",
+                })}
+              >
                 <SelectValue
                   placeholder={t("aggregate.aliasTargetPlaceholder", {
                     defaultValue: "选择槽位",

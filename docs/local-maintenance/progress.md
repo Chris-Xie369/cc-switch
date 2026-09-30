@@ -1427,3 +1427,18 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   → **85 passed / 0 failed**（含 6 条相关用例）。`--all-targets` 下 `transform_codex_chat.rs:4498` 有**基线既有** lint，非本 PR 引入。
 - 该评审为 summary、无行内评论，故按 Autofix 规则无需逐条回复。
 - 清理：worktree 已移除；clippy 产生的 1.9G `target/debug` 已删（release 4.4G 保留）。
+
+### 阶段 2 ③：补丁 B（Claude Desktop 显示名可配置）→ 上游 PR #7779（2026-09-30）
+
+- **PR farion1231/cc-switch#7779**：`feat(claude-desktop): make the 3P panel display name configurable`
+  - 分支 `feat/claude-desktop-display-settings`（`c7bef661`），从 upstream/main 开、独立 worktree
+  - 8 文件 +288 行：后端（`ClaudeDesktopDisplaySettings` + `inject_display_settings` + 5 条测试）、
+    前端（新设置区块组件 + SettingsPage 接线 + types + zh/en 各 6 键）、新增组件测试 4 条
+  - **关键适配**：上游 profile 写入已是 JsonPatch（`gateway_profile_patch`），故注入点改为
+    「构造 patch 之前改 profile Value」
+  - 核验：`cargo test --release claude_desktop` → **50 passed / 0 failed**；`cargo fmt --check` 0；
+    `cargo clippy -- -D warnings` 通过；`npx tsc --noEmit` 0；组件测试 4/4；SettingsDialog 9/9
+  - 首跑出现 1 failed = 本机 CC Switch 占用 127.0.0.1:15721（`os error 10048`），停掉后 50/50 —— **环境依赖，非改动**
+  - 语义（均有测试）：关→不写任何键；显示名为空→整组跳过（防空字段抹掉面板值）；副标题为空→只跳该键；
+    关掉再打开恢复已填内容
+  - 清理：worktree 移除、clippy 的 1.5G debug 树删除

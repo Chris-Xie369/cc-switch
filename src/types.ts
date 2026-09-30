@@ -143,6 +143,13 @@ export interface AggregateRouteSlot {
   maxEffort?: AggregateMaxEffort;
 }
 
+export interface AggregateAliasRule {
+  /** 请求名小写化后的前缀（运行时 trim + 小写化后按序匹配，先赢）。空前缀静默跳过。 */
+  prefix: string;
+  /** 目标槽位 routeId；assignSlotIds 重编号时跟随，悬空置空串（运行时跳过） */
+  slotId: string;
+}
+
 export type DefaultTarget =
   | { kind: "slotId"; value: string }
   | { kind: "providerId"; value: string };
@@ -153,6 +160,8 @@ export interface AggregateRoutes {
   /** 默认模型（槽位 routeId）：写 profile 时置顶（第一条 = Claude Desktop 的启动默认）。
    *  未设置 = 跟随排序首位。旧数据无此字段。 */
   defaultModel?: string;
+  /** 别名路由规则：槽位未命中时按前缀（小写化、按序先赢）转投。缺省 = 无规则。 */
+  aliasRules?: AggregateAliasRule[];
 }
 
 export type CodexChatThinkingParam =

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { AggregateAliasRule } from "@/types";
 import {
   assignSlotIds,
   canSaveAggregateRoutes,
@@ -463,5 +464,68 @@ describe("assignSlotIds · defaultModel 跟随", () => {
       ],
     });
     expect(next.defaultModel).toBeUndefined();
+  });
+});
+
+describe("assignSlotIds aliasRules 跟随", () => {
+  const base = {
+    slots: [
+      {
+        routeId: "claude-sonnet-5",
+        tier: "sonnet" as const,
+        providerId: "p1",
+        upstreamModel: "m1",
+        supports1m: false,
+      },
+      {
+        routeId: "claude-haiku-3",
+        tier: "haiku" as const,
+        providerId: "p1",
+        upstreamModel: "m2",
+        supports1m: false,
+      },
+    ],
+    defaultTarget: { kind: "providerId" as const, value: "p1" },
+  };
+
+  it("引用的槽被重编号时规则跟随到新 ID", () => {
+    const aliasRules: AggregateAliasRule[] = [
+      { prefix: "claude-haiku", slotId: "claude-haiku-3" },
+    ];
+    const routes = { ...base, aliasRules };
+    // 在最前插入一个 haiku 槽：新槽拿池首 claude-haiku-4-5，原 haiku-3 槽序号 2 溢出为 claude-haiku-2
+    const inserted = {
+      ...routes,
+      slots: [
+        {
+          routeId: "",
+          tier: "haiku" as const,
+          providerId: "p1",
+          upstreamModel: "m0",
+          supports1m: false,
+        },
+        ...routes.slots,
+      ],
+    };
+    const out = assignSlotIds(inserted);
+    expect(out.slots[2].routeId).toBe("claude-haiku-2");
+    expect(out.aliasRules?.[0]).toEqual({
+      prefix: "claude-haiku",
+      slotId: "claude-haiku-2",
+    });
+  });
+
+  it("引用的槽已删时 slotId 清空、行保留", () => {
+    const routes = {
+      ...base,
+      slots: base.slots.slice(0, 1), // 删掉 haiku 槽
+      aliasRules: [{ prefix: "claude-haiku", slotId: "claude-haiku-3" }],
+    };
+    const out = assignSlotIds(routes);
+    expect(out.aliasRules).toEqual([{ prefix: "claude-haiku", slotId: "" }]);
+  });
+
+  it("无 aliasRules 的旧数据往返后仍为 undefined", () => {
+    expect(assignSlotIds(base).aliasRules).toBeUndefined();
   });
 });

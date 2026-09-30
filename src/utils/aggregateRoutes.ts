@@ -172,13 +172,14 @@ export function flattenProviderGroups(
   });
 }
 
-/** 为所有槽位重新生成 routeId（按档位分别编号），并让默认目标、默认模型按位置跟随。
+/** 为所有槽位重新生成 routeId（按档位分别编号），并让默认目标、默认模型、别名规则按位置跟随。
  *
  *  在槽位增删、档位变更后调用，也可用于**迁移存量 ID**（旧方案含供应商名，
  *  会被 Claude Desktop 整组拒绝）。默认目标/默认模型若引用的是槽位 ID：以它在
  *  **本表内的位置**取新 ID；引用的槽位已被删除（旧 ID 不在本表里）时，默认目标
  *  保持原值（交由保存校验拦截，绝不静默改指到另一个槽位），默认模型置空
- *  （只影响启动默认、回落到排序首位，无需拦截）。 */
+ *  （只影响启动默认、回落到排序首位，无需拦截），别名规则的 slotId 置空串
+ *  （规则行保留，运行时按悬空跳过——别名是可选优化项，不是安全网）。 */
 export function assignSlotIds(routes: AggregateRoutes): AggregateRoutes {
   const ordinalByTier = new Map<AggregateTier, number>();
   const taken = new Set<string>();
@@ -213,5 +214,20 @@ export function assignSlotIds(routes: AggregateRoutes): AggregateRoutes {
     defaultModel = index >= 0 ? ids[index] : undefined;
   }
 
-  return { ...routes, slots, defaultTarget, defaultModel };
+  const aliasRules = routes.aliasRules?.map((rule) => {
+    const index = routes.slots.findIndex(
+      (slot) => slot.routeId === rule.slotId,
+    );
+    return index >= 0
+      ? { ...rule, slotId: ids[index] }
+      : { ...rule, slotId: "" };
+  });
+
+  return {
+    ...routes,
+    slots,
+    defaultTarget,
+    defaultModel,
+    ...(aliasRules ? { aliasRules } : {}),
+  };
 }

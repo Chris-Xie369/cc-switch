@@ -817,7 +817,10 @@ pub fn resolve_target(
     }
 
     // 别名层：槽位未命中时按序前缀匹配（小写化），命中且目标槽存在 → 视同命中该槽。
-    // 悬空/空前缀静默跳过（debug 日志），不报错——别名是可选优化项，不是安全网。
+    // 悬空/空前缀静默跳过，不报错——别名是可选优化项，不是安全网。
+    // 悬空（slot_id 非空但解析不到槽）记 info：这是用户在日志里唯一的自助线索
+    // （症状是别名请求落到兜底）。半成品规则（slot_id 为空，用户正在编辑）不记，
+    // 否则编辑期间的每次请求都会刷一行。
     let lowered = requested.to_lowercase();
     for rule in &routes.alias_rules {
         let prefix = rule.prefix.trim().to_lowercase();
@@ -825,10 +828,12 @@ pub fn resolve_target(
             continue;
         }
         let Some(slot) = routes.slots.iter().find(|s| s.route_id == rule.slot_id) else {
-            log::debug!(
-                "[aggregate] alias rule '{prefix}' -> dangling slot '{}', skipped",
-                rule.slot_id
-            );
+            if !rule.slot_id.is_empty() {
+                log::info!(
+                    "[aggregate] alias rule '{prefix}' -> dangling slot '{}', skipped",
+                    rule.slot_id
+                );
+            }
             continue;
         };
         let target = load_provider(db, app_type, &slot.provider_id)?;

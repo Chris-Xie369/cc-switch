@@ -323,7 +323,8 @@ pub struct AggregateAliasRule {
 
 ```rust
     // 别名层：槽位未命中时按序前缀匹配（小写化），命中且目标槽存在 → 视同命中该槽。
-    // 悬空/空前缀静默跳过（debug 日志），不报错——别名是可选优化项，不是安全网。
+    // 悬空/空前缀静默跳过，不报错——别名是可选优化项，不是安全网。
+    // 悬空（slot_id 非空）记 info；半成品规则（slot_id 为空）不记。
     let lowered = requested.to_lowercase();
     for rule in &routes.alias_rules {
         let prefix = rule.prefix.trim().to_lowercase();
@@ -331,10 +332,12 @@ pub struct AggregateAliasRule {
             continue;
         }
         let Some(slot) = routes.slots.iter().find(|s| s.route_id == rule.slot_id) else {
-            log::debug!(
-                "[aggregate] alias rule '{prefix}' -> dangling slot '{}', skipped",
-                rule.slot_id
-            );
+            if !rule.slot_id.is_empty() {
+                log::info!(
+                    "[aggregate] alias rule '{prefix}' -> dangling slot '{}', skipped",
+                    rule.slot_id
+                );
+            }
             continue;
         };
         let target = load_provider(db, app_type, &slot.provider_id)?;
@@ -375,6 +378,10 @@ cd "D:/Workspace/Project/cc-switch/src" && git add src-tauri/src/aggregate.rs &&
 ```
 
 ---
+
+> **2026-09-30 执行中修正（终审 Minor-2）**：悬空别名日志由 `debug` 升 `info`
+> （默认档位可见，是用户唯一的自助线索）；`slot_id` 为空的半成品规则不记日志。
+> 已与用户确认——spec 原文「仅日志 debug 一条」被此修正取代。
 
 ### Task 2: TS 类型 + assignSlotIds 规则跟随（TDD）
 

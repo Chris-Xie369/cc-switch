@@ -1357,6 +1357,7 @@ mod tests {
                     "default-target".to_string(),
                 ),
                 default_model: None,
+                alias_rules: vec![],
             }),
             ..Default::default()
         });

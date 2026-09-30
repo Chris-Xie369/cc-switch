@@ -560,6 +560,7 @@ mod tests {
                 }],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("target".into()),
                 default_model: None,
+                alias_rules: vec![],
             }),
             ..Default::default()
         });

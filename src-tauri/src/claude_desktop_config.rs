@@ -2623,6 +2623,7 @@ mod tests {
             ],
             default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
             default_model: None,
+            alias_rules: vec![],
         });
 
         let routes = proxy_model_routes(&provider).expect("routes");
@@ -2670,6 +2671,7 @@ mod tests {
                 }],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
                 default_model: None,
+                alias_rules: vec![],
             }),
             ..Default::default()
         });

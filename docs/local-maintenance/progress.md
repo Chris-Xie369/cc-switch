@@ -1375,3 +1375,14 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - **重建部署完成**（md5 `121e7d25` 双向一致、前端资源 `index-BUFQXIKH.js` 命中 1、pubkey 0）：
   部署后别名落点复验通过（sonnet-5-5→space-bunny、haiku-4-5-20251001→longcat）。
   账本把「交付物 = 已验证代码」这条补齐（此前 12:49 的 bin 含未守卫的编辑器）。
+
+## 阶段 2 启动：上游 PR ①（2026-09-30）
+
+- **PR farion1231/cc-switch#7771**：`fix(ui): raise DropdownMenu above FullScreenPanel`
+  - 分支 `fix/dropdownmenu-z-index`（`7f3b35af`）**从上游基线 v3.20.4 开**，独立 worktree 制作，未污染 `fix/profile-merge`
+  - 内容：`DropdownMenuContent` `z-50` → `z-[100]`（1 行）+ 新测试 `tests/components/DropdownMenuZIndex.test.tsx`
+  - 核验：红→绿两态**均在上游基线实跑**（去掉修复必红）；PR 描述里点明这是上游自身的历史遗漏（`f349d85e` 把 Select 提到 z-[100] 时漏了 DropdownMenu）
+  - 决策记录：`DropdownMenuSubContent` 同类缺陷**刻意不改**（最小 diff），已在 PR 描述中如实告知维护者
+  - 清理：临时 worktree 已删（junction 经 `.Delete()` 摘除，主仓库 node_modules 完好）；分支保留
+- **上游现状核实（本次实测）**：PR #5417（补丁 A）仍 **OPEN**、最后更新 09-21；PR #5937（CLI+Codex 聚合）仍 **OPEN**、08-28；上游最新 release 仍 **v3.20.4**（= 我们的基线）
+- **阶段 2 候选剩余**：② OpenCode 适配（上游有预设、forwarder 零处理 → 修的是上游 bug）③ 补丁 B 显示名 ④ 催 #5417 合并 ⑤ 补丁 E Desktop 聚合（前置：注释英文化）

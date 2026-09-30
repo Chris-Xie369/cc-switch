@@ -53,7 +53,7 @@ pub struct AggregateAliasRule {
 pub alias_rules: Vec<AggregateAliasRule>,
 ```
 
-存量字面量构造处补 `alias_rules: vec![]`（实测约 10 处：proxy/server.rs、
+存量字面量构造处补 `alias_rules: vec![]`（实测 22 处：proxy/server.rs、
 services/provider/mod.rs、services/stream_check.rs、aggregate.rs 测试、
 claude_desktop_config.rs 测试）。
 

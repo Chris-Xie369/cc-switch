@@ -25,7 +25,7 @@
 
 **Files:**
 - Modify: `src-tauri/src/aggregate.rs`（新增结构体、`AggregateRoutes` 字段、`resolve_target` 插层、测试）
-- Modify: 全库 `AggregateRoutes {` 字面量构造处补 `alias_rules: vec![]`（`grep -rn "AggregateRoutes {" src-tauri/src/` 定位，已知约 10 处：proxy/server.rs、services/provider/mod.rs、services/stream_check.rs、aggregate.rs 测试、claude_desktop_config.rs 测试）
+- Modify: 全库 `AggregateRoutes {` 字面量构造处补 `alias_rules: vec![]`（`grep -rn "AggregateRoutes {" src-tauri/src/` 定位，实测 22 处：proxy/server.rs、services/provider/mod.rs、services/stream_check.rs、aggregate.rs 测试、claude_desktop_config.rs 测试）
 
 **Interfaces:**
 - Consumes: 现有 `AggregateRoutes`（serde camelCase）、`resolve_target(db, app_type, aggregate, request_model) -> Result<(Provider, Option<String>)>`、测试辅助 `aggregate_with(slots, default_target)` / `slot_for(route_id, provider_id, tier, upstream_model)`、`Provider::with_id` + `db.save_provider("claude-desktop", …)` 既有模式
@@ -786,7 +786,7 @@ PYEOF
 Expected（落点归属为准，非仅状态码）：
 - `claude-sonnet-5-5` / `CLAUDE-SONNET-5-5` → `space-bunny-free`（OpenCode Go）
 - `claude-haiku-4-5-20251001` → `longcat-2.5-preview-free`（OpenCode Go）
-- `zzz-unmatched-name` → `space-bunny-free`（兜底槽 claude-sonnet-4，既有语义）
+- `zzz-unmatched-name` → 400（兜底路径经目标供应商自身映射表，未知 shape 显式报错，既有设计）
 
 - [ ] **Step 5: 15 槽回归**（复用既有脚本：profile inferenceModels 逐槽真实请求，断言 15/15 全 200）
 

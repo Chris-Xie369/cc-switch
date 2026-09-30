@@ -648,8 +648,10 @@ mod tests {
                 },
             ],
         );
-        let (_, upstream) = resolve_target(&db, "claude-desktop", &aggregate, "anything")
-            .expect("empty prefixes skipped");
+        let (prov, upstream) =
+            resolve_target(&db, "claude-desktop", &aggregate, "anything")
+                .expect("empty prefixes skipped");
+        assert_eq!(prov.id, "p-fallback");
         assert_eq!(upstream, None);
     }
 

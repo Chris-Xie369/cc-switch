@@ -39,7 +39,7 @@ git push origin fix/profile-merge
 
 | 补丁 | 提交 | 内容 | 上游化状态 |
 |---|---|---|---|
-| **A** 合并语义 | `d03bf0cb` | profile 写入改为读-合并-写（cherry-pick 自 PR #5417） | 上游 PR [#5417](https://github.com/farion1231/cc-switch/pull/5417) 仍 OPEN；**合并后可整块删除** |
+| **A** 合并语义 | `d03bf0cb` | profile 写入改为读-合并-写（cherry-pick 自 PR #5417） | **已被上游以另一种方式取代（2026-09-30 核实）**：`81df5a08`（2026-09-26）引入 key-field write engine，profile 写入改为按键打补丁，`gateway_profile_patch` 的 `clear` 只覆盖 `DESKTOP_PROFILE_FLOOR` 的 5 个网关键（`live/floor.rs:180`），其余字段原位保留 → **同步到含该提交的版本后补丁 A 可删**（按 §7 复验确认）。PR #5417 本身仍 OPEN 且 CONFLICTING；我们已留言说明其代码被取代、测试仍有价值 |
 | **B** 显示名可配置 | `b0ba96de` `f9874721` `2b13804b` `42c9983c` `0fb72b4a` `20a63f49` | `ClaudeDesktopDisplaySettings`（后端 `settings.rs` + `claude_desktop_config.rs`）+ 前端设置项 + i18n | 上游无此功能；值得自己提 PR |
 | **C** 本地构建 | `e3695f0e` `418fa7e4` | 移除 `plugins.updater` / `createUpdaterArtifacts`；版本号 `<版本>-local` | **纯本地**，永不上游 |
 | **D** 上游状态检查 | `feat(upstream): 检查并提醒上游状态` | 应用内检查 PR #5417 是否合并 + 是否有新 release，有变化才提醒（`commands/upstream.rs` + `lib/updater.ts` + `UpdateContext` + `AboutSection`） | **纯本地**（上游不会接受"检测本 fork 是否落后"）；每次同步需保留 |
@@ -71,7 +71,7 @@ git push origin fix/profile-merge          # 把同步结果备份到 fork
 ```bash
 git log --oneline upstream/main --grep="preserve non-gateway" | head -3
 ```
-若已合并，补丁 A 可以丢弃，且理论上你可以考虑回官方版、不再本地构建。
+若已合并、**或行为已被上游以别的方式实现**（补丁 A 即属后者：见 §2 的 A 行），补丁 A 就可以丢弃。A 之外仍有 B（显示名）与 E（聚合）是上游没有的，所以官方版暂时还替代不了本地构建。
 
 ---
 

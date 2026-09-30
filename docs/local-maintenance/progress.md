@@ -1460,3 +1460,20 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   `provider_service.rs` 引用已不存在的 API）——正确判据是纯净 upstream/main worktree
 - 清理：对照 worktree 与主 worktree 均已移除；debug 树已删（target 4.5G 含 release）
 - **PR-1b 待做**：`services/provider/mod.rs` 的保存校验与删除保护（+496 行，含大量中文注释待英文化）
+
+### 阶段 2 ⑤ PR-1b：聚合校验与删除保护 → 上游 PR #7786（2026-10-01）
+
+- **PR farion1231/cc-switch#7786**：`feat(claude-desktop): validate aggregate routes on save, protect their targets`
+  - 分支 `feat/claude-desktop-aggregate-validation`（`498c2f47`，基于 PR-1a 分支），1 文件 +589 行
+  - 8 条槽位表校验 + 防嵌套（含**反向检查**：已被引用的供应商不得改造成聚合）+ 删除保护
+    （引用判定抽为共享 helper，避免两处漂移）
+  - 14 条新测试；断言打 `AppError::Localized` 的稳定 key（不看文案，翻译可自由改）
+  - 测试夹具 pin `LOCALAPPDATA`（目标里的 `with_test_home` 不 pin，会写真实 3P profile——
+    agent 改用 `TempHome` + `reload_settings`）
+- 核验：fmt 0；`cargo test --release services::provider` → 140 passed / 2 failed
+  （2 条皆既有：hermes 那条经 stash 对照确认、端口占用）
+- **接入点教训**：`Self::validate_provider_settings(&app_type, &provider)?;` 在上游有 **6 处**
+  （`add`/`update`/三个 `*_from_editor`），按"2 处"写断言会失败——必须**按函数内定位**插入，
+  不能数出现次数
+- 中文残留复核技巧：新增行里的中文要区分**注释**与 `AppError::localized` 的 **zh 文案参数**
+  （后者必须保留中文）

@@ -34,7 +34,7 @@
   - `AggregateRoutes.alias_rules: Vec<AggregateAliasRule>`（`#[serde(default)]`）
   - 路由序：剥 [1m] → 精确槽位 → **别名前缀（按序、小写化）** → 兜底
 
-- [ ] **Step 1: 写失败测试（aggregate.rs tests 模块内，复用既有辅助）**
+- [ ] **Step 1: 写失败测试（aggregate.rs tests 模块内，追加在既有 resolve_target 用例之后）**
 
 ```rust
     #[tokio::test]
@@ -47,51 +47,238 @@
             None,
         );
         db.save_provider("claude-desktop", &target).expect("save");
-        let aggregate = aggregate_with(
-            vec![slot_for(
-                "claude-sonnet-4",
-                "p-oc",
-                AggregateTier::Sonnet,
-                "space-bunny-free",
-            )],
-            DefaultTarget::ProviderId("p-oc".into()),
-        )
-        .with_alias_rules(vec![AggregateAliasRule {
-            prefix: "claude-sonnet".into(),
-            slot_id: "claude-sonnet-4".into(),
-        }]);
+        let aggregate = with_alias_rules(
+            aggregate_with(
+                vec![slot_for(
+                    "claude-sonnet-4",
+                    "p-oc",
+                    AggregateTier::Sonnet,
+                    "space-bunny-free",
+                )],
+                DefaultTarget::ProviderId("p-oc".into()),
+            ),
+            vec![AggregateAliasRule {
+                prefix: "claude-sonnet".into(),
+                slot_id: "claude-sonnet-4".into(),
+            }],
+        );
         // 平台别名不在槽位表 → 命中前缀 → 直给槽位上游模型
-        let hit = resolve_target(&db, "claude-desktop", &aggregate, "claude-sonnet-5-5")
-            .expect("alias hit");
-        assert_eq!(hit.0.id, "p-oc");
-        assert_eq!(hit.1.as_deref(), Some("space-bunny-free"));
+        let (prov, upstream) =
+            resolve_target(&db, "claude-desktop", &aggregate, "claude-sonnet-5-5")
+                .expect("alias hit");
+        assert_eq!(prov.id, "p-oc");
+        assert_eq!(upstream.as_deref(), Some("space-bunny-free"));
     }
 
     #[tokio::test]
     async fn alias_matching_is_case_insensitive() {
-        // 复用上一用例的构造方式：前缀 "claude-sonnet"，请求 "CLAUDE-SONNET-5-5"
-        // 断言命中同槽位（hit.1 == Some("space-bunny-free")）
-        // （构造代码与上一用例相同，此处不重复展开——实施时完整写出）
+        let db = crate::database::Database::memory().expect("db");
+        let target = crate::provider::Provider::with_id(
+            "p-oc".to_string(),
+            "OpenCode".to_string(),
+            serde_json::json!({}),
+            None,
+        );
+        db.save_provider("claude-desktop", &target).expect("save");
+        let aggregate = with_alias_rules(
+            aggregate_with(
+                vec![slot_for(
+                    "claude-sonnet-4",
+                    "p-oc",
+                    AggregateTier::Sonnet,
+                    "space-bunny-free",
+                )],
+                DefaultTarget::ProviderId("p-oc".into()),
+            ),
+            vec![AggregateAliasRule {
+                prefix: "claude-sonnet".into(),
+                slot_id: "claude-sonnet-4".into(),
+            }],
+        );
+        let (_, upstream) = resolve_target(&db, "claude-desktop", &aggregate, "CLAUDE-SONNET-5-5")
+            .expect("case-insensitive alias hit");
+        assert_eq!(upstream.as_deref(), Some("space-bunny-free"));
     }
-```
 
-（上面第二条用例为示意——**实施时写完整**，构造不得省略；其余用例同此要求。）
-完整用例清单（每条都完整写出，构造复用 `with_alias_rules` 辅助）：
+    #[tokio::test]
+    async fn alias_request_with_1m_suffix_still_matches() {
+        let db = crate::database::Database::memory().expect("db");
+        let target = crate::provider::Provider::with_id(
+            "p-oc".to_string(),
+            "OpenCode".to_string(),
+            serde_json::json!({}),
+            None,
+        );
+        db.save_provider("claude-desktop", &target).expect("save");
+        let aggregate = with_alias_rules(
+            aggregate_with(
+                vec![slot_for(
+                    "claude-sonnet-4",
+                    "p-oc",
+                    AggregateTier::Sonnet,
+                    "space-bunny-free",
+                )],
+                DefaultTarget::ProviderId("p-oc".into()),
+            ),
+            vec![AggregateAliasRule {
+                prefix: "claude-sonnet".into(),
+                slot_id: "claude-sonnet-4".into(),
+            }],
+        );
+        // [1m] 后缀在匹配前已被 strip_one_m_suffix_for_route_lookup 剥掉
+        let (_, upstream) =
+            resolve_target(&db, "claude-desktop", &aggregate, "claude-sonnet-5-5[1m]")
+                .expect("alias hit after 1m strip");
+        assert_eq!(upstream.as_deref(), Some("space-bunny-free"));
+    }
 
-1. `alias_prefix_hits_route_to_slot_upstream`——如上（含上游模型直给）
-2. `alias_matching_is_case_insensitive`——请求 `CLAUDE-SONNET-5-5` 命中前缀 `claude-sonnet`
-3. `alias_first_match_wins`——两条规则前缀都命中（`claude-sonnet` → 槽A、`claude-` → 槽B），请求 `claude-sonnet-5-5` 落槽A
-4. `alias_dangling_slot_skipped_falls_to_default`——规则 slot_id 指向不存在槽位，请求继续走兜底（不报错）
-5. `alias_empty_or_whitespace_prefix_skipped`——前缀为空串或 `"  "`，跳过走兜底
-6. `exact_slot_match_wins_over_alias`——规则前缀 `claude-sonnet-4`（恰好是槽A的 routeId 前缀且能吞它）指向槽B；请求 `claude-sonnet-4`（真槽 ID）仍精确命中槽A
-7. `alias_rules_absent_in_old_json_deserializes_empty`——serde：
+    #[tokio::test]
+    async fn alias_first_match_wins() {
+        let db = crate::database::Database::memory().expect("db");
+        for (id, name) in [("p-a", "A"), ("p-b", "B")] {
+            let p = crate::provider::Provider::with_id(
+                id.to_string(),
+                name.to_string(),
+                serde_json::json!({}),
+                None,
+            );
+            db.save_provider("claude-desktop", &p).expect("save");
+        }
+        let aggregate = with_alias_rules(
+            aggregate_with(
+                vec![
+                    slot_for("claude-sonnet-4", "p-a", AggregateTier::Sonnet, "model-a"),
+                    slot_for("claude-sonnet-2", "p-b", AggregateTier::Sonnet, "model-b"),
+                ],
+                DefaultTarget::ProviderId("p-b".into()),
+            ),
+            // 两条规则都命中 "claude-sonnet-5-5"：靠前者赢
+            vec![
+                AggregateAliasRule {
+                    prefix: "claude-sonnet".into(),
+                    slot_id: "claude-sonnet-4".into(),
+                },
+                AggregateAliasRule {
+                    prefix: "claude-".into(),
+                    slot_id: "claude-sonnet-2".into(),
+                },
+            ],
+        );
+        let (prov, upstream) =
+            resolve_target(&db, "claude-desktop", &aggregate, "claude-sonnet-5-5")
+                .expect("first rule wins");
+        assert_eq!(prov.id, "p-a");
+        assert_eq!(upstream.as_deref(), Some("model-a"));
+    }
 
-```rust
+    #[tokio::test]
+    async fn alias_dangling_slot_skipped_falls_to_default() {
+        let db = crate::database::Database::memory().expect("db");
+        let fallback = crate::provider::Provider::with_id(
+            "p-fallback".to_string(),
+            "Fallback".to_string(),
+            serde_json::json!({}),
+            None,
+        );
+        db.save_provider("claude-desktop", &fallback).expect("save");
+        let aggregate = with_alias_rules(
+            aggregate_with(
+                vec![slot_for(
+                    "claude-sonnet-4",
+                    "p-fallback",
+                    AggregateTier::Sonnet,
+                    "model-x",
+                )],
+                DefaultTarget::ProviderId("p-fallback".into()),
+            ),
+            vec![AggregateAliasRule {
+                prefix: "claude-sonnet".into(),
+                slot_id: "claude-gone".into(),
+            }],
+        );
+        // 悬空规则跳过 → 走兜底，且兜底不改写模型名（upstream = None）
+        let (prov, upstream) =
+            resolve_target(&db, "claude-desktop", &aggregate, "claude-sonnet-5-5")
+                .expect("dangling alias must not error");
+        assert_eq!(prov.id, "p-fallback");
+        assert_eq!(upstream, None);
+    }
+
+    #[tokio::test]
+    async fn alias_empty_or_whitespace_prefix_skipped() {
+        let db = crate::database::Database::memory().expect("db");
+        let fallback = crate::provider::Provider::with_id(
+            "p-fallback".to_string(),
+            "Fallback".to_string(),
+            serde_json::json!({}),
+            None,
+        );
+        db.save_provider("claude-desktop", &fallback).expect("save");
+        let aggregate = with_alias_rules(
+            aggregate_with(
+                vec![slot_for(
+                    "claude-sonnet-4",
+                    "p-fallback",
+                    AggregateTier::Sonnet,
+                    "model-x",
+                )],
+                DefaultTarget::ProviderId("p-fallback".into()),
+            ),
+            vec![
+                AggregateAliasRule {
+                    prefix: "".into(),
+                    slot_id: "claude-sonnet-4".into(),
+                },
+                AggregateAliasRule {
+                    prefix: "   ".into(),
+                    slot_id: "claude-sonnet-4".into(),
+                },
+            ],
+        );
+        let (_, upstream) = resolve_target(&db, "claude-desktop", &aggregate, "anything")
+            .expect("empty prefixes skipped");
+        assert_eq!(upstream, None);
+    }
+
+    #[tokio::test]
+    async fn exact_slot_match_wins_over_alias() {
+        let db = crate::database::Database::memory().expect("db");
+        for (id, name) in [("p-a", "A"), ("p-b", "B")] {
+            let p = crate::provider::Provider::with_id(
+                id.to_string(),
+                name.to_string(),
+                serde_json::json!({}),
+                None,
+            );
+            db.save_provider("claude-desktop", &p).expect("save");
+        }
+        let aggregate = with_alias_rules(
+            aggregate_with(
+                vec![
+                    slot_for("claude-sonnet-4", "p-a", AggregateTier::Sonnet, "model-a"),
+                    slot_for("claude-haiku-2", "p-b", AggregateTier::Sonnet, "model-b"),
+                ],
+                DefaultTarget::ProviderId("p-b".into()),
+            ),
+            // 前缀足以吞掉真槽 ID "claude-sonnet-4"，但精确命中优先
+            vec![AggregateAliasRule {
+                prefix: "claude-sonnet-4".into(),
+                slot_id: "claude-haiku-2".into(),
+            }],
+        );
+        let (prov, upstream) =
+            resolve_target(&db, "claude-desktop", &aggregate, "claude-sonnet-4")
+                .expect("exact slot wins");
+        assert_eq!(prov.id, "p-a");
+        assert_eq!(upstream.as_deref(), Some("model-a"));
+    }
+
     #[test]
     fn alias_rules_absent_in_old_json_deserializes_empty() {
         let json = r#"{"slots":[],"defaultTarget":{"kind":"providerId","value":"p"}}"#;
         let routes: AggregateRoutes = serde_json::from_str(json).unwrap();
         assert!(routes.alias_rules.is_empty());
+
         let with = r#"{"slots":[],"defaultTarget":{"kind":"providerId","value":"p"},"aliasRules":[{"prefix":"claude-sonnet","slotId":"claude-sonnet-4"}]}"#;
         let routes: AggregateRoutes = serde_json::from_str(with).unwrap();
         assert_eq!(routes.alias_rules.len(), 1);
@@ -155,13 +342,19 @@ pub struct AggregateAliasRule {
     }
 ```
 
-④ 测试辅助（tests 模块内，`aggregate_with` 旁）：
+④ 测试辅助（tests 模块内，`aggregate_with` 旁——注意它接收并返回 `Provider`，与测试里的 `with_alias_rules(aggregate_with(...), vec![...])` 用法一致）：
 
 ```rust
-    /// 链式设置别名规则（测试辅助）。
-    fn with_alias_rules(mut routes: AggregateRoutes, rules: Vec<AggregateAliasRule>) -> AggregateRoutes {
-        routes.alias_rules = rules;
-        routes
+    /// 给聚合供应商设置别名规则（测试辅助）。`aggregate_with` 返回 `Provider`，
+    /// 故本辅助同样进出 `Provider`。
+    fn with_alias_rules(mut aggregate: Provider, rules: Vec<AggregateAliasRule>) -> Provider {
+        aggregate
+            .meta
+            .as_mut()
+            .and_then(|meta| meta.aggregate_routes.as_mut())
+            .expect("aggregate routes")
+            .alias_rules = rules;
+        aggregate
     }
 ```
 

@@ -1395,3 +1395,18 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - **本次两个操作教训**（值得记住）：
   1. 用 `git stash` 做临时对比后**必须检查 pop 结果**——本次 pop 静默失败，改动被压在 stash 里，差点以为已提交（现象：`git diff` 干净但代码不在文件里）
   2. Windows 上 worktree + junction 的正确顺序是 **先摘 junction 再 `git worktree remove`**；PS 5.1 的 `Remove-Item -Recurse` 有穿过 junction 的历史风险，务必先摘
+
+### 阶段 2 ④：#5417 催合并 → 结论「已被上游取代」（2026-09-30）
+
+- 复核：PR 已 **CONFLICTING**（`main` 前进了 `da193d4f→36d95041`）。追因发现**上游已用另一条路径实现同一行为**：
+  `81df5a08`（2026-09-26，key-field write engine）把配置写入改为按键打补丁 —— `gateway_profile_patch` 的
+  `clear` 只覆盖 `DESKTOP_PROFILE_FLOOR` 的 5 个网关键（`live/floor.rs:180`），其余 profile 字段原位保留；
+  main 上已无 `write_json_file(&paths.profile_path, …)` 整份覆盖，也无 `merge_profile`。
+- **对 fork 的直接影响**：`v3.20.4` 仍需补丁 A（早于该重构）；**同步到含 `81df5a08` 的版本后可删补丁 A**
+  （删前按 UPSTREAM-SYNC §7 复验：切供应商后 profile 非网关键存活）。已更新 UPSTREAM-SYNC §2/§3 与
+  CLAUDE.md 的「修复方向/当前状态」，快照同步。
+- 已在 #5417 留言（issuecomment-5910145355）：代码部分被取代、**测试部分仍有价值**（main 现有
+  `claude_desktop_*` 测试无一条显式断言非网关键存活），建议只把测试 rebase 落地；两位用户报告会在
+  含该提交的下个 release 消失。
+- **方法教训**：`git apply --check --3way` 在**补丁已应用过的树**上会误报「干净适用」（本次就这样误判过一次）
+  ——判定某补丁能否适用，必须在**干净基线**的 worktree 里做。

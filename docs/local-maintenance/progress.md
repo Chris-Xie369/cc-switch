@@ -1442,3 +1442,21 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   - 语义（均有测试）：关→不写任何键；显示名为空→整组跳过（防空字段抹掉面板值）；副标题为空→只跳该键；
     关掉再打开恢复已填内容
   - 清理：worktree 移除、clippy 的 1.5G debug 树删除
+
+### 阶段 2 ⑤ PR-1a：聚合路由后端 → 上游 PR #7785（2026-10-01）
+
+- **PR farion1231/cc-switch#7785**：`feat(claude-desktop): aggregate provider routing across providers`
+  - 分支 `feat/claude-desktop-aggregate-routing`（`78f683d5`），7 文件 +953 行（含端到端测试）
+- **诚实化增强已剥离**（上游不接受「逆向闭源应用」为功能前提）：max_effort、alias_rules、
+  default_model 置顶、ResolvedModelRoute.tier 及其排序；裁剪后 0 中文注释、0 空 test 属性
+- **适配上游重构**：模型列表派生改为 `proxy_model_routes` 开头 5 行早返回（上游 ResolvedModelRoute
+  结构恰为本地裁剪前形态）；`strip_one_m_suffix_for_route_lookup` 改 pub(crate)（与 PR-2 无冲突，
+  那里改的是 forwarder 里另一个函数）
+- **核验**：`cargo fmt --check` 0；`cargo test --release` → **2937 passed / 10 failed**，
+  14 条聚合测试全过；那 10 条经**纯净 upstream/main 基线 worktree 对照确认同样失败**（行号一致）
+  → 环境/上游既有，非本 PR 引入（symlink 需管理员、断言本机未装 Codex CLI、端口占用、pricing 5 条）
+- 端到端测试由 agent 移植并**补了一条 fork 没有的用量断言**（记账记在目标供应商而非聚合供应商）
+- 验证方法教训：拿 fork 做对照**不成立**（其集成测试目标本身编译不过：`import_export_sync.rs`、
+  `provider_service.rs` 引用已不存在的 API）——正确判据是纯净 upstream/main worktree
+- 清理：对照 worktree 与主 worktree 均已移除；debug 树已删（target 4.5G 含 release）
+- **PR-1b 待做**：`services/provider/mod.rs` 的保存校验与删除保护（+496 行，含大量中文注释待英文化）

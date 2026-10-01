@@ -1519,3 +1519,36 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - Rust agent 顺带修了 3 个阻塞 clippy 的既有 lint（aggregate.rs 测试模块位置 / op_ref / needless_question_mark）——超出 PR 最小范围但让 clippy -D warnings 转绿，已在回复中注明。
 - 两分支合并时 aggregate.rs 测试模块位置可能有轻微上下文冲突（agent 已标注，trivial）。
 - 评审回复经 `gh pr comment` 发布（issue 评论无 /replies 端点）。
+
+## 2026-10-01 会话交接（Claude settings 修复完成，下一步 = B）
+
+**已完成**
+- settings.json 反向白名单合并 `d6b7719f`（已推）：write_live_snapshot + sync_claude_live 两处接入
+  `merge_claude_settings_for_live`（live.rs）。三层规则：顶层只接管 env/apiKey；env 18 个 owned 键
+  覆盖/删除；供应商显式提供的非 owned 键写入；仅文件里的键保留；sanitize 先于取值。
+  验证：6 条合并测试 + 全量 2940 passed / 10 failed（10 条已知环境失败，纯净 upstream 已验）。
+- 关键细节：① 必须**先取文件 env 作基底**再做顶层覆盖（顺序反了会丢文件独有子键——自写踩坑）；
+  ② `CLAUDE_ENV_OWNED_KEYS` 数组长度要与项数一致（曾写 17 实际 18）。
+- 六 PR 评审批处理（同日早些时候）：#7779/#7785/#7786/#7789 四修复已推+回复，#7771/#7773 无发现。
+
+**待办（按优先级）**
+1. **B：CLI 侧聚合（modelPicker 方案）** —— 新会话的第一个任务。前置全齐：
+   - settings 覆盖已修（`d6b7719f`）→ modelPicker 存得住
+   - 机制已验证（见 `.superpowers/sdd/cli-model-discovery.md`）：CLI 认 `modelPicker` 键
+     （managed/--settings/user settings，独立于 CLI 版本）；`behavesAs` 可给第三方模型套
+     能力档案；**不经代理**
+   - 素材已齐：聚合表 `route_id`→`model`、`label`→`label`、`tier`→`behavesAs`
+   - 注意：settings 写入路径 = settings.json 顶层的 `modelPicker`；**改由谁写**需在 B 里定
+     （cc-switch 保存聚合时生成 vs 独立命令）——这是 B 的核心设计决策
+2. Codex 聚合（/v1/responses 协议不同，独立设计，未开始）
+3. Ark token 轮换（用户侧安全项，提过两次）
+4. 四个修复 PR 等维护者复看（Auto-fix 会自动叫）
+
+**关键上下文指针**
+- CLI 模型发现分析：`src/.superpowers/sdd/cli-model-discovery.md`
+- settings 键清单分析：`src/.superpowers/sdd/settings-key-inventory.md`
+- 六 PR 分析：`src/.superpowers/sdd/pr5937-analysis.md`（上游 #5937 对比）
+- 上游 #5937 与我们的关系：它做档位扇出，不是多供应商并存（体验2）；同 meta key
+  `aggregateRoutes` 形态不同——**若上游合它，我们本地 15 槽会被解析成 4×None 静默清空**，
+  这是未来同步前必须处理的碰撞风险（详见 pr5937-analysis.md）
+- 三个 settings 写入点中 `proxy.rs:3552` 不改（代理接管路径，语义不同）

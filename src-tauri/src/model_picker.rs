@@ -51,10 +51,14 @@ pub fn model_picker_value(routes: &[ResolvedModelRoute]) -> Value {
     let mut options: Vec<Value> = Vec::with_capacity(routes.len() * 2);
     for route in routes {
         let behaves = behaves_as_for(route.tier.as_deref());
-        let label = route.label_override.clone();
-        options.push(make_row(&route.route_id, label.as_deref(), behaves));
+        // 空白 label 视为无 label（D4）：否则会写出空标签行与裸 " · 1M" 后缀行
+        let label = route
+            .label_override
+            .as_deref()
+            .filter(|l| !l.trim().is_empty());
+        options.push(make_row(&route.route_id, label, behaves));
         if route.supports_1m {
-            let label_1m = label.as_ref().map(|l| format!("{l} · 1M"));
+            let label_1m = label.map(|l| format!("{l} · 1M"));
             options.push(make_row(
                 &format!("{}[1m]", route.route_id),
                 label_1m.as_deref(),
@@ -87,13 +91,18 @@ pub(crate) fn sync_cli_model_picker_at(
         None => {
             let stored = db
                 .get_setting(GENERATED_SNAPSHOT_KEY)?
-                .filter(|s| !s.is_empty())
-                .and_then(|s| serde_json::from_str::<Value>(&s).ok());
-            if let Some(ours) = stored {
+                .filter(|s| !s.is_empty());
+            let ours = stored
+                .as_deref()
+                .and_then(|s| serde_json::from_str::<Value>(s).ok());
+            if let Some(ours) = ours {
                 let current = read_json_or_empty(path);
                 if current.get("modelPicker") == Some(&ours) {
                     set_top_level_key(path, "modelPicker", None)?;
                 }
+            }
+            // 存证无论能否解析都要清空：留着的陈旧存证会让下次删键比对失准
+            if stored.is_some() {
                 db.set_setting(GENERATED_SNAPSHOT_KEY, "")?;
             }
             Ok(())
@@ -101,6 +110,7 @@ pub(crate) fn sync_cli_model_picker_at(
     }
 }
 
+/// 删路径专用宽松读：读失败按空对象处理（D5，结果必然是 no-op，保守无害）。
 fn read_json_or_empty(path: &Path) -> Value {
     if !path.exists() {
         return json!({});
@@ -108,11 +118,23 @@ fn read_json_or_empty(path: &Path) -> Value {
     read_json_file::<Value>(path).unwrap_or_else(|_| json!({}))
 }
 
+/// 写路径严格读：读失败（parse/IO）上抛，绝不整份覆盖用户配置（D5）；
+/// 只有文件不存在才从空对象起步。
+fn read_json_strict(path: &Path) -> Result<Value, AppError> {
+    if !path.exists() {
+        return Ok(json!({}));
+    }
+    read_json_file::<Value>(path)
+}
+
 fn set_top_level_key(path: &Path, key: &str, value: Option<&Value>) -> Result<(), AppError> {
     if !path.exists() && value.is_none() {
         return Ok(());
     }
-    let mut doc = read_json_or_empty(path);
+    let mut doc = match value {
+        Some(_) => read_json_strict(path)?,
+        None => read_json_or_empty(path),
+    };
     if !doc.is_object() {
         if value.is_none() {
             return Ok(());
@@ -183,6 +205,11 @@ mod tests {
         assert_eq!(with["options"].as_array().unwrap().len(), 2);
         assert_eq!(with["options"][1]["model"], json!("claude-fable-1[1m]"));
         assert_eq!(with["options"][1]["label"], json!("A · 1M"));
+        assert_eq!(with["options"][1]["behavesAs"], json!("claude-fable-5"));
+        assert_eq!(
+            with["options"][1]["behavesAs"],
+            with["options"][0]["behavesAs"]
+        );
         let without = model_picker_value(&[route("claude-fable-1", "fable", Some("A"), false)]);
         assert_eq!(without["options"].as_array().unwrap().len(), 1);
     }
@@ -190,9 +217,25 @@ mod tests {
     #[test]
     fn omits_label_when_missing() {
         let value = model_picker_value(&[route("claude-fable-1", "fable", None, true)]);
-        assert!(value["options"][0].get("label").is_none());
+        let options = value["options"].as_array().unwrap();
+        assert_eq!(options.len(), 2);
+        assert_eq!(options[0]["model"], json!("claude-fable-1"));
+        assert_eq!(options[1]["model"], json!("claude-fable-1[1m]"));
+        assert!(options[0].get("label").is_none());
         // 无基名 → 1M 行同样省略（默认渲染 model 名，自带 [1m] 可区分）
-        assert!(value["options"][1].get("label").is_none());
+        assert!(options[1].get("label").is_none());
+    }
+
+    /// D4「空则省略」：空白 label 等价于无 label，否则 1M 行会写出裸 " · 1M"
+    #[test]
+    fn omits_label_when_blank() {
+        for blank in ["", "  "] {
+            let value = model_picker_value(&[route("claude-fable-1", "fable", Some(blank), true)]);
+            let options = value["options"].as_array().unwrap();
+            assert_eq!(options.len(), 2, "blank {blank:?}");
+            assert!(options[0].get("label").is_none(), "blank {blank:?}");
+            assert!(options[1].get("label").is_none(), "blank {blank:?}");
+        }
     }
 
     #[test]
@@ -262,11 +305,95 @@ mod tests {
         let db = Database::memory().unwrap();
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("settings.json");
+        std::fs::write(&path, r#"{"theme":"dark","env":{"A":"b"}}"#).unwrap();
         let routes = [route("claude-fable-1", "fable", Some("X"), false)];
         sync_cli_model_picker_at(&db, &path, Some(&routes)).unwrap();
         sync_cli_model_picker_at(&db, &path, None).unwrap();
         let saved: Value = read_json_file(&path).unwrap();
         assert!(saved.get("modelPicker").is_none());
+        assert_eq!(saved["theme"], json!("dark"));
+        assert_eq!(saved["env"], json!({"A":"b"}));
+        assert_eq!(
+            db.get_setting(GENERATED_SNAPSHOT_KEY).unwrap().as_deref(),
+            Some("")
+        );
+    }
+
+    /// 存证一致但文件值已被手改 → 不得删（D3 最易错的判别分支）
+    #[test]
+    fn sync_keeps_edited_picker_when_snapshot_differs() {
+        let db = Database::memory().unwrap();
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("settings.json");
+        let routes = [route("claude-fable-1", "fable", Some("X"), false)];
+        sync_cli_model_picker_at(&db, &path, Some(&routes)).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"theme":"dark","modelPicker":{"options":[{"model":"claude-opus-5"}]}}"#,
+        )
+        .unwrap();
+        sync_cli_model_picker_at(&db, &path, None).unwrap();
+        let saved: Value = read_json_file(&path).unwrap();
+        assert_eq!(
+            saved["modelPicker"]["options"][0]["model"],
+            json!("claude-opus-5")
+        );
+        assert_eq!(saved["theme"], json!("dark"));
+        assert_eq!(
+            db.get_setting(GENERATED_SNAPSHOT_KEY).unwrap().as_deref(),
+            Some("")
+        );
+    }
+
+    /// 存证是垃圾字符串（非空但解析失败）→ 不删键，但存证必须清掉
+    #[test]
+    fn sync_clears_corrupt_snapshot_without_touching_file() {
+        let db = Database::memory().unwrap();
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("settings.json");
+        let original = r#"{"modelPicker":{"options":[{"model":"claude-opus-5"}]},"theme":"dark"}"#;
+        std::fs::write(&path, original).unwrap();
+        db.set_setting(GENERATED_SNAPSHOT_KEY, "{not json").unwrap();
+        sync_cli_model_picker_at(&db, &path, None).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        assert_eq!(
+            db.get_setting(GENERATED_SNAPSHOT_KEY).unwrap().as_deref(),
+            Some("")
+        );
+    }
+
+    /// D5 删路径宽松：读失败按空对象处理，结果必然是 no-op 且不动文件
+    #[test]
+    fn sync_remove_is_noop_when_read_fails() {
+        let db = Database::memory().unwrap();
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("settings.json");
+        let broken = r#"{"theme":"dark","modelPicker":{"options":[{"model":"x"}"}"#;
+        std::fs::write(&path, broken).unwrap();
+        db.set_setting(GENERATED_SNAPSHOT_KEY, &json!({"options":[]}).to_string())
+            .unwrap();
+        sync_cli_model_picker_at(&db, &path, None).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), broken);
+        assert_eq!(
+            db.get_setting(GENERATED_SNAPSHOT_KEY).unwrap().as_deref(),
+            Some("")
+        );
+    }
+
+    #[test]
+    fn sync_write_fails_and_preserves_file_when_read_fails() {
+        let db = Database::memory().unwrap();
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("settings.json");
+        let broken = r#"{"theme":"dark","modelPicker":{"options":[{"model":"x"}"}"#;
+        std::fs::write(&path, broken).unwrap();
+        let result = sync_cli_model_picker_at(
+            &db,
+            &path,
+            Some(&[route("claude-fable-1", "fable", Some("X"), false)]),
+        );
+        assert!(result.is_err(), "读失败必须上抛而不是覆盖写");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), broken);
     }
 
     #[test]

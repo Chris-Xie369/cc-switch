@@ -1477,3 +1477,16 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   不能数出现次数
 - 中文残留复核技巧：新增行里的中文要区分**注释**与 `AppError::localized` 的 **zh 文案参数**
   （后者必须保留中文）
+
+### 阶段 2 ⑤ PR-2：聚合编辑器前端 → 上游 PR #7789（2026-10-01）
+
+- **PR farion1231/cc-switch#7789**：`feat(claude-desktop): editor UI for aggregate providers`
+  - 分支 `feat/claude-desktop-aggregate-editor`（`64b24606`，基于 PR-1b 分支），7 文件
+  - 新组件 381 行 + ID 工具 139 行 + 测试 323 行；tsc 0、22 测试全过、全量 1715/1719（4 条并行超时既有）
+  - **中性 ID 方案**（用户裁决 A）：`claude-{tier}-{n}`，不含厂商信息 → 天然避开厂商词黑名单；
+    不承诺思考控件（那依赖 asar 逆向）→ 诚实化增强（能力表/三态徽标/maxEffort/别名）全部留在本地 fork
+- **agent 纠正了我一处事实错误**：我给的源提交 `543c90cb` 并非「按供应商分组的四档编辑器」
+  （那是旧的 addSlot/removeSlot 列表版，270 行）；分组版首次出现在 `5be67bf4`（374 行）。
+  agent 自行判断并移植了正确版本 + 中性 ID，复核确认无任何诚实化特性混入（7 项检查全 0）
+- **踩坑留档**：原始 slug 版 ID 生成器（`claude-sonnet-glm`）本身带 bug——含厂商词会被
+  Claude Desktop 整组剔除、选择器变空。若当初直接照搬原始前端提交，就会把这个 bug 带上游。

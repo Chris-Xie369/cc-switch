@@ -1552,3 +1552,52 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   `aggregateRoutes` 形态不同——**若上游合它，我们本地 15 槽会被解析成 4×None 静默清空**，
   这是未来同步前必须处理的碰撞风险（详见 pr5937-analysis.md）
 - 三个 settings 写入点中 `proxy.rs:3552` 不改（代理接管路径，语义不同）
+
+## 2026-10-01 B：CLI 聚合 modelPicker（SDD 流程，spec/plan 用户已批准）
+
+- 流程：brainstorming spec（`docs/superpowers/specs/2026-10-01-cli-model-picker-design.md`，用户确认；D5 经审查 Issue 3 用户裁决修订为「写路径读失败上抛不写、删路径宽容」）→ plan `docs/superpowers/plans/2026-10-01-cli-model-picker.md` → SDD 逐任务（实现者+审查者子代理）。
+- Task 1: complete (commits 927770c2 + fb392733，复审 Spec PASS / Quality PASS)
+  · model_picker.rs：纯函数生成（route_id→model、label→label、tier→behavesAs 四档表、supports_1m 加 [1m] 行 · 1M 后缀、replaceBuiltInOptions:false）+ 存证式同步（DB 键 cli_model_picker_generated，不匹配不删，护住手写 picker）
+  · 首轮审查 With fixes：2 个 Important 测试缺口（不匹配守卫无测试——变异证实删守卫全绿；删键保邻键未验证）+ 1 个 spec 级（写路径读失败当空对象会整份吞用户 settings.json）；修复 fb392733 三项+3 Minor 全闭环，三次变异各精准打红一条测试（14/14）
+  · Minor 留档（最终全分支审查 triage）：① 删路径双读极窄 TOCTOU（先于本任务存在，可传 current 免二次读）② 字面 null 文档写路径视同空（既有）③ spec/plan 文档未入 git（收尾快照一并处理）④ sync_cli_model_picker 接线前 dead_code（Task 2 自然消除）
+- Task 2: complete (commit f079d8ac，审查 Spec ✅ / Quality Approved)
+  · apply_provider 返回路由（仅聚合 Some）+ sync_cli_model_picker 降级 warn + with_rollback 泛型化（回滚语义逐字节不变）；claude_desktop_config 39/39、model_picker 15/15
+  · 实现者两处合理偏离：返回值测试用模块既有 TempDir+test_paths 惯例（不涉 home）；TempHome 额外 pin XDG_CONFIG_HOME（Linux current_platform_paths 遵循它）
+  · Minor 留档：① 降级 warn 路径无集成测试（代码按检视正确，Task 1 单测覆盖 Err 产生）② 测试一处冗余重读 ③ get_claude_override_dir 是进程级设置、非 home 隔离（全仓既有性质，非本任务引入）
+- Task 3: complete (全量 cargo test --release --lib --no-fail-fast：2956 passed / 10 failed / 10 ignored；失败名单与 2026-09-26 基线逐条同集——model_pricing×5 / import_hermes / update_current_claude_desktop(10048) / codex_config+session_usage_grokbuild(symlink) / commands::misc；真实 profile 与 settings.json md5 前后完全一致 c0f37101/922c11b3；cargo fmt --check 0)
+- Task 4: 构建部署完成（验收待用户）——构建 00:26 产物 10,221,033B；exe md5 8e098f9a 双向一致；pubkey 0；前端资源 index-BUFQXIKH.js 命中 1（前端零改动、同哈希属预期）；新代码标记 cli_model_picker_generated 在安装 exe 命中 1；网关 200（PID 28552）
+  · ⚠️ modelPicker 尚未写入 settings.json 属**预期**：apply 时才写（启动不写，既有语义）。待用户在 CC Switch UI 里切一次/重存聚合供应商后比对槽位一致性（脚本口径见 plan Task 4）
+- 文档入库：docs/superpowers/{specs,plans}/2026-10-01-*（commit 79149bb8）——补上审查 Minor「spec/plan 未入版本控制」
+## 2026-10-02 B 终审（全分支 3eb2715e..79149bb8，fable）：With fixes
+- Important 1（挡板）：model_picker 删路径双读 TOCTOU——第二次读失败会把整份 settings.json 写成 {}（与 D5 修订针对的事故同类）；修复=删键复用已读文档、消除二次读（修复代理进行中）
+- Important 2（先于本分支，不挡合并）：services/proxy.rs:694-708 代理接管重投影 write_claude_live 整份覆盖丢 modelPicker/theme 等用户键（d6b7719f 只修了另两条路径）→ 已立独立任务卡 task_a6d080f9（chip）
+- Minor：plan Task 1 Step 3 样例为 D5 修订前旧形态（加注记）；Some(&[]) 空路由语义未定义但生产不可达（留档）；get_claude_settings_path legacy claude.json 回落（全仓惯例，留档）
+- Minor-List triage：#1 升 must-fix-now（同事故类不降级）；#2-5 leave-recorded（null 文档/warn 路径无集成测试/测试冗余重读/override_dir 进程级）
+- 终审核实的三条集成主张：sync_cli_model_picker 唯一调用点 apply_provider（claude_desktop_config.rs:141）、生产唯一 apply 入口 live.rs:860、反向白名单合并保留 modelPicker（live.rs:182/223 + 现成测试 3677）
+
+## 2026-10-02 Codex 聚合（SDD 逐任务）
+- Task 1: complete (commit c7e70fc6，审查 Spec ✅ / Quality Approved)
+  · CodexAggregateRoutes{slots,defaultTarget,defaultModel} + CodexAggregateSlot{model,providerId,upstreamModel,label}，serde 键 codexAggregateRoutes（避开上游 #5937 占用的 aggregateRoutes）；复用 DefaultTarget；is_codex_aggregate_provider + codex_routes_of
+  · 实现者两处偏离经审查判定合理：测试 partial-move 用 as_ref()（E0382 必需）；label 往返断言为增强（其理由陈述有误但断言有效）
+  · Minor 留档：① codex_routes_of 过渡期 dead_code 警告——Task 2/3 消费方落地时必须消失 ② default_model/label 的 skip_serializing_if None 例无测试 ③ slot 部分字段无 doc 注释
+  · 环境备查（实现者上报，均既有）：HERMES_HOME 未被 with_test_home 中和（hermes 测试读真实配置）；symlink 1314；端口 15721 被运行中应用占用
+- B 终审收口：**Ready to merge = Yes**（修复复核确认单读化结构性消灭「二读失败→写{}」形态、写路径零漂移、变异判别力成立；测试局限=守结构属性被接受）；c0548269 闭合挡板
+  · B 代码侧全部闭合。余留（不挡）：task_a6d080f9（代理接管整份覆盖，既有缺口）、用户手动验收（UI apply → modelPicker 落盘比对 → CLI /model）
+  · 流程注记：finishing-a-development-branch 推迟到 Codex 完成（分支为长期工作分支，Codex 任务继续其上）
+
+## 2026-10-02 三 PR 合并冲突解决（链式策略）
+
+上游 main 前进到 `1bc68e29`（Stack 模型叠加，8 提交），#7785/#7786/#7789（base 同为 `36d95041`）全部 CONFLICTING。
+
+**策略**：链式分支只解一次——先解 #7785（冲突深），#7786/#7789 依次 merge 各自前驱分支继承解法。
+
+| PR | 解法 | 提交 |
+|---|---|---|
+| #7785 | `handler_context.rs` 3 块：上游 match stack 结构为准 + 聚合注入嫁接进 `None` 分支（Stack 显式绑定优先，`Some` 分支不注入）；`forwarder.rs` 3 块：双 builder 都保留 | `8f14807b` |
+| #7786 | `aggregate.rs` 3 块全取前驱侧（本 PR 只改 provider/mod.rs）；手删两处 HEAD 残留（我的 del 顺序错误致块1重复doc行、块2 残留整个 `let fallback_id…Ok((target,None))`——注释掉的 doc 行不报错、代码行报 E0308） | `be5aa363` |
+| #7789 | **零冲突**（纯前端，与 Rust Stack 重构不重叠），直接 merge 前驱 + tsc/vitest | `3ac914ef` |
+
+- 三 PR 现均 **MERGEABLE**（BLOCKED = 等 review）
+- 挂实测出的 `resolve_target` 现返回 `Option<String>`（评审修复 B1 后），#7785 嫁接处 `aggregate_override = upstream`（直接赋值，勿再包 `Some`）
+- 教训：① 链式 PR 冲突先解根、后继承，别独立解两遍；② 删冲突块用 del 顺序要倒序（先 end/mid/start 前要记住 start 标记删了 mid 会前移——本次块1/2 就是这么留残留的，编译器抓到 E0308 才发现）
+- `cc-switch-pr7785cf` worktree 已清（junction 先摘再 remove），两个 PR 分支保留

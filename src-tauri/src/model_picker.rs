@@ -17,6 +17,13 @@ use crate::error::AppError;
 /// 不一致（用户手写/改过）则不动——settings.json 是用户领地，不误删。
 const GENERATED_SNAPSHOT_KEY: &str = "cli_model_picker_generated";
 
+// 测试探针：宽松读（`read_json_or_empty`）的调用次数。删路径只允许读一次
+// （比对与写回共用同一份文档），计数器让「二次读」回归可被测试捕获。
+#[cfg(test)]
+thread_local! {
+    static LENIENT_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// 档位 → 本版 CLI 认识的模型 ID（behavesAs）。取证见设计 D4。
 const BEHAVES_AS: [(&str, &str); 4] = [
     ("fable", "claude-fable-5"),
@@ -85,7 +92,7 @@ pub(crate) fn sync_cli_model_picker_at(
     match routes {
         Some(routes) => {
             let value = model_picker_value(routes);
-            set_top_level_key(path, "modelPicker", Some(&value))?;
+            set_top_level_key(path, "modelPicker", &value)?;
             db.set_setting(GENERATED_SNAPSHOT_KEY, &value.to_string())
         }
         None => {
@@ -98,7 +105,13 @@ pub(crate) fn sync_cli_model_picker_at(
             if let Some(ours) = ours {
                 let current = read_json_or_empty(path);
                 if current.get("modelPicker") == Some(&ours) {
-                    set_top_level_key(path, "modelPicker", None)?;
+                    // 只写回已比对过的那份文档：再读一次若恰逢文件被改坏/锁定，
+                    // 宽松读会退化成 {} 并把整份用户配置覆盖成空（D5）。
+                    let mut doc = current;
+                    if let Some(obj) = doc.as_object_mut() {
+                        obj.remove("modelPicker");
+                        write_json_file(path, &doc)?;
+                    }
                 }
             }
             // 存证无论能否解析都要清空：留着的陈旧存证会让下次删键比对失准
@@ -111,7 +124,10 @@ pub(crate) fn sync_cli_model_picker_at(
 }
 
 /// 删路径专用宽松读：读失败按空对象处理（D5，结果必然是 no-op，保守无害）。
+/// 只许删路径调一次——比对与写回共用这一份文档，杜绝「读两次」的 TOCTOU 覆盖。
 fn read_json_or_empty(path: &Path) -> Value {
+    #[cfg(test)]
+    LENIENT_READS.with(|n| n.set(n.get() + 1));
     if !path.exists() {
         return json!({});
     }
@@ -127,18 +143,9 @@ fn read_json_strict(path: &Path) -> Result<Value, AppError> {
     read_json_file::<Value>(path)
 }
 
-fn set_top_level_key(path: &Path, key: &str, value: Option<&Value>) -> Result<(), AppError> {
-    if !path.exists() && value.is_none() {
-        return Ok(());
-    }
-    let mut doc = match value {
-        Some(_) => read_json_strict(path)?,
-        None => read_json_or_empty(path),
-    };
+fn set_top_level_key(path: &Path, key: &str, value: &Value) -> Result<(), AppError> {
+    let mut doc = read_json_strict(path)?;
     if !doc.is_object() {
-        if value.is_none() {
-            return Ok(());
-        }
         if !doc.is_null() {
             return Err(AppError::Config(format!(
                 "{} 不是 JSON 对象，拒绝写入 {key}",
@@ -147,14 +154,7 @@ fn set_top_level_key(path: &Path, key: &str, value: Option<&Value>) -> Result<()
         }
         doc = json!({});
     }
-    match value {
-        Some(v) => doc[key] = v.clone(),
-        None => {
-            if let Some(obj) = doc.as_object_mut() {
-                obj.remove(key);
-            }
-        }
-    }
+    doc[key] = value.clone();
     write_json_file(path, &doc)
 }
 
@@ -412,6 +412,32 @@ mod tests {
             saved["modelPicker"]["options"][0]["model"],
             json!("claude-opus-5")
         );
+    }
+
+    /// D3/D5 删路径单读：比对与写回共用同一份文档。
+    ///
+    /// 这不是行为断言而是结构性断言——两次读之间夹着 IO，测试无法确定性地
+    /// 把文件改坏/上锁来模拟竞态，因此改为直接数宽松读次数（唯一的文件读入口
+    /// 就是 `read_json_or_empty`）。任何人在删路径重新引入一次读，计数即 >1。
+    #[test]
+    fn sync_delete_uses_already_read_document_without_rereading() {
+        let db = Database::memory().unwrap();
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, r#"{"theme":"dark","env":{"A":"b"}}"#).unwrap();
+        let routes = [route("claude-fable-1", "fable", Some("X"), false)];
+        sync_cli_model_picker_at(&db, &path, Some(&routes)).unwrap();
+
+        LENIENT_READS.with(|n| n.set(0));
+        sync_cli_model_picker_at(&db, &path, None).unwrap();
+        let reads = LENIENT_READS.with(|n| n.get());
+        assert_eq!(reads, 1, "删路径只能宽松读一次（比对即写回的那一份）");
+
+        // 写回的是比对过的那份文档：只有 modelPicker 被摘掉，邻键完好
+        let saved: Value = read_json_file(&path).unwrap();
+        assert!(saved.get("modelPicker").is_none());
+        assert_eq!(saved["theme"], json!("dark"));
+        assert_eq!(saved["env"], json!({"A":"b"}));
     }
 
     #[test]

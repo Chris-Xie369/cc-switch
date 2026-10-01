@@ -308,6 +308,8 @@ fn set_top_level_key(path: &Path, key: &str, value: Option<&Value>) -> Result<()
 }
 ```
 
+> 修订（2026-10-01 终审）：写路径已按 spec D5（用户裁决）改为严格读上抛，实现以 src-tauri/src/model_picker.rs 为准；本样例为计划期原文。
+
 （`AppError::Config` 变体名以 `src-tauri/src/error.rs` 实际为准；若无 `Config(String)` 就用 `AppError::Message(format!(...))`，两者先查再用。）
 
 - [ ] **Step 4: 跑测试确认通过**

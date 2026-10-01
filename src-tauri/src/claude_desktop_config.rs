@@ -1497,9 +1497,9 @@ mod tests {
     use super::*;
     use crate::database::Database;
     use crate::provider::{ClaudeDesktopModelRoute, ProviderMeta};
+    use crate::settings::ClaudeDesktopDisplaySettings;
     use serde_json::json;
     use tempfile::TempDir;
-    use crate::settings::ClaudeDesktopDisplaySettings;
 
     fn test_paths(home: &Path) -> ClaudeDesktopPaths {
         paths_from_dirs(
@@ -2652,12 +2652,8 @@ mod tests {
 
     /// 构造一个仅带聚合路由表、`settings_config` 为空对象的供应商（无端点无凭据）。
     fn aggregate_provider_without_credentials(id: &str) -> Provider {
-        let mut provider = Provider::with_id(
-            id.to_string(),
-            "Aggregate".to_string(),
-            json!({}),
-            None,
-        );
+        let mut provider =
+            Provider::with_id(id.to_string(), "Aggregate".to_string(), json!({}), None);
         provider.meta = Some(ProviderMeta {
             aggregate_routes: Some(crate::aggregate::AggregateRoutes {
                 slots: vec![crate::aggregate::AggregateRouteSlot {
@@ -2690,12 +2686,7 @@ mod tests {
     #[test]
     fn validate_direct_provider_still_rejects_ordinary_provider_without_credentials() {
         // 对照：普通供应商的空 settings_config 仍必须被拒（聚合短路不得顺手放宽它）。
-        let plain = Provider::with_id(
-            "plain".to_string(),
-            "Plain".to_string(),
-            json!({}),
-            None,
-        );
+        let plain = Provider::with_id("plain".to_string(), "Plain".to_string(), json!({}), None);
         validate_direct_provider(&plain)
             .expect_err("ordinary provider without endpoint/credentials must still be rejected");
     }
@@ -2718,18 +2709,15 @@ mod tests {
     #[test]
     fn validate_proxy_provider_still_rejects_ordinary_provider_without_credentials() {
         // 对照：普通代理供应商的空 settings_config 仍必须被拒（聚合短路不得顺手放宽它）。
-        let mut plain = Provider::with_id(
-            "plain".to_string(),
-            "Plain".to_string(),
-            json!({}),
-            None,
-        );
+        let mut plain =
+            Provider::with_id("plain".to_string(), "Plain".to_string(), json!({}), None);
         plain.meta = Some(ProviderMeta {
             claude_desktop_mode: Some(ClaudeDesktopMode::Proxy),
             ..Default::default()
         });
-        validate_proxy_provider(&plain)
-            .expect_err("ordinary proxy provider without endpoint/credentials must still be rejected");
+        validate_proxy_provider(&plain).expect_err(
+            "ordinary proxy provider without endpoint/credentials must still be rejected",
+        );
     }
 
     #[test]

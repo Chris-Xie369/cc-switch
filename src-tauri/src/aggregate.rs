@@ -163,11 +163,31 @@ mod tests {
         };
         let provider = aggregate_provider(vec![
             grouped("p-zhipu", AggregateTier::Fable, "claude-fable-1", "glm-5.3"),
-            grouped("p-zhipu", AggregateTier::Opus, "claude-opus-4-8", "glm-5.3-flash"),
-            grouped("p-ds", AggregateTier::Fable, "claude-fable-2", "deepseek-v4-pro"),
-            grouped("p-ds", AggregateTier::Opus, "claude-opus-4-7", "deepseek-flash"),
+            grouped(
+                "p-zhipu",
+                AggregateTier::Opus,
+                "claude-opus-4-8",
+                "glm-5.3-flash",
+            ),
+            grouped(
+                "p-ds",
+                AggregateTier::Fable,
+                "claude-fable-2",
+                "deepseek-v4-pro",
+            ),
+            grouped(
+                "p-ds",
+                AggregateTier::Opus,
+                "claude-opus-4-7",
+                "deepseek-flash",
+            ),
             grouped("p-ark", AggregateTier::Fable, "claude-fable-3", "kimi-k3"),
-            grouped("p-oc", AggregateTier::Sonnet, "claude-sonnet-4-5", "space-bunny-free"),
+            grouped(
+                "p-oc",
+                AggregateTier::Sonnet,
+                "claude-sonnet-4-5",
+                "space-bunny-free",
+            ),
         ]);
 
         let routes = aggregate_model_routes(&provider).expect("routes");
@@ -176,12 +196,12 @@ mod tests {
         assert_eq!(
             order,
             vec![
-                "claude-fable-1",      // Zhipu
-                "claude-opus-4-8",     // Zhipu
-                "claude-fable-2",      // DeepSeek
-                "claude-opus-4-7",     // DeepSeek
-                "claude-fable-3",      // Ark
-                "claude-sonnet-4-5",   // OpenCode
+                "claude-fable-1",    // Zhipu
+                "claude-opus-4-8",   // Zhipu
+                "claude-fable-2",    // DeepSeek
+                "claude-opus-4-7",   // DeepSeek
+                "claude-fable-3",    // Ark
+                "claude-sonnet-4-5", // OpenCode
             ],
             "必须保持供应商分组顺序，不能按 route_id 字典序重排"
         );
@@ -208,8 +228,18 @@ mod tests {
         };
         let slots = vec![
             grouped("p-zhipu", AggregateTier::Fable, "claude-fable-1", "glm-5.3"),
-            grouped("p-ds", AggregateTier::Fable, "claude-fable-2", "deepseek-v4-pro"),
-            grouped("p-ds", AggregateTier::Opus, "claude-opus-4-7", "deepseek-flash"),
+            grouped(
+                "p-ds",
+                AggregateTier::Fable,
+                "claude-fable-2",
+                "deepseek-v4-pro",
+            ),
+            grouped(
+                "p-ds",
+                AggregateTier::Opus,
+                "claude-opus-4-7",
+                "deepseek-flash",
+            ),
         ];
         let mut provider = aggregate_provider(slots);
         if let Some(routes) = provider.meta.as_mut().unwrap().aggregate_routes.as_mut() {
@@ -218,7 +248,10 @@ mod tests {
 
         let routes = aggregate_model_routes(&provider).expect("routes");
         let order: Vec<&str> = routes.iter().map(|r| r.route_id.as_str()).collect();
-        assert_eq!(order, vec!["claude-opus-4-7", "claude-fable-1", "claude-fable-2"]);
+        assert_eq!(
+            order,
+            vec!["claude-opus-4-7", "claude-fable-1", "claude-fable-2"]
+        );
     }
 
     #[test]
@@ -266,7 +299,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(with.max_effort.as_deref(), Some("xhigh"));
-        assert!(serde_json::to_string(&with).unwrap().contains(r#""maxEffort":"xhigh""#));
+        assert!(serde_json::to_string(&with)
+            .unwrap()
+            .contains(r#""maxEffort":"xhigh""#));
     }
 
     #[tokio::test]
@@ -279,7 +314,8 @@ mod tests {
             serde_json::json!({}),
             None,
         );
-        db.save_provider("claude-desktop", &target).expect("save target");
+        db.save_provider("claude-desktop", &target)
+            .expect("save target");
 
         let mut aggregate = crate::provider::Provider::with_id(
             "agg".to_string(),
@@ -305,8 +341,8 @@ mod tests {
             ..Default::default()
         });
 
-        let hit = resolve_target(&db, "claude-desktop", &aggregate, "claude-sonnet-1")
-            .expect("hit");
+        let hit =
+            resolve_target(&db, "claude-desktop", &aggregate, "claude-sonnet-1").expect("hit");
         assert_eq!(hit.0.id, "p-glm");
         assert_eq!(hit.1.as_deref(), Some("glm-5.3"));
 
@@ -380,16 +416,18 @@ mod tests {
         // 默认目标指向一个不存在的槽位 id —— 必须显式报错，
         // **不得**静默回落到「第一个槽位」（那会把用户的兜底配置悄悄改掉）。
         let aggregate = aggregate_with(
-            vec![slot_for("claude-sonnet-1", "p-glm", AggregateTier::Sonnet, "glm-5.3")],
+            vec![slot_for(
+                "claude-sonnet-1",
+                "p-glm",
+                AggregateTier::Sonnet,
+                "glm-5.3",
+            )],
             DefaultTarget::SlotId("claude-sonnet-missing".into()),
         );
 
         let err = resolve_target(&db, "claude-desktop", &aggregate, "claude-haiku-4-5")
             .expect_err("default target pointing at a missing slot must error");
-        assert_eq!(
-            localized_key(&err),
-            "aggregate.default_target_slot_missing"
-        );
+        assert_eq!(localized_key(&err), "aggregate.default_target_slot_missing");
     }
 
     #[tokio::test]
@@ -397,7 +435,12 @@ mod tests {
         let db = crate::database::Database::memory().expect("db");
         // 命中槽位，但它引用的目标供应商在库里不存在 → 明确错误
         let aggregate = aggregate_with(
-            vec![slot_for("claude-sonnet-1", "p-missing", AggregateTier::Sonnet, "glm-5.3")],
+            vec![slot_for(
+                "claude-sonnet-1",
+                "p-missing",
+                AggregateTier::Sonnet,
+                "glm-5.3",
+            )],
             DefaultTarget::ProviderId("p-missing".into()),
         );
 
@@ -433,7 +476,12 @@ mod tests {
             .expect("save fallback");
 
         let aggregate = aggregate_with(
-            vec![slot_for("claude-fable-1", "p-glm", AggregateTier::Sonnet, "glm-5.3")],
+            vec![slot_for(
+                "claude-fable-1",
+                "p-glm",
+                AggregateTier::Sonnet,
+                "glm-5.3",
+            )],
             DefaultTarget::ProviderId("p-other".into()),
         );
 
@@ -648,9 +696,8 @@ mod tests {
                 },
             ],
         );
-        let (prov, upstream) =
-            resolve_target(&db, "claude-desktop", &aggregate, "anything")
-                .expect("empty prefixes skipped");
+        let (prov, upstream) = resolve_target(&db, "claude-desktop", &aggregate, "anything")
+            .expect("empty prefixes skipped");
         assert_eq!(prov.id, "p-fallback");
         assert_eq!(upstream, None);
     }

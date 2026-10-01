@@ -1685,7 +1685,10 @@ mod tests {
         assert_eq!(routes.slots.len(), 1);
         assert_eq!(routes.slots[0].route_id, "claude-sonnet-1");
         assert_eq!(routes.slots[0].upstream_model, "glm-5.3");
-        assert_eq!(routes.slots[0].tier, crate::aggregate::AggregateTier::Sonnet);
+        assert_eq!(
+            routes.slots[0].tier,
+            crate::aggregate::AggregateTier::Sonnet
+        );
         assert!(routes.slots[0].supports_1m);
         assert_eq!(
             routes.default_target,

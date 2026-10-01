@@ -1318,8 +1318,10 @@ impl RequestForwarder {
                     }
                     body
                 }
-                None => crate::claude_desktop_config::map_proxy_request_model(body.clone(), provider)
-                    .map_err(|e| ProxyError::InvalidRequest(e.to_string()))?,
+                None => {
+                    crate::claude_desktop_config::map_proxy_request_model(body.clone(), provider)
+                        .map_err(|e| ProxyError::InvalidRequest(e.to_string()))?
+                }
             }
         } else {
             let (mapped_body, _original_model, _mapped_model) =
@@ -2090,16 +2092,15 @@ impl RequestForwarder {
         // 其一，User-Agent：客户端须"用自己的 User-Agent 标识自己"。该网关在
         // Cloudflare 后面并按指纹拦截未标识的客户端（实测：不带 UA 被 403
         // Access denied，带上即放行）。用户显式配置的自定义 UA 优先。
-        let custom_user_agent = if custom_user_agent.is_none()
-            && is_opencode_upstream(upstream_host.as_deref())
-        {
-            Some(http::HeaderValue::from_static(concat!(
-                "cc-switch/",
-                env!("CARGO_PKG_VERSION")
-            )))
-        } else {
-            custom_user_agent
-        };
+        let custom_user_agent =
+            if custom_user_agent.is_none() && is_opencode_upstream(upstream_host.as_deref()) {
+                Some(http::HeaderValue::from_static(concat!(
+                    "cc-switch/",
+                    env!("CARGO_PKG_VERSION")
+                )))
+            } else {
+                custom_user_agent
+            };
 
         // 其二，会话头：缺 `x-opencode-session` 直接 400 MissingSessionID。
         // 客户端已带（如 Claude Code 的原生会话头）就原样透传，否则补：
@@ -2117,8 +2118,7 @@ impl RequestForwarder {
             };
             if let Some(session) = session.filter(|s| !s.is_empty()) {
                 if let Ok(value) = http::HeaderValue::from_str(&session) {
-                    auth_headers
-                        .push((http::HeaderName::from_static("x-opencode-session"), value));
+                    auth_headers.push((http::HeaderName::from_static("x-opencode-session"), value));
                 }
             }
         }
@@ -3991,8 +3991,16 @@ mod tests {
         for host in ["opencode.ai", "opencode.ai:443", "zen.opencode.ai"] {
             assert!(is_opencode_upstream(Some(host)), "{host} 应判为 OpenCode");
         }
-        for host in ["api.anthropic.com", "notopencode.ai", "example.com", "127.0.0.1:15721"] {
-            assert!(!is_opencode_upstream(Some(host)), "{host} 不应判为 OpenCode");
+        for host in [
+            "api.anthropic.com",
+            "notopencode.ai",
+            "example.com",
+            "127.0.0.1:15721",
+        ] {
+            assert!(
+                !is_opencode_upstream(Some(host)),
+                "{host} 不应判为 OpenCode"
+            );
         }
         assert!(!is_opencode_upstream(None));
     }

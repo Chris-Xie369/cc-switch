@@ -37,8 +37,7 @@ async fn fetch_json(url: &str) -> Result<serde_json::Value, String> {
 #[tauri::command]
 pub async fn check_upstream_status() -> Result<UpstreamStatus, String> {
     let pr_url = format!("https://api.github.com/repos/{UPSTREAM_REPO}/pulls/{TARGET_PR}");
-    let release_url =
-        format!("https://api.github.com/repos/{UPSTREAM_REPO}/releases/latest");
+    let release_url = format!("https://api.github.com/repos/{UPSTREAM_REPO}/releases/latest");
     let (pr, release) = tokio::join!(fetch_json(&pr_url), fetch_json(&release_url));
 
     let pr_merged = pr

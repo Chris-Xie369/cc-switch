@@ -160,9 +160,13 @@ impl RequestContext {
         let aggregate_override = if matches!(app_type, AppType::ClaudeDesktop)
             && crate::aggregate::is_aggregate_provider(&provider)
         {
-            let (target, upstream) =
-                crate::aggregate::resolve_target(&state.db, app_type_str, &provider, &request_model)
-                    .map_err(|e| ProxyError::ConfigError(e.to_string()))?;
+            let (target, upstream) = crate::aggregate::resolve_target(
+                &state.db,
+                app_type_str,
+                &provider,
+                &request_model,
+            )
+            .map_err(|e| ProxyError::ConfigError(e.to_string()))?;
             log::debug!(
                 "[{}] Aggregate route: {} -> provider {} (upstream model: {:?})",
                 tag,

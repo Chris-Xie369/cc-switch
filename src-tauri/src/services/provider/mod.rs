@@ -35,7 +35,6 @@ pub fn import_pi_providers_from_live(state: &AppState) -> Result<usize, AppError
 }
 
 // Internal re-exports (pub(crate))
-pub(crate) use live::sanitize_claude_settings_for_live;
 pub(crate) use live::{
     build_effective_provider_for_live_with_codex_oauth_manager,
     build_effective_settings_with_common_config, normalize_provider_common_config_for_storage,
@@ -43,6 +42,7 @@ pub(crate) use live::{
     sync_current_provider_for_app_to_live, write_live_with_common_config_for_codex_oauth_manager,
     write_live_with_common_config_for_state, LiveSyncOutcome,
 };
+pub(crate) use live::{merge_claude_settings_for_live, sanitize_claude_settings_for_live};
 
 // Internal re-exports
 use live::{
@@ -1751,7 +1751,8 @@ GEMINI_TIMEOUT_MS=30000
             },
         );
         assert!(
-            ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider).is_err()
+            ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
+                .is_err()
         );
     }
 
@@ -1769,7 +1770,10 @@ GEMINI_TIMEOUT_MS=30000
         );
         let err = ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
             .expect_err("unsafe route id must be rejected");
-        assert!(err.to_string().contains("槽位 ID"), "unexpected error: {err}");
+        assert!(
+            err.to_string().contains("槽位 ID"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
@@ -1854,9 +1858,7 @@ GEMINI_TIMEOUT_MS=30000
             "agg",
             crate::aggregate::AggregateRoutes {
                 slots: vec![slot("claude-sonnet-1", "p1")],
-                default_target: crate::aggregate::DefaultTarget::SlotId(
-                    "claude-opus-gone".into(),
-                ),
+                default_target: crate::aggregate::DefaultTarget::SlotId("claude-opus-gone".into()),
                 default_model: None,
                 alias_rules: vec![],
             },
@@ -1882,9 +1884,7 @@ GEMINI_TIMEOUT_MS=30000
             "agg",
             crate::aggregate::AggregateRoutes {
                 slots: vec![slot("claude-sonnet-1", "p1")],
-                default_target: crate::aggregate::DefaultTarget::SlotId(
-                    "claude-sonnet-1".into(),
-                ),
+                default_target: crate::aggregate::DefaultTarget::SlotId("claude-sonnet-1".into()),
                 default_model: None,
                 alias_rules: vec![],
             },
@@ -1981,13 +1981,9 @@ GEMINI_TIMEOUT_MS=30000
                     alias_rules: vec![],
                 },
             );
-            let err = ProviderService::update(
-                state,
-                AppType::ClaudeDesktop,
-                Some("target"),
-                converted,
-            )
-            .expect_err("a referenced provider must not become an aggregate");
+            let err =
+                ProviderService::update(state, AppType::ClaudeDesktop, Some("target"), converted)
+                    .expect_err("a referenced provider must not become an aggregate");
             assert!(
                 err.to_string().contains("已被聚合供应商引用"),
                 "unexpected error: {err}"
@@ -7654,7 +7650,10 @@ impl ProviderService {
                     .as_ref()
                     .and_then(|meta| meta.aggregate_routes.as_ref())
                     .is_some_and(|routes| {
-                        routes.slots.iter().any(|slot| slot.provider_id == target_id)
+                        routes
+                            .slots
+                            .iter()
+                            .any(|slot| slot.provider_id == target_id)
                     })
             }))
     }

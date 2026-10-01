@@ -1,9 +1,9 @@
-use super::provider::{sanitize_claude_settings_for_live, ProviderService};
+use super::provider::{merge_claude_settings_for_live, ProviderService};
 use crate::app_config::{AppType, MultiAppConfig};
 use crate::error::AppError;
 use crate::provider::Provider;
 use chrono::Utc;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
 
@@ -225,7 +225,10 @@ impl ConfigService {
             fs::create_dir_all(parent).map_err(|e| AppError::io(parent, e))?;
         }
 
-        let settings = sanitize_claude_settings_for_live(&provider.settings_config);
+        // 反向白名单合并：只覆盖 cc-switch 拥有的键，用户手写的其他键保留。
+        let existing =
+            read_json_file::<serde_json::Value>(&settings_path).unwrap_or_else(|_| json!({}));
+        let settings = merge_claude_settings_for_live(&existing, &provider.settings_config);
         write_json_file(&settings_path, &settings)?;
 
         let live_after = read_json_file::<serde_json::Value>(&settings_path)?;

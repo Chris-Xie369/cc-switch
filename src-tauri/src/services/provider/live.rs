@@ -177,6 +177,103 @@ pub(crate) fn sanitize_claude_settings_for_live(settings: &Value) -> Value {
     v
 }
 
+/// cc-switch 完全拥有的顶层键：随当前供应商覆盖；供应商未提供时从文件删除
+/// （与旧整份覆盖的语义一致——「当前生效供应商的投影，不生效就该删」）。
+const CLAUDE_SETTINGS_OWNED_TOP_KEYS: [&str; 2] = ["env", "apiKey"];
+
+/// env 内 cc-switch 完全拥有的子键（表单投影 + 代理接管注入 + 通用配置托管 + 遗留键）。
+/// 供应商 config.env 有 → 写入；无 → 从文件删除（旧端点/遗留值不得残留到下一供应商）。
+const CLAUDE_ENV_OWNED_KEYS: [&str; 18] = [
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME",
+    "CLAUDE_CODE_SUBAGENT_MODEL",
+    // 遗留键（历史版本字段）：供应商未提供时顺手清理，不在文件里越攒越多。
+    "ANTHROPIC_SMALL_FAST_MODEL",
+    "ANTHROPIC_REASONING_MODEL",
+    // 代理接管/通用配置片段注入的托管键。
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+];
+
+/// 把供应商的 Claude settings_config **合并**进现有 settings.json（反向白名单）。
+///
+/// 旧行为是整份覆盖：文件里凡是不在当前供应商 config 里的键（用户在 CLI 里手写的
+/// theme / modelPicker / statusLine / enabledPlugins / modelSettings，以及 env 里的
+/// ENABLE_TOOL_SEARCH 等）会在切换时永久丢失，且回填路径会把已剥离的文件吸收回
+/// DB——丢失自我固化。本函数改为：
+///
+/// - 顶层：只接管 [CLAUDE_SETTINGS_OWNED_TOP_KEYS]；其余顶层键文件原样保留，
+///   供应商 config 里的同名副本（历史上由回填吸收进来）不再写回——用户在文件里的
+///   实时编辑从此在切换间存活。
+/// - env 子键：[CLAUDE_ENV_OWNED_KEYS] 有→写/无→删（含遗留键清理）；供应商 env
+///   里显式提供的其他子键也写入（CommonConfigEditor 的注入继续生效，用户手写值
+///   因「供应商未提供→保留」在切换间存活）；仅文件里的子键一律保留。
+/// - sanitize 在取供应商值之前执行：内部字段（apiFormat 等）永不落到文件。
+pub(crate) fn merge_claude_settings_for_live(existing: &Value, provider_config: &Value) -> Value {
+    let provider = sanitize_claude_settings_for_live(provider_config);
+    // 先取文件的 env 作合并基底（顶层循环会先用供应商的 env 覆盖 out["env"]，
+    // 顺序不能反，否则文件独有的子键会丢）。
+    let file_env = existing
+        .get("env")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let mut out = match existing.as_object() {
+        Some(obj) => obj.clone(),
+        None => serde_json::Map::new(),
+    };
+
+    for key in CLAUDE_SETTINGS_OWNED_TOP_KEYS {
+        match provider.get(key) {
+            Some(value) => {
+                out.insert(key.to_string(), value.clone());
+            }
+            None => {
+                out.remove(key);
+            }
+        }
+    }
+
+    // env 子键三层合并：owned 覆盖/删除，供应商显式提供的其他键写入，其余保留。
+    let provider_env = provider.get("env").and_then(Value::as_object);
+    let mut env_out = file_env;
+    for key in CLAUDE_ENV_OWNED_KEYS {
+        match provider_env.and_then(|env| env.get(key)) {
+            Some(value) => {
+                env_out.insert(key.to_string(), value.clone());
+            }
+            None => {
+                env_out.remove(key);
+            }
+        }
+    }
+    if let Some(provider_env) = provider_env {
+        for (key, value) in provider_env {
+            if !CLAUDE_ENV_OWNED_KEYS.contains(&key.as_str()) {
+                env_out.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    if env_out.is_empty() {
+        out.remove("env");
+    } else {
+        out.insert("env".to_string(), Value::Object(env_out));
+    }
+
+    Value::Object(out)
+}
+
 pub(crate) fn provider_exists_in_live_config(
     app_type: &AppType,
     provider_id: &str,
@@ -1313,7 +1410,10 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
     match app_type {
         AppType::Claude => {
             let path = get_claude_settings_path();
-            let settings = sanitize_claude_settings_for_live(&provider.settings_config);
+            // 反向白名单合并：只覆盖 cc-switch 拥有的键（顶层 env/apiKey + env 的
+            // owned 子键），用户在 settings.json 里手写的其他键在切换间保留。
+            let existing = read_json_file::<Value>(&path).unwrap_or_else(|_| json!({}));
+            let settings = merge_claude_settings_for_live(&existing, &provider.settings_config);
             write_json_file(&path, &settings)?;
         }
         AppType::ClaudeDesktop => {
@@ -3549,5 +3649,114 @@ base_url = "https://a.example/v1"
 
         assert!(!config_text.contains("mcp_servers"));
         assert!(config_text.contains("model = \"grok-4.5\""));
+    }
+
+    #[test]
+    fn merge_claude_settings_owned_top_keys_follow_provider() {
+        // 顶层 owned 键（env/apiKey）随供应商覆盖/删除
+        let existing = json!({
+            "env": {"ANTHROPIC_BASE_URL": "https://old.example.com"},
+            "apiKey": "old-key",
+        });
+        let provider = json!({"env": {"ANTHROPIC_BASE_URL": "https://new.example.com"}});
+        let merged = merge_claude_settings_for_live(&existing, &provider);
+        assert_eq!(
+            merged["env"]["ANTHROPIC_BASE_URL"],
+            json!("https://new.example.com")
+        );
+        // 供应商未提供 apiKey → 从文件删除
+        assert!(merged.get("apiKey").is_none());
+    }
+
+    #[test]
+    fn merge_claude_settings_preserves_user_top_level_keys() {
+        // 用户手写的顶层键（含供应商 config 里的回填副本）原样保留
+        let existing = json!({
+            "env": {},
+            "theme": "dark",
+            "modelPicker": {"options": []},
+        });
+        let provider = json!({
+            "env": {"ANTHROPIC_AUTH_TOKEN": "tok"},
+            // 回填吸收进来的陈旧副本：不得写回覆盖用户在文件里的实时值
+            "theme": "light",
+        });
+        let merged = merge_claude_settings_for_live(&existing, &provider);
+        assert_eq!(merged["theme"], json!("dark"));
+        assert_eq!(merged["modelPicker"], json!({"options": []}));
+    }
+
+    #[test]
+    fn merge_claude_settings_env_owned_keys_deleted_when_absent() {
+        // owned 子键：供应商未提供 → 从文件删除（旧端点不得残留到下一供应商）
+        let existing = json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": "https://old.example.com",
+                "ANTHROPIC_REASONING_MODEL": "legacy-residue",
+            },
+        });
+        let provider = json!({"env": {}});
+        let merged = merge_claude_settings_for_live(&existing, &provider);
+        assert!(merged["env"].get("ANTHROPIC_BASE_URL").is_none());
+        // 遗留键顺手清理
+        assert!(merged["env"].get("ANTHROPIC_REASONING_MODEL").is_none());
+    }
+
+    #[test]
+    fn merge_claude_settings_env_preserves_user_only_subkeys() {
+        // 仅文件里的子键（用户手写/其他片段写入）一律保留；供应商显式提供的
+        // 非 owned 子键也写入（CommonConfigEditor 注入继续生效）。
+        let existing = json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": "https://old.example.com",
+                "ENABLE_TOOL_SEARCH": "true",
+                "MY_CUSTOM_KEY": "keep-me",
+            },
+        });
+        let provider = json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": "https://new.example.com",
+                "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+            },
+        });
+        let merged = merge_claude_settings_for_live(&existing, &provider);
+        let env = &merged["env"];
+        assert_eq!(env["ANTHROPIC_BASE_URL"], json!("https://new.example.com"));
+        assert_eq!(env["ENABLE_TOOL_SEARCH"], json!("true")); // 用户键保留
+        assert_eq!(env["MY_CUSTOM_KEY"], json!("keep-me")); // 用户键保留
+        assert_eq!(
+            env["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"],
+            json!("1") // 供应商显式提供 → 写入
+        );
+    }
+
+    #[test]
+    fn merge_claude_settings_sanitize_strips_internal_keys() {
+        // 内部字段（apiFormat 等）在取供应商值之前剥离，不得借合并漏进文件
+        let existing = json!({});
+        let provider = json!({
+            "env": {"ANTHROPIC_BASE_URL": "https://x.example.com"},
+            "apiFormat": "anthropic",
+            "api_format": "anthropic",
+        });
+        let merged = merge_claude_settings_for_live(&existing, &provider);
+        assert!(merged.get("apiFormat").is_none());
+        assert!(merged.get("api_format").is_none());
+        assert!(merged["env"].get("ANTHROPIC_BASE_URL").is_some());
+    }
+
+    #[test]
+    fn merge_claude_settings_missing_env_object_removes_owned_subkeys() {
+        // 供应商 config 完全不带 env：owned 子键全部清理，文件里的用户子键仍保留
+        let existing = json!({
+            "env": {
+                "ANTHROPIC_AUTH_TOKEN": "old-tok",
+                "MY_CUSTOM_KEY": "keep-me",
+            },
+        });
+        let provider = json!({});
+        let merged = merge_claude_settings_for_live(&existing, &provider);
+        assert!(merged["env"].get("ANTHROPIC_AUTH_TOKEN").is_none());
+        assert_eq!(merged["env"]["MY_CUSTOM_KEY"], json!("keep-me"));
     }
 }

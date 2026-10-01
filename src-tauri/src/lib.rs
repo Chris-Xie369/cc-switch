@@ -24,6 +24,7 @@ mod linux_fix;
 mod mcode_config;
 mod mcp;
 mod model_capabilities;
+mod model_picker;
 mod openclaw_config;
 mod opencode_config;
 mod panic_hook;

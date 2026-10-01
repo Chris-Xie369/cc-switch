@@ -78,6 +78,29 @@ pub struct AggregateRoutes {
     pub alias_rules: Vec<AggregateAliasRule>,
 }
 
+/// Codex 聚合路由：客户端模型名（精确匹配）→ 目标 Codex 供应商 + 上游模型。
+/// 与 Claude 侧 `AggregateRoutes` 平行、互不兼容（上游 PR #5937 占用 `aggregateRoutes`
+/// 键，此处用独立键名避开碰撞）。数据面见 `resolve_codex_target`。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexAggregateRoutes {
+    pub slots: Vec<CodexAggregateSlot>,
+    pub default_target: DefaultTarget,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexAggregateSlot {
+    /// 客户端模型名（slug，路由键）。非空与全表唯一由保存校验兜底。
+    pub model: String,
+    pub provider_id: String,
+    pub upstream_model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -746,6 +769,44 @@ mod tests {
         assert_eq!(routes.alias_rules[0].prefix, "claude-sonnet");
         assert_eq!(routes.alias_rules[0].slot_id, "claude-sonnet-4");
     }
+
+    fn codex_aggregate_provider(routes: Option<CodexAggregateRoutes>) -> Provider {
+        let mut provider = Provider::with_id(
+            "agg-codex".to_string(),
+            "Codex Aggregate".to_string(),
+            serde_json::json!({}),
+            None,
+        );
+        provider.meta = Some(crate::provider::ProviderMeta {
+            codex_aggregate_routes: routes,
+            ..Default::default()
+        });
+        provider
+    }
+
+    #[test]
+    fn codex_routes_of_errors_when_missing() {
+        // 没有 codexAggregateRoutes 的供应商不是聚合供应商，取路由表必须明确报错
+        // （不得回落成 Claude 侧的 aggregateRoutes —— 两套键互不相通）
+        let plain = codex_aggregate_provider(None);
+        assert!(!is_codex_aggregate_provider(&plain));
+        let err = codex_routes_of(&plain).expect_err("missing route table must error");
+        assert_eq!(localized_key(&err), "codex_aggregate.routes_missing");
+
+        let with_routes = codex_aggregate_provider(Some(CodexAggregateRoutes {
+            slots: vec![CodexAggregateSlot {
+                model: "gpt-5.1".to_string(),
+                provider_id: "p-kimi".to_string(),
+                upstream_model: "kimi-k2".to_string(),
+                label: None,
+            }],
+            default_target: DefaultTarget::ProviderId("p-kimi".to_string()),
+            default_model: None,
+        }));
+        assert!(is_codex_aggregate_provider(&with_routes));
+        let routes = codex_routes_of(&with_routes).expect("route table");
+        assert_eq!(routes.slots[0].upstream_model, "kimi-k2");
+    }
 }
 
 /// 该供应商是否为聚合供应商。
@@ -768,6 +829,31 @@ fn routes_of(provider: &Provider) -> Result<&AggregateRoutes, AppError> {
                 "aggregate.routes_missing",
                 "聚合供应商缺少路由表",
                 "Aggregate provider is missing its route table",
+            )
+        })
+}
+
+/// 该供应商是否为 Codex 聚合供应商。
+pub fn is_codex_aggregate_provider(provider: &Provider) -> bool {
+    provider
+        .meta
+        .as_ref()
+        .and_then(|m| m.codex_aggregate_routes.as_ref())
+        .is_some()
+}
+
+/// 取 Codex 聚合供应商的路由表。与 `routes_of` 同构但查的是独立键——
+/// 两套键互不相通，Codex 侧不得回落到 Claude 侧的 `aggregateRoutes`。
+pub(crate) fn codex_routes_of(provider: &Provider) -> Result<&CodexAggregateRoutes, AppError> {
+    provider
+        .meta
+        .as_ref()
+        .and_then(|m| m.codex_aggregate_routes.as_ref())
+        .ok_or_else(|| {
+            AppError::localized(
+                "codex_aggregate.routes_missing",
+                "Codex 聚合供应商缺少路由表",
+                "Codex aggregate provider is missing its route table",
             )
         })
 }

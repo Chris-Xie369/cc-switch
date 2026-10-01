@@ -469,6 +469,14 @@ pub struct ProviderMeta {
         skip_serializing_if = "Option::is_none"
     )]
     pub aggregate_routes: Option<crate::aggregate::AggregateRoutes>,
+    /// Codex 聚合供应商的路由表：与 Claude 侧 `aggregateRoutes` 平行、互不兼容，
+    /// 故用独立键 `codexAggregateRoutes`（上游 #5937 占用前者）。None = 普通 Codex 供应商。
+    #[serde(
+        default,
+        rename = "codexAggregateRoutes",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub codex_aggregate_routes: Option<crate::aggregate::CodexAggregateRoutes>,
     /// 用量查询脚本配置
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage_script: Option<UsageScript>,
@@ -1699,5 +1707,54 @@ mod tests {
         let empty = ProviderMeta::default();
         let value = serde_json::to_value(&empty).expect("serialize");
         assert!(value.get("aggregateRoutes").is_none());
+    }
+
+    #[test]
+    fn codex_aggregate_routes_round_trip() {
+        let meta: ProviderMeta = serde_json::from_value(json!({
+            "codexAggregateRoutes": {
+                "slots": [
+                    { "model": "gpt-5.1", "providerId": "p-kimi", "upstreamModel": "kimi-k2" },
+                    {
+                        "model": "glm-5.3",
+                        "providerId": "p-zhipu",
+                        "upstreamModel": "glm-5.3",
+                        "label": "Zhipu · glm-5.3"
+                    }
+                ],
+                "defaultTarget": { "kind": "providerId", "value": "p-kimi" },
+                "defaultModel": "gpt-5.1"
+            }
+        }))
+        .expect("deserialize");
+        let routes = meta
+            .codex_aggregate_routes
+            .as_ref()
+            .expect("codex routes present");
+        assert_eq!(routes.slots.len(), 2);
+        assert_eq!(routes.slots[0].model, "gpt-5.1");
+        assert_eq!(routes.slots[0].provider_id, "p-kimi");
+        assert_eq!(routes.slots[0].upstream_model, "kimi-k2");
+        assert_eq!(routes.slots[1].label.as_deref(), Some("Zhipu · glm-5.3"));
+        assert_eq!(
+            routes.default_target,
+            crate::aggregate::DefaultTarget::ProviderId("p-kimi".to_string())
+        );
+        assert_eq!(routes.default_model.as_deref(), Some("gpt-5.1"));
+
+        let value = serde_json::to_value(&meta).expect("serialize");
+        assert_eq!(
+            value["codexAggregateRoutes"]["slots"][1]["label"].as_str(),
+            Some("Zhipu · glm-5.3")
+        );
+        assert!(value.get("codex_aggregate_routes").is_none());
+    }
+
+    #[test]
+    fn codex_aggregate_routes_absent_when_unset() {
+        let meta: ProviderMeta = serde_json::from_value(json!({})).expect("deserialize");
+        assert!(meta.codex_aggregate_routes.is_none());
+        let value = serde_json::to_value(&meta).expect("serialize");
+        assert!(value.get("codexAggregateRoutes").is_none());
     }
 }

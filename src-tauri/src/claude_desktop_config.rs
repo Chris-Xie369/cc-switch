@@ -136,7 +136,12 @@ struct InferenceModelSpec {
 
 pub fn apply_provider(db: &Database, provider: &Provider) -> Result<(), AppError> {
     let paths = current_platform_paths()?;
-    apply_provider_to_paths(db, provider, &paths)
+    let routes = apply_provider_to_paths(db, provider, &paths)?;
+    // picker 是衍生件：profile 已落盘，同步失败只告警不撤回（下次 apply 自愈）
+    if let Err(err) = crate::model_picker::sync_cli_model_picker(db, routes.as_deref()) {
+        log::warn!("modelPicker 同步失败（下次 apply 自愈）: {err}");
+    }
+    Ok(())
 }
 
 pub fn get_status(db: &Database, proxy_running: bool) -> Result<ClaudeDesktopStatus, AppError> {
@@ -993,13 +998,15 @@ pub fn proxy_gateway_base_url_from_db(db: &Database) -> Result<String, AppError>
     ))
 }
 
+/// 官方恢复与 provider 应用同寿命：picker 也必须被清掉。
 fn apply_provider_to_paths(
     db: &Database,
     provider: &Provider,
     paths: &ClaudeDesktopPaths,
-) -> Result<(), AppError> {
+) -> Result<Option<Vec<ResolvedModelRoute>>, AppError> {
     if is_official_provider(provider) {
-        return restore_official_at_paths(paths);
+        restore_official_at_paths(paths)?;
+        return Ok(None);
     }
 
     validate_provider(provider)?;
@@ -1012,13 +1019,13 @@ fn restore_official_at_paths(paths: &ClaudeDesktopPaths) -> Result<(), AppError>
     with_rollback(paths, restore_official_at_paths_inner)
 }
 
-fn with_rollback<F>(paths: &ClaudeDesktopPaths, op: F) -> Result<(), AppError>
+fn with_rollback<T, F>(paths: &ClaudeDesktopPaths, op: F) -> Result<T, AppError>
 where
-    F: FnOnce(&ClaudeDesktopPaths) -> Result<(), AppError>,
+    F: FnOnce(&ClaudeDesktopPaths) -> Result<T, AppError>,
 {
     let snapshots = snapshot_files(paths)?;
     match op(paths) {
-        Ok(()) => Ok(()),
+        Ok(value) => Ok(value),
         Err(err) => match restore_snapshots(&snapshots) {
             Ok(()) => Err(err),
             Err(rollback_err) => {
@@ -1031,11 +1038,13 @@ where
     }
 }
 
+/// 返回值只给 CLI 的 `modelPicker` 派生用：聚合供应商才带路由，
+/// 直连/官方/普通代理（模型映射行）一律 `None`（spec 范围只覆盖聚合）。
 fn apply_provider_to_paths_inner(
     db: &Database,
     provider: &Provider,
     paths: &ClaudeDesktopPaths,
-) -> Result<(), AppError> {
+) -> Result<Option<Vec<ResolvedModelRoute>>, AppError> {
     // 聚合供应商自身无端点无凭据：它的槽位模型列表与请求转发都依赖本地代理，
     // 故一律按代理分支写 profile（否则会去取聚合自己的端点/凭据而失败——表单默认「直连」）。
     let profile_mode = if crate::aggregate::is_aggregate_provider(provider) {
@@ -1044,6 +1053,7 @@ fn apply_provider_to_paths_inner(
         provider_mode(provider)
     };
 
+    let mut cli_routes = None;
     let mut profile = match profile_mode {
         ClaudeDesktopMode::Direct => {
             let credentials = direct_gateway_credentials(provider)?;
@@ -1067,6 +1077,9 @@ fn apply_provider_to_paths_inner(
                     max_effort: route.max_effort.clone(),
                 })
                 .collect::<Vec<_>>();
+            if crate::aggregate::is_aggregate_provider(provider) {
+                cli_routes = Some(routes);
+            }
             build_gateway_profile(&base_url, &api_key, Some(model_specs.as_slice()))
         }
     };
@@ -1083,7 +1096,7 @@ fn apply_provider_to_paths_inner(
     write_json_file(&paths.profile_path, &merged)?;
     write_meta(&paths.meta_path, Some(PROFILE_ID))?;
 
-    Ok(())
+    Ok(cli_routes)
 }
 
 fn restore_official_at_paths_inner(paths: &ClaudeDesktopPaths) -> Result<(), AppError> {
@@ -1499,7 +1512,92 @@ mod tests {
     use crate::provider::{ClaudeDesktopModelRoute, ProviderMeta};
     use crate::settings::ClaudeDesktopDisplaySettings;
     use serde_json::json;
+    use serial_test::serial;
+    use std::env;
     use tempfile::TempDir;
+
+    /// 把 HOME/USERPROFILE/LOCALAPPDATA/CC_SWITCH_TEST_HOME 全部钉到临时目录：
+    /// `apply_provider` 走的是 `current_platform_paths()`，会写真实的 3P profile 与
+    /// `~/.claude/settings.json`，测试里必须整体搬家（2026-09-22 事故口径）。
+    struct TempHome {
+        #[allow(dead_code)]
+        dir: TempDir,
+        original_home: Option<String>,
+        #[cfg(windows)]
+        original_local_app_data: Option<String>,
+        original_userprofile: Option<String>,
+        original_test_home: Option<String>,
+        #[cfg(target_os = "linux")]
+        original_xdg_config_home: Option<std::ffi::OsString>,
+    }
+
+    impl TempHome {
+        fn new() -> Self {
+            let dir = TempDir::new().expect("failed to create temp home");
+            let original_home = env::var("HOME").ok();
+            #[cfg(windows)]
+            let original_local_app_data = env::var("LOCALAPPDATA").ok();
+            let original_userprofile = env::var("USERPROFILE").ok();
+            let original_test_home = env::var("CC_SWITCH_TEST_HOME").ok();
+            #[cfg(target_os = "linux")]
+            let original_xdg_config_home = env::var_os("XDG_CONFIG_HOME");
+
+            env::set_var("HOME", dir.path());
+            #[cfg(windows)]
+            env::set_var("LOCALAPPDATA", dir.path().join("AppData").join("Local"));
+            env::set_var("USERPROFILE", dir.path());
+            env::set_var("CC_SWITCH_TEST_HOME", dir.path());
+            // Claude Desktop Linux 路径跟随 XDG_CONFIG_HOME，必须一并钉住
+            #[cfg(target_os = "linux")]
+            env::remove_var("XDG_CONFIG_HOME");
+
+            Self {
+                dir,
+                original_home,
+                #[cfg(windows)]
+                original_local_app_data,
+                original_userprofile,
+                original_test_home,
+                #[cfg(target_os = "linux")]
+                original_xdg_config_home,
+            }
+        }
+    }
+
+    impl Drop for TempHome {
+        fn drop(&mut self) {
+            match &self.original_home {
+                Some(value) => env::set_var("HOME", value),
+                None => env::remove_var("HOME"),
+            }
+
+            #[cfg(windows)]
+            {
+                match &self.original_local_app_data {
+                    Some(value) => env::set_var("LOCALAPPDATA", value),
+                    None => env::remove_var("LOCALAPPDATA"),
+                }
+            }
+
+            match &self.original_userprofile {
+                Some(value) => env::set_var("USERPROFILE", value),
+                None => env::remove_var("USERPROFILE"),
+            }
+
+            match &self.original_test_home {
+                Some(value) => env::set_var("CC_SWITCH_TEST_HOME", value),
+                None => env::remove_var("CC_SWITCH_TEST_HOME"),
+            }
+
+            #[cfg(target_os = "linux")]
+            {
+                match &self.original_xdg_config_home {
+                    Some(value) => env::set_var("XDG_CONFIG_HOME", value),
+                    None => env::remove_var("XDG_CONFIG_HOME"),
+                }
+            }
+        }
+    }
 
     fn test_paths(home: &Path) -> ClaudeDesktopPaths {
         paths_from_dirs(
@@ -2737,5 +2835,81 @@ mod tests {
             json!("http://127.0.0.1:15721/claude-desktop")
         );
         assert_eq!(profile["inferenceModels"], json!(["claude-sonnet-1"]));
+    }
+
+    #[test]
+    fn apply_provider_to_paths_returns_routes_only_for_aggregate_provider() {
+        let db = test_db();
+
+        let temp = TempDir::new().expect("tempdir");
+        let aggregate = apply_provider_to_paths(
+            &db,
+            &aggregate_provider_without_credentials("agg"),
+            &test_paths(temp.path()),
+        )
+        .expect("apply aggregate provider");
+        // 聚合槽位即 picker 行来源：route_id 必须与槽位一致，否则 CLI 侧点不到目标
+        let aggregate_routes = aggregate.expect("aggregate must yield routes");
+        assert_eq!(aggregate_routes.len(), 1);
+        assert_eq!(aggregate_routes[0].route_id, "claude-sonnet-1");
+
+        let temp = TempDir::new().expect("tempdir");
+        // 普通代理供应商（模型映射行）不生成 picker 行：spec 范围只覆盖聚合
+        assert!(
+            apply_provider_to_paths(&db, &proxy_provider("proxy"), &test_paths(temp.path()))
+                .expect("apply proxy provider")
+                .is_none()
+        );
+
+        let temp = TempDir::new().expect("tempdir");
+        assert!(
+            apply_provider_to_paths(&db, &direct_provider("direct"), &test_paths(temp.path()))
+                .expect("apply direct provider")
+                .is_none()
+        );
+
+        let temp = TempDir::new().expect("tempdir");
+        assert!(
+            apply_provider_to_paths(&db, &official_provider(), &test_paths(temp.path()))
+                .expect("apply official provider")
+                .is_none()
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn apply_provider_syncs_model_picker_and_removes_it_for_plain_provider() {
+        let _home = TempHome::new();
+        let db = test_db();
+        let settings_path = crate::config::get_claude_settings_path();
+        let aggregate = aggregate_provider_without_credentials("agg");
+        let plain = direct_provider("direct");
+
+        apply_provider(&db, &aggregate).expect("apply aggregate provider");
+        let saved: Value = read_json_file(&settings_path).expect("read settings");
+        assert_eq!(saved["modelPicker"]["replaceBuiltInOptions"], json!(false));
+        assert_eq!(
+            saved["modelPicker"]["options"][0]["model"],
+            json!("claude-sonnet-1")
+        );
+
+        // 切到非聚合：本应用写的 picker 键随 profile 一起消失，同批写入的邻键必须留着
+        let mut saved: Value = read_json_file(&settings_path).expect("read settings");
+        saved["theme"] = json!("dark");
+        write_json_file(&settings_path, &saved).expect("seed settings");
+        apply_provider(&db, &plain).expect("apply direct provider");
+        let saved: Value = read_json_file(&settings_path).expect("read settings");
+        assert!(saved.get("modelPicker").is_none(), "{saved}");
+        assert_eq!(saved["theme"], json!("dark"));
+
+        // 手写值不可证明是本应用写的 → 不删（D3）
+        let handwritten =
+            r#"{"theme":"dark","modelPicker":{"options":[{"model":"claude-opus-5"}]}}"#;
+        fs::write(&settings_path, handwritten).expect("seed handwritten settings");
+        apply_provider(&db, &plain).expect("apply direct provider");
+        assert_eq!(
+            fs::read_to_string(&settings_path).expect("read settings"),
+            handwritten
+        );
     }
 }

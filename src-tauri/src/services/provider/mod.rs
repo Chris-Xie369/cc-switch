@@ -2087,6 +2087,343 @@ GEMINI_TIMEOUT_MS=30000
         });
     }
 
+    // ---------------------------------------------------------------------
+    // Codex 聚合路由表：保存校验与删除保护（Task 4）
+    // ---------------------------------------------------------------------
+
+    /// 取出 `AppError::Localized` 的稳定 key（断言错误类型，而非本地化文案）。
+    fn localized_key(err: &AppError) -> &'static str {
+        match err {
+            AppError::Localized { key, .. } => key,
+            other => panic!("expected a localized error, got: {other}"),
+        }
+    }
+
+    /// Codex 聚合卡片的合法 settings：**空对象**。聚合自身无端点无凭据，
+    /// seed 只存在于写 live 的有效快照里（设计 D3）。
+    fn codex_aggregate_card_settings() -> Value {
+        json!({})
+    }
+
+    /// 构造一个带 Codex 聚合路由表的供应商（路由键是 `model` 字符串）。
+    fn codex_aggregate_provider(
+        id: &str,
+        routes: crate::aggregate::CodexAggregateRoutes,
+    ) -> Provider {
+        let mut provider = Provider::with_id(
+            id.to_string(),
+            "Codex Aggregate".to_string(),
+            codex_aggregate_card_settings(),
+            None,
+        );
+        provider.meta = Some(ProviderMeta {
+            codex_aggregate_routes: Some(routes),
+            ..Default::default()
+        });
+        provider
+    }
+
+    fn codex_slot(
+        model: &str,
+        provider_id: &str,
+        upstream_model: &str,
+    ) -> crate::aggregate::CodexAggregateSlot {
+        crate::aggregate::CodexAggregateSlot {
+            model: model.into(),
+            provider_id: provider_id.into(),
+            upstream_model: upstream_model.into(),
+            label: None,
+        }
+    }
+
+    fn codex_routes(
+        slots: Vec<crate::aggregate::CodexAggregateSlot>,
+    ) -> crate::aggregate::CodexAggregateRoutes {
+        crate::aggregate::CodexAggregateRoutes {
+            slots,
+            default_target: crate::aggregate::DefaultTarget::ProviderId("p-kimi".into()),
+            default_model: None,
+        }
+    }
+
+    #[test]
+    fn validate_codex_aggregate_rejects_empty_slot_model() {
+        let provider = codex_aggregate_provider(
+            "agg-codex",
+            codex_routes(vec![codex_slot("   ", "p-kimi", "kimi-k2")]),
+        );
+        let err = ProviderService::validate_provider_settings(&AppType::Codex, &provider)
+            .expect_err("blank slot model must be rejected");
+        assert_eq!(localized_key(&err), "codex_aggregate.slot_model_empty");
+    }
+
+    #[test]
+    fn validate_codex_aggregate_rejects_duplicate_slot_models() {
+        // trim 后重复也算重复——路由键在查表时是 trim 过的，两个等价键必有一个永远命中不了
+        let provider = codex_aggregate_provider(
+            "agg-codex",
+            codex_routes(vec![
+                codex_slot("gpt-5.1", "p-kimi", "kimi-k2"),
+                codex_slot(" gpt-5.1 ", "p-ark", "kimi-k3"),
+            ]),
+        );
+        let err = ProviderService::validate_provider_settings(&AppType::Codex, &provider)
+            .expect_err("duplicate slot models must be rejected");
+        assert_eq!(localized_key(&err), "codex_aggregate.slot_model_duplicate");
+    }
+
+    #[test]
+    fn validate_codex_aggregate_rejects_empty_slot_provider() {
+        let provider = codex_aggregate_provider(
+            "agg-codex",
+            codex_routes(vec![codex_slot("gpt-5.1", "   ", "kimi-k2")]),
+        );
+        let err = ProviderService::validate_provider_settings(&AppType::Codex, &provider)
+            .expect_err("blank slot target provider must be rejected");
+        assert_eq!(localized_key(&err), "codex_aggregate.slot_provider_empty");
+    }
+
+    #[test]
+    fn validate_codex_aggregate_rejects_empty_slot_upstream_model() {
+        let provider = codex_aggregate_provider(
+            "agg-codex",
+            codex_routes(vec![codex_slot("gpt-5.1", "p-kimi", "  ")]),
+        );
+        let err = ProviderService::validate_provider_settings(&AppType::Codex, &provider)
+            .expect_err("blank upstream model must be rejected");
+        assert_eq!(localized_key(&err), "codex_aggregate.slot_upstream_empty");
+    }
+
+    #[test]
+    fn validate_codex_aggregate_accepts_valid_table() {
+        // 对照：自洽的 Codex 路由表必须通过（含「聚合卡片无 auth 也可保存」这条短路，
+        // 否则控制台校验会在路由表校验之前就先拒了聚合卡片）。
+        let provider = codex_aggregate_provider(
+            "agg-codex",
+            codex_routes(vec![
+                codex_slot("gpt-5.1", "p-kimi", "kimi-k2"),
+                codex_slot("glm-5.3", "p-zhipu", "glm-5.3"),
+            ]),
+        );
+        ProviderService::validate_provider_settings(&AppType::Codex, &provider)
+            .expect("a self-consistent codex route table must pass");
+    }
+
+    #[test]
+    fn validate_codex_aggregate_rejects_blank_provider_default_target() {
+        // 未选兜底目标（值为空白）会让未命中槽位的请求硬失败，保存时即拦截
+        let mut routes = codex_routes(vec![codex_slot("gpt-5.1", "p-kimi", "kimi-k2")]);
+        routes.default_target = crate::aggregate::DefaultTarget::ProviderId("   ".into());
+        let provider = codex_aggregate_provider("agg-codex", routes);
+        let err = ProviderService::validate_provider_settings(&AppType::Codex, &provider)
+            .expect_err("blank provider-id default target must be rejected");
+        assert_eq!(
+            localized_key(&err),
+            "codex_aggregate.default_target_slot_missing"
+        );
+    }
+
+    #[test]
+    fn validate_codex_aggregate_rejects_default_target_naming_missing_slot() {
+        // 兜底目标指向不存在的槽位（如删行后悬空）必须被拒
+        let mut routes = codex_routes(vec![codex_slot("gpt-5.1", "p-kimi", "kimi-k2")]);
+        routes.default_target = crate::aggregate::DefaultTarget::SlotId("gpt-9.9".into());
+        let provider = codex_aggregate_provider("agg-codex", routes);
+        let err = ProviderService::validate_provider_settings(&AppType::Codex, &provider)
+            .expect_err("slot-id default target naming a missing slot must be rejected");
+        assert_eq!(
+            localized_key(&err),
+            "codex_aggregate.default_target_slot_missing"
+        );
+    }
+
+    #[test]
+    fn validate_codex_aggregate_accepts_slot_default_target_present_in_slots() {
+        // 对照：兜底目标指向确实存在的模型槽位时必须通过（校验不得误伤合法配置）
+        let mut routes = codex_routes(vec![codex_slot("gpt-5.1", "p-kimi", "kimi-k2")]);
+        routes.default_target = crate::aggregate::DefaultTarget::SlotId("gpt-5.1".into());
+        let provider = codex_aggregate_provider("agg-codex", routes);
+        ProviderService::validate_provider_settings(&AppType::Codex, &provider)
+            .expect("a slot-id default target that exists must pass");
+    }
+
+    #[test]
+    fn validate_codex_aggregate_leaves_non_aggregate_provider_untouched() {
+        // 误伤防护：普通 Codex 供应商没有 codexAggregateRoutes，不得因新校验而被拒
+        let provider = Provider::with_id(
+            "plain-codex".into(),
+            "Plain Codex".into(),
+            codex_settings("https://plain.example/v1", "sk-plain"),
+            None,
+        );
+        ProviderService::validate_provider_settings(&AppType::Codex, &provider)
+            .expect("an ordinary codex provider must still validate");
+    }
+
+    #[test]
+    #[serial]
+    fn validate_codex_aggregate_rejects_nested_aggregate() {
+        // 目标供应商自身是聚合供应商 -> 保存层拒绝（需跨供应商信息）。
+        // 两种 meta 键各算一种聚合：Codex 表指向 Claude 侧聚合同样禁止。
+        with_test_home(|state, _home| {
+            let codex_target = codex_aggregate_provider(
+                "target-codex-agg",
+                codex_routes(vec![codex_slot("gpt-5.1", "p-kimi", "kimi-k2")]),
+            );
+            state
+                .db
+                .save_provider(AppType::Codex.as_str(), &codex_target)
+                .expect("save codex aggregate target");
+
+            let nested = codex_aggregate_provider(
+                "agg-codex",
+                codex_routes(vec![codex_slot("gpt-5.1", "target-codex-agg", "whatever")]),
+            );
+            let err = ProviderService::add(state, AppType::Codex, nested, false)
+                .expect_err("nesting a codex aggregate must be rejected");
+            assert_eq!(localized_key(&err), "codex_aggregate.nested");
+
+            // 反向：Codex 聚合表指向带 Claude 侧 `aggregateRoutes` 的供应商也禁止
+            let mut mixed = Provider::with_id(
+                "mixed-agg".into(),
+                "Mixed".into(),
+                claude_desktop_direct_settings(),
+                None,
+            );
+            mixed.meta = Some(ProviderMeta {
+                aggregate_routes: Some(crate::aggregate::AggregateRoutes {
+                    slots: vec![slot("claude-sonnet-1", "p-glm")],
+                    default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
+                    default_model: None,
+                    alias_rules: vec![],
+                }),
+                ..Default::default()
+            });
+            state
+                .db
+                .save_provider(AppType::Codex.as_str(), &mixed)
+                .expect("save claude-style aggregate row under codex app");
+
+            let nested_mixed = codex_aggregate_provider(
+                "agg-codex-mixed",
+                codex_routes(vec![codex_slot("gpt-5.1", "mixed-agg", "whatever")]),
+            );
+            let err = ProviderService::add(state, AppType::Codex, nested_mixed, false)
+                .expect_err("codex aggregate must not target a claude-side aggregate row");
+            assert_eq!(localized_key(&err), "codex_aggregate.nested");
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn validate_codex_aggregate_rejects_referenced_provider_becoming_aggregate() {
+        // 单向漏洞：普通供应商 B 先被 Codex 聚合 A 的槽位引用，之后把 B 改造成
+        // 聚合供应商时必须拒绝——只查正向的校验会放行，运行时 A→B 便会拿到一个
+        // 无端点/凭据的目标。
+        with_test_home(|state, _home| {
+            let target = Provider::with_id(
+                "target".into(),
+                "Target".into(),
+                codex_settings("https://target.example/v1", "sk-target"),
+                None,
+            );
+            ProviderService::add(state, AppType::Codex, target, false)
+                .expect("ordinary provider saves");
+
+            let agg = codex_aggregate_provider(
+                "agg-codex",
+                codex_routes(vec![codex_slot("gpt-5.1", "target", "kimi-k2")]),
+            );
+            ProviderService::add(state, AppType::Codex, agg, false)
+                .expect("aggregate referencing an ordinary provider saves");
+
+            let converted = codex_aggregate_provider(
+                "target",
+                codex_routes(vec![codex_slot("gpt-5.1", "other", "kimi-k3")]),
+            );
+            let err = ProviderService::update(state, AppType::Codex, Some("target"), converted)
+                .expect_err("a referenced provider must not become an aggregate");
+            assert_eq!(localized_key(&err), "codex_aggregate.nested");
+
+            // 未被引用的普通供应商仍可正常保存（不误伤）
+            let plain = Provider::with_id(
+                "plain-codex".into(),
+                "Plain Codex".into(),
+                codex_settings("https://plain.example/v1", "sk-plain"),
+                None,
+            );
+            ProviderService::add(state, AppType::Codex, plain, false)
+                .expect("an unreferenced ordinary provider must still save");
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn delete_rejects_provider_referenced_by_codex_aggregate() {
+        with_test_home(|state, _home| {
+            state
+                .db
+                .save_provider(
+                    AppType::Codex.as_str(),
+                    &Provider::with_id(
+                        "target".into(),
+                        "Target".into(),
+                        codex_settings("https://target.example/v1", "sk-target"),
+                        None,
+                    ),
+                )
+                .expect("save target");
+            let agg = codex_aggregate_provider(
+                "agg-codex",
+                codex_routes(vec![codex_slot("gpt-5.1", "target", "kimi-k2")]),
+            );
+            state
+                .db
+                .save_provider(AppType::Codex.as_str(), &agg)
+                .expect("save aggregate");
+
+            let err = ProviderService::delete(state, AppType::Codex, "target").expect_err(
+                "a provider referenced by a codex aggregate slot must not be deletable",
+            );
+            assert_eq!(localized_key(&err), "aggregate.provider_in_use");
+
+            // 兜底目标的 ProviderId 变体同样算引用：删掉它会让未命中槽位的请求
+            // 在运行时报「目标供应商不存在」。
+            state
+                .db
+                .save_provider(
+                    AppType::Codex.as_str(),
+                    &Provider::with_id(
+                        "fallback".into(),
+                        "Fallback".into(),
+                        codex_settings("https://fallback.example/v1", "sk-fallback"),
+                        None,
+                    ),
+                )
+                .expect("save fallback target");
+            let mut routes = codex_routes(vec![codex_slot("gpt-5.1", "target", "kimi-k2")]);
+            routes.default_target = crate::aggregate::DefaultTarget::ProviderId("fallback".into());
+            let agg = codex_aggregate_provider("agg-codex", routes);
+            state
+                .db
+                .save_provider(AppType::Codex.as_str(), &agg)
+                .expect("save aggregate with fallback target");
+
+            let err = ProviderService::delete(state, AppType::Codex, "fallback").expect_err(
+                "a provider named by the aggregate default target must not be deletable",
+            );
+            assert_eq!(localized_key(&err), "aggregate.provider_in_use");
+
+            // 聚合自身可删（解除引用后目标也可删）；未被引用的供应商删除不受影响
+            ProviderService::delete(state, AppType::Codex, "agg-codex")
+                .expect("aggregate itself is deletable");
+            ProviderService::delete(state, AppType::Codex, "target")
+                .expect("target is deletable once no longer referenced");
+            ProviderService::delete(state, AppType::Codex, "fallback")
+                .expect("fallback is deletable once no longer referenced");
+        });
+    }
+
     #[test]
     fn extract_credentials_returns_expected_values() {
         let provider = Provider::with_id(
@@ -7431,43 +7768,12 @@ impl ProviderService {
                 crate::claude_desktop_config::validate_provider(provider)?;
             }
             AppType::Codex => {
-                let settings = provider.settings_config.as_object().ok_or_else(|| {
-                    AppError::localized(
-                        "provider.codex.settings.not_object",
-                        "Codex 配置必须是 JSON 对象",
-                        "Codex configuration must be a JSON object",
-                    )
-                })?;
-
-                let auth = settings.get("auth").ok_or_else(|| {
-                    AppError::localized(
-                        "provider.codex.auth.missing",
-                        format!("供应商 {} 缺少 auth 配置", provider.id),
-                        format!("Provider {} is missing auth configuration", provider.id),
-                    )
-                })?;
-                if !auth.is_object() {
-                    return Err(AppError::localized(
-                        "provider.codex.auth.not_object",
-                        format!("供应商 {} 的 auth 配置必须是 JSON 对象", provider.id),
-                        format!(
-                            "Provider {} auth configuration must be a JSON object",
-                            provider.id
-                        ),
-                    ));
-                }
-
-                if let Some(config_value) = settings.get("config") {
-                    if !(config_value.is_string() || config_value.is_null()) {
-                        return Err(AppError::localized(
-                            "provider.codex.config.invalid_type",
-                            "Codex config 字段必须是字符串",
-                            "Codex config field must be a string",
-                        ));
-                    }
-                    if let Some(cfg_text) = config_value.as_str() {
-                        crate::codex_config::validate_config_toml(cfg_text)?;
-                    }
+                // Codex 聚合供应商按设计无端点无凭据（DB 行是空对象，凭据由目标
+                // 供应商提供、写 live 时才合成 auth 占位），故跳过通用 auth/config
+                // 校验——与 Claude Desktop 侧 `validate_direct_provider` 对聚合的
+                // 同款短路。
+                if !crate::aggregate::is_codex_aggregate_provider(provider) {
+                    Self::validate_codex_direct_settings(provider)?;
                 }
             }
             AppType::Gemini => {
@@ -7631,11 +7937,125 @@ impl ProviderService {
             }
         }
 
+        // Codex 聚合路由表校验。与 Claude 侧同款「后端只校验、不生成」：模型名由
+        // 前端随表单提交，故这里保证收到的表自洽——模型名非空 + 全表唯一（trim 后）、
+        // 目标与上游模型必填、默认目标必须落在真实槽位或非空供应商上。
+        if let Some(routes) = provider
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.codex_aggregate_routes.as_ref())
+        {
+            let mut seen: Vec<String> = Vec::new();
+            for slot in &routes.slots {
+                let model = slot.model.trim();
+                if model.is_empty() {
+                    return Err(AppError::localized(
+                        "codex_aggregate.slot_model_empty",
+                        "Codex 聚合槽位必须填写客户端模型名",
+                        "Each Codex aggregate slot must specify a client model name",
+                    ));
+                }
+                if seen.iter().any(|m| m == model) {
+                    return Err(AppError::localized(
+                        "codex_aggregate.slot_model_duplicate",
+                        "Codex 聚合槽位的客户端模型名重复",
+                        "Duplicate client model name in Codex aggregate slots",
+                    ));
+                }
+                seen.push(model.to_string());
+                if slot.provider_id.trim().is_empty() {
+                    return Err(AppError::localized(
+                        "codex_aggregate.slot_provider_empty",
+                        "Codex 聚合槽位必须指定目标供应商",
+                        "Each Codex aggregate slot must specify a target provider",
+                    ));
+                }
+                if slot.upstream_model.trim().is_empty() {
+                    return Err(AppError::localized(
+                        "codex_aggregate.slot_upstream_empty",
+                        "Codex 聚合槽位必须指定上游模型",
+                        "Each Codex aggregate slot must specify an upstream model",
+                    ));
+                }
+            }
+
+            // 默认目标必填且必须可用：未命中槽位的请求会回落到它；空值或悬空槽位
+            // 都会让运行时硬失败，故保存时拦截（与 Claude 侧 defaultTarget 同款
+            // 语义，两侧共用同一个 key `default_target_slot_missing`）。
+            match &routes.default_target {
+                crate::aggregate::DefaultTarget::ProviderId(id) => {
+                    if id.trim().is_empty() {
+                        return Err(AppError::localized(
+                            "codex_aggregate.default_target_slot_missing",
+                            "Codex 聚合供应商必须指定默认目标：未命中槽位的请求会回落到它",
+                            "Codex aggregate provider must specify a default target: unmatched requests fall back to it",
+                        ));
+                    }
+                }
+                crate::aggregate::DefaultTarget::SlotId(id) => {
+                    let id = id.trim();
+                    if !seen.iter().any(|m| m == id) {
+                        return Err(AppError::localized(
+                            "codex_aggregate.default_target_slot_missing",
+                            "Codex 聚合供应商的默认目标缺失，或指向了不存在的模型槽位（可能因槽位改动而失效，请重新选择）",
+                            "Codex aggregate default target is missing or points to a non-existent slot (it may have been invalidated by slot changes; please reselect)",
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 普通 Codex 供应商的 settings 校验（auth 必须对象、config 必须是合法 TOML）。
+    /// 从 `validate_provider_settings` 抽出，以便聚合供应商整段短路（无端点无凭据）。
+    fn validate_codex_direct_settings(provider: &Provider) -> Result<(), AppError> {
+        let settings = provider.settings_config.as_object().ok_or_else(|| {
+            AppError::localized(
+                "provider.codex.settings.not_object",
+                "Codex 配置必须是 JSON 对象",
+                "Codex configuration must be a JSON object",
+            )
+        })?;
+
+        let auth = settings.get("auth").ok_or_else(|| {
+            AppError::localized(
+                "provider.codex.auth.missing",
+                format!("供应商 {} 缺少 auth 配置", provider.id),
+                format!("Provider {} is missing auth configuration", provider.id),
+            )
+        })?;
+        if !auth.is_object() {
+            return Err(AppError::localized(
+                "provider.codex.auth.not_object",
+                format!("供应商 {} 的 auth 配置必须是 JSON 对象", provider.id),
+                format!(
+                    "Provider {} auth configuration must be a JSON object",
+                    provider.id
+                ),
+            ));
+        }
+
+        if let Some(config_value) = settings.get("config") {
+            if !(config_value.is_string() || config_value.is_null()) {
+                return Err(AppError::localized(
+                    "provider.codex.config.invalid_type",
+                    "Codex config 字段必须是字符串",
+                    "Codex config field must be a string",
+                ));
+            }
+            if let Some(cfg_text) = config_value.as_str() {
+                crate::codex_config::validate_config_toml(cfg_text)?;
+            }
+        }
         Ok(())
     }
 
     /// 同 app 下是否有聚合供应商的槽位引用了 target_id。
     /// 禁嵌套的反向检查与删除保护共用同一「引用关系」判定，规则一处维护。
+    /// 查两个 meta 键：Codex 侧的 `codexAggregateRoutes` 槽位与兜底目标的
+    /// `ProviderId` 变体同样是引用关系（Claude 侧只落在槽位里）。
     fn referencing_aggregate_exists(
         state: &AppState,
         app_type: &AppType,
@@ -7646,65 +8066,137 @@ impl ProviderService {
             .get_all_providers(app_type.as_str())?
             .values()
             .any(|other| {
-                other
-                    .meta
+                let Some(meta) = other.meta.as_ref() else {
+                    return false;
+                };
+                if meta.aggregate_routes.as_ref().is_some_and(|routes| {
+                    routes
+                        .slots
+                        .iter()
+                        .any(|slot| slot.provider_id == target_id)
+                }) {
+                    return true;
+                }
+                meta.codex_aggregate_routes
                     .as_ref()
-                    .and_then(|meta| meta.aggregate_routes.as_ref())
-                    .is_some_and(|routes| {
-                        routes
-                            .slots
-                            .iter()
-                            .any(|slot| slot.provider_id == target_id)
-                    })
+                    .is_some_and(|routes| Self::codex_routes_reference(&routes, target_id))
             }))
+    }
+
+    /// Codex 聚合路由表是否引用了 target_id。引用出现在两处：槽位的 `provider_id`，
+    /// 以及兜底目标的 `ProviderId` 变体（它同样会把请求实发到目标供应商）。
+    fn codex_routes_reference(
+        routes: &crate::aggregate::CodexAggregateRoutes,
+        target_id: &str,
+    ) -> bool {
+        routes
+            .slots
+            .iter()
+            .any(|slot| slot.provider_id == target_id)
+            || matches!(
+                &routes.default_target,
+                crate::aggregate::DefaultTarget::ProviderId(id) if id == target_id
+            )
     }
 
     /// 禁嵌套：聚合供应商的槽位不得指向另一个聚合供应商。
     ///
-    /// 该判定需要跨供应商信息（目标供应商自身是否带 `aggregate_routes`），
+    /// 该判定需要跨供应商信息（目标供应商自身是否带聚合路由表），
     /// 因此不在纯校验层 `validate_provider_settings` 中，而在能访问 DB 的保存层调用。
+    /// 两个 meta 键（`aggregateRoutes` / `codexAggregateRoutes`）各算一种聚合：
+    /// 任一张表都不得指向带另一张表（乃至自身那张表）的供应商。
     fn validate_aggregate_not_nested(
         state: &AppState,
         app_type: &AppType,
         provider: &Provider,
     ) -> Result<(), AppError> {
-        let Some(routes) = provider
+        let claude_routes = provider
             .meta
             .as_ref()
-            .and_then(|meta| meta.aggregate_routes.as_ref())
-        else {
+            .and_then(|meta| meta.aggregate_routes.as_ref());
+        let codex_routes = provider
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.codex_aggregate_routes.as_ref());
+        if claude_routes.is_none() && codex_routes.is_none() {
             return Ok(());
-        };
-        for slot in &routes.slots {
-            // 目标供应商是否存在由运行时 resolve_target 负责，这里只禁嵌套。
-            let Some(target) = state
-                .db
-                .get_provider_by_id(&slot.provider_id, app_type.as_str())?
-            else {
-                continue;
-            };
-            if crate::aggregate::is_aggregate_provider(&target) {
-                return Err(AppError::localized(
+        }
+
+        // 正向检查：目标供应商是否存在由运行时 resolve_target / resolve_codex_target
+        // 负责，这里只禁嵌套。两张表各自报错 key（Codex 表用 Codex 侧的 key，便于
+        // 用户把问题定位到 Codex 路由表）。
+        if let Some(routes) = claude_routes {
+            let target_ids: Vec<&str> = routes
+                .slots
+                .iter()
+                .map(|slot| slot.provider_id.as_str())
+                .collect();
+            Self::reject_nested_targets(state, app_type, &target_ids, || {
+                AppError::localized(
                     "aggregate.nested_aggregate",
                     "聚合供应商的槽位不能指向另一个聚合供应商",
                     "An aggregate provider's slot cannot target another aggregate provider",
-                ));
-            }
+                )
+            })?;
         }
+        if let Some(routes) = codex_routes {
+            let target_ids: Vec<&str> = routes
+                .slots
+                .iter()
+                .map(|slot| slot.provider_id.as_str())
+                .collect();
+            Self::reject_nested_targets(state, app_type, &target_ids, || {
+                AppError::localized(
+                    "codex_aggregate.nested",
+                    "Codex 聚合供应商的槽位不能指向另一个聚合供应商",
+                    "A Codex aggregate provider's slot cannot target another aggregate provider",
+                )
+            })?;
+        }
+
         // 反向检查：被保存者 P 自身带路由表（即本题分支），若它已被同 app 下其他聚合
         // 供应商的槽位引用，则保存后即形成 A→P 的嵌套。正向检查只覆盖「P 指向别人」，
         // 这一步封堵「普通供应商先被引用、之后被改造成聚合」的单向漏洞。
         if Self::referencing_aggregate_exists(state, app_type, &provider.id)? {
-            return Err(AppError::localized(
-                "aggregate.provider_becomes_aggregate_while_referenced",
-                "该供应商已被聚合供应商引用，不能再改造成聚合供应商",
-                "This provider is referenced by an aggregate provider and cannot itself become an aggregate provider",
-            ));
+            return Err(if codex_routes.is_some() {
+                AppError::localized(
+                    "codex_aggregate.nested",
+                    "该供应商已被聚合供应商引用，不能再改造成聚合供应商",
+                    "This provider is referenced by an aggregate provider and cannot itself become an aggregate provider",
+                )
+            } else {
+                AppError::localized(
+                    "aggregate.provider_becomes_aggregate_while_referenced",
+                    "该供应商已被聚合供应商引用，不能再改造成聚合供应商",
+                    "This provider is referenced by an aggregate provider and cannot itself become an aggregate provider",
+                )
+            });
         }
         Ok(())
     }
 
-    /// 删除保护：被同 app 下任一聚合路由表引用的供应商不可删除。
+    /// 正向禁嵌套的共用判定：target_ids 里若有任何一项指向聚合供应商，返回 make_err()。
+    fn reject_nested_targets(
+        state: &AppState,
+        app_type: &AppType,
+        target_ids: &[&str],
+        make_err: impl FnOnce() -> AppError,
+    ) -> Result<(), AppError> {
+        for target_id in target_ids {
+            let Some(target) = state.db.get_provider_by_id(target_id, app_type.as_str())? else {
+                continue;
+            };
+            if crate::aggregate::is_aggregate_provider(&target)
+                || crate::aggregate::is_codex_aggregate_provider(&target)
+            {
+                return Err(make_err());
+            }
+        }
+        Ok(())
+    }
+
+    /// 删除保护：被同 app 下任一聚合路由表（`aggregateRoutes` 或 `codexAggregateRoutes`）
+    /// 引用的供应商不可删除。
     fn reject_if_referenced_by_aggregate(
         state: &AppState,
         app_type: &AppType,

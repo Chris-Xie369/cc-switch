@@ -1601,3 +1601,31 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - 挂实测出的 `resolve_target` 现返回 `Option<String>`（评审修复 B1 后），#7785 嫁接处 `aggregate_override = upstream`（直接赋值，勿再包 `Some`）
 - 教训：① 链式 PR 冲突先解根、后继承，别独立解两遍；② 删冲突块用 del 顺序要倒序（先 end/mid/start 前要记住 start 标记删了 mid 会前移——本次块1/2 就是这么留残留的，编译器抓到 E0308 才发现）
 - `cc-switch-pr7785cf` worktree 已清（junction 先摘再 remove），两个 PR 分支保留
+- Task 2: complete (commit e7bdcdee，审查 Spec ✅ / Quality Approved，零 Critical/Important)
+  · resolve_codex_target（精确匹配+剥 [1m]+三层兜底）+ AppType 双门（ClaudeDesktop 分支逐字节不变，尾段抽 take_aggregate_route）+ 改写门放宽 + 双调用点防二次改写守卫；7 单测+2 e2e（原生透传改写与守卫均经变异式判别力核实）
+  · 三偏离均判定合理：新错误 key codex_aggregate.target_provider_missing（可诊断性）；+2 测试（缺目标/精确匹配锁死）；GrokBuild 调用点不加守卫（aggregate_override 在该路径恒 None 已独立验证）
+  · Minor 留档：① forwarder 改写 4 行在两臂间重复（外观）② mock 夹具第 6 份内联样板（既有模式）③ **传 Task 4：错误 key（target_provider_missing/default_target_slot_missing）若走 UI 需在 i18n 注册**
+  · 并行会话记录：3e01bd2b 为另一会话的账本快照（三 PR 链式合并冲突解决），docs-only 无交集
+
+## 2026-10-02 代理接管重投影合并语义修复（write_claude_live）：complete
+
+- 缺口：`sync_claude_live_from_provider_while_proxy_active`（proxy.rs）经 `write_claude_live` 整份覆盖 `~/.claude/settings.json`，丢 modelPicker/theme/statusLine 等非 owned 键——与 d6b7719f 已修的另两条路径（write_live_snapshot / sync_claude_live）语义不一致，接管重投影丢用户键为真实事故形态（2026-10-01 终审 Important #2）。
+- 改动（仅 proxy.rs + provider/mod.rs 测试断言）：`write_claude_live` 改为经 `merge_claude_settings_for_live` 的反向白名单合并（顶层只接管 env/apiKey；重投影为唯一合并调用点）；新增 `write_claude_live_verbatim`（整份覆盖），6 处必须精确写全文的调用点改绑——接管字段 RMW ×3（ManagedAccount 要删 OPENAI_API_KEY 等非 owned token 键，合并写删不掉会复发 #4919 双 key）、untakeover 备份恢复 ×2（恢复=整份回写快照）、占位符清理 ×1。§6.3「建议保持覆写」的边界论证落点：可合并的只有重投影一条，其余代理期写入的删除语义必须保真。
+- 测试（TempHome+#[serial]，cargo test --release）：新增 `sync_claude_live_while_proxy_active_preserves_user_owned_keys`（RED→GREEN 实证）+ `restore_live_config_writes_backup_verbatim`（pin：恢复路径不得被合并语义渗透）；翻转 2 个钉住旧覆盖语义的既有断言（hot_switch_provider_updates_claude_live… 与 update_current_claude_provider_syncs_live… 的 permissions 期望 → 用户领地保留文件现值）。
+- 验收：隔离 worktree（HEAD+仅本补丁）全量 `cargo test --release --lib` = 2971 passed / 10 failed / 10 ignored，失败名单与既有环境性基线逐条同集（model_pricing×5 / import_hermes / update_current_claude_desktop(10048) / codex_config+session_usage_grokbuild(symlink) / commands::misc）；`cargo fmt --all -- --check` 干净。主树合并态（叠加并行会话代码）4 个相关测试复跑全过。
+- 并行会话记录：同期另一会话在同工作区未提交 codex-aggregate 工作（aggregate.rs / live.rs / claude_desktop_config.rs），一度使主树编译不过、cargo 锁排队 26 分钟；本补丁与其无文件交集，已用 HEAD+单文件 worktree 隔离验证。改动备份 `write-claude-live-merge.patch`（workspace 根）；未提交，等用户裁决提交切分。
+
+## 2026-10-02 三 PR 第二轮 re-merge（上游自修 dead-code lint）
+
+- #7789 CI 2 挂（windows-latest / ubuntu）：clippy dead-code `CodexKeychainLogin::{Found,Missing}`
+  （`subscription.rs:657`，构造点只在 `#[cfg(test)]`）——**上游自身问题**：我 merge 的 main
+  （`1bc68e29`）早于上游的自修提交；上游 `67d1daa1 fix(subscription): silence non-macOS
+  dead-code lint` 随后落地且 CI 绿
+- 处理：链式 re-merge 最新 `upstream/main`（67d1daa1）——三分支**全部零冲突**：
+  #7785 `7c570940`（clippy ✓）→ #7786 `72373ab8`（check ✓）→ #7789 `37a199a4`（tsc 0 + 23 测试 ✓）
+- 三 PR 均 **MERGEABLE**
+- 过程教训：worktree 缺 node_modules junction 时 `tsc` 假绿（exit 0 但实际没编译）——
+  推送前必须确认 tsc 输出里没有 `npm install typescript` 提示
+- **并发注意事项**：另一会话正在本仓工作（`c0548269 model_picker TOCTOU 修复` + 两个未推送的
+  Codex 聚合提交 + 未提交的 provider/mod.rs、proxy.rs 修改）。本会话账本只 add 快照文件，
+  不碰他们的工作区。

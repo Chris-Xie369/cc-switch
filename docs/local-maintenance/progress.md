@@ -1629,3 +1629,35 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - **并发注意事项**：另一会话正在本仓工作（`c0548269 model_picker TOCTOU 修复` + 两个未推送的
   Codex 聚合提交 + 未提交的 provider/mod.rs、proxy.rs 修改）。本会话账本只 add 快照文件，
   不碰他们的工作区。
+- Task 3: complete (commits e728d388 + 71a68adb，修复复审 Approved)
+  · 合成 seed TOML（位置承重断言）+ auth 占位 + modelCatalog（槽位序/置顶/过滤）入 build_effective_provider 单一漏斗（preflight 共用）；TempHome 集成测试走真实 write 管线
+  · plan-mandated 裁量（tool profile：spec D2 NativeResponses vs 实现落 ProxyChat）→ 用户裁决「现在修」→ 修复走方案 (a)（合成快照钉 meta.api_format="openai_responses"，请求路径副作用经复审独立验证为零：chat/anthropic wire 判定均 false、快照不落盘不回写）；新测试钉键集（shell_type 在、freeform 四键不在），真 RED→GREEN
+  · 4 Minor 全修（死折叠、注释失实、model_provider 位置断言、common-config 覆写约束注释）
+  · ⚠️ 机器异常留档：claude_mcp.rs 曾现 1024 字节 0xFF 磁盘损坏且 git 状态盲区（stat 缓存陈旧），已从 HEAD blob 还原（sha256 52cdcc15d13a18ab 核验一致）——非本线所为，建议关注磁盘/AV
+  · 并行任务卡 task_a6d080f9 已入库：d79d91e3（write_claude_live 合并语义修复）+ 986396da（补丁 F 登记）
+- Task 4: complete (commits 57f2eb3e + c157d30b + 65bf19d3，复审 Approved)
+  · 六 Localized key 校验 + 正/反向禁嵌套 + 删除保护泛化（两键引用都查）；11 测试经 REDLIGHT 桩证拒例非空转
+  · 邻接改动（聚合空 settings_config 被 auth 必填拦 → 抽 validate_codex_direct_settings + 聚合短路）经复审四项核验通过（逐字提取/仅聚合短路/无旁路/删短路正例必红）
+  · 复审两 ⚠️ 升 Important 均按钉死规则判真缺口并修复（c157d30b）：① Claude 侧 default_target ProviderId 补入删除保护/反向嵌套（claude_routes_reference + 共享 fallback_provider_id）② trim 错位修消费侧（resolve_codex_target 双侧 trim，不改存储）+ 正向嵌套补扫兜底 ProviderId
+  · Minor：65bf19d3 修测试保真度（padded-SlotId 回归两侧同垫边对全量回退无判别力 → 错位垫边，9/9 绿）；provider_id 引用比较仍未 trim（保存+查找两侧联动，留档超范围）
+- Task 5: complete (commit 07cd673f，审查 Approved)
+  · 扁平行编辑器（CodexAggregateFields）+ types + i18n 19 键（zh/en）+ ProviderForm 接线；16 新测试 + Claude 聚合 25 零回归；typecheck/prettier 干净
+  · 邻接越界（ProviderForm.tsx +114，超出简报 stage 清单）经裁量判定**必要**：meta 组装在 performSubmit，不接线即死 UI；非聚合/非 Codex 提交路径逐字节不变（纯新增 if 分支，无既有行改写）
+  · 两条 i18n 键省略判为正当（notSaveable 与「前端不硬拦」契约矛盾；modeLockedHint 为 Claude 专有假信息）
+  · Minor 留档（终审 triage）：① useProvidersQuery("codex") 对所有 app 无条件发起（可加 enabled 门）② 兜底目标 slot 项未按 model 去重（可辨识性）③ 编辑态 slot 可能带 label:undefined 键（提交时剔除）
+- Task 6: complete (全量验证通过)
+  · cargo test --release --lib --no-fail-fast：2994 passed / 10 failed / 10 ignored——失败名单与基线逐条同集（零新增）
+  · vitest 全量 1228 过 / 5 失败（2 文件：App + PiProviderForm）——两文件隔离单跑 9/9、46/46 全过 → 既知并发抖动对，零新增（按名单不看数字的纪律裁决）
+  · pnpm typecheck 干净；cargo fmt --check 0
+  · 五个真实文件（3P profile / ~/.claude/settings.json / ~/.codex 三件）测试前后 md5 完全一致
+- Task 7: 构建部署完成（验收待用户）——构建 18:07 产物 10,236,596B；exe md5 31217535 双向一致；pubkey 0；前端资源 index-C30x-1bJ.js 命中 1（Task 5 新包）；后端标记 cc-switch-aggregate=1、cli_model_picker_generated=1
+  · 首次校验 ASSET 误用相对路径致空转（grep -c "" 报 144365）——已用正确路径重验命中 1，记录避免重蹈
+
+## 2026-10-02 Codex 聚合终审（whole-feature，fable）：With fixes
+- 范围 c7e70fc6..07cd673f（8 提交）；越界 5 提交零有害交互（write_claude_live 改动全在 Claude 写路径、与 Codex live 写入不共享函数族）
+- 终审 Strengths：单合成漏斗结构性保证（四写入口共用、预检一致、DB 行保持空）；形状逐缝对齐（slot.model 三职合一、defaultTarget 三处逐字、label trim 同款）；删除保护/禁嵌套超 spec（双键∪兜底 ProviderId∪正反向）；NativeResponses 钉的是落盘键集
+- Important ×3（修复代理进行中）：① Chat 转换臂防二次改写守卫无测试（唯一变异存活缝，Chat 恰是最常见网关形态）→ 镜像 e2e ② 聚合卡开放普通配置面而合成静默吞（commonConfigEnabled 可点但丢弃；live.rs 辩解注释前提失实；软校验无聚合豁免）→ 表单收口+注释修正+豁免 ③ 出站模型名不 trim（贴尾空格整槽 400）→ 一行修 + load_codex_provider 入参同修
+- Minor 留档 ×10 全部维持（含「错误 key 不注册 locale」判非问题：Localized 序列化即文案、key 不过 IPC）
+- 终审门槛：修复落地 + Task 7 手动验收（Codex CLI /model 出槽位、逐槽归属、chat/anthropic 各验一槽）
+- 真实机器验收（2026-10-02 晚，71a68adb 安装版）：开本地路由→3 次热切换供应商→关路由。热切换态三次对照基线 **lost/added/changed 全 ∅**（10 个用户键逐字节存活，env 稳定占位形态）——补丁 F 重投影合并路径在真实数据上成立；接管激活/关闭的 verbatim 写与恢复路径亦符合预期。取证存档 `%LOCALAPPDATA%\Temp\cc-switch-switch-verify\`。
+- 验收中暴露**先于补丁 F 的独立缺口**：每次热切换 `update_live_backup_from_provider` 把恢复源备份替换成供应商投影（回填陈旧副本），关接管整份恢复后用户领地回退（丢 theme/includeCoAuthoredBy，model/modelSettings/enabledPlugins/statusLine 换成回填值，多出回填 hooks）。属既有「备份跟随供应商」设计（测试钉死、补丁 F 任务明示不动），**未改**；用户的 10 个领地键已手工恢复原值，回退态留证 state-4-rolledback-by-restore.json。后续可选：备份更新改为「供应商投影 + 既有备份的领地键合并」，需同步改 switch_proxy_target_updates_live_backup_when_taken_over 等钉住测试。

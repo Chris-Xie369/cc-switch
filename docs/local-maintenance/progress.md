@@ -1681,3 +1681,6 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   · 数据迁移（脚本先验证固定点 15/15 后写入；DB meta + profile inferenceModels + modelPicker + 存证四处同步改名；备份 .bak-cliid-20261003-071503）
   · 重建部署（aba93bcb 双向一致、pubkey 0、前端 index-Yf39Ux1v.js 命中 1、网关 200）；终验：三方集合一致 + defaultModel 置顶序一致；新 ID 探针无「目录未描述」警告
   · 已知代价：Desktop/CLI 记住的 claude-sonnet-4 / claude-fable-5 旧选择一次性失效回落（重选恢复）；重启 Claude Desktop 与 CLI 会话后 /model 应见 15/15
+- B 最终验收：**通过（2026-10-03）**——用户贴出 CLI /model：15/15 聚合行全显、置顶与分组序逐行吻合、改名两行（sonnet-3/fable-6）归位。B（CLI 聚合）三段闭环（代码+部署+验收）完成。
+  · 本会话旧模型 claude-fable-5[1m] 已悬空→落兜底 space-bunny（同供应商不断流）；回 mimo-pro 用 /model claude-fable-6[1m]
+  · 剩：Codex 聚合实机验收（建卡→Codex CLI /model→逐槽归属→chat/anthropic 各验一槽）

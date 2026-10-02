@@ -104,6 +104,7 @@ pub struct CodexAggregateSlot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn slot(route_id: &str, upstream_model: &str) -> AggregateRouteSlot {
         AggregateRouteSlot {
@@ -960,6 +961,292 @@ mod tests {
             assert_eq!(upstream, None, "{requested}");
         }
     }
+
+    /// 合成用的三槽路由表：默认模型 = 第 3 槽（与 Claude 侧用例同款构造）。
+    fn codex_synthesis_routes() -> CodexAggregateRoutes {
+        CodexAggregateRoutes {
+            slots: vec![
+                codex_slot("gpt-5.1", "p-kimi", "kimi-k2"),
+                codex_slot("glm-5.3", "p-zhipu", "glm-5.3"),
+                codex_slot("kimi-k3", "p-ark", "kimi-k3-instruct"),
+            ],
+            default_target: DefaultTarget::ProviderId("p-kimi".into()),
+            default_model: Some("kimi-k3".into()),
+        }
+    }
+
+    #[test]
+    fn codex_aggregate_seed_toml_places_fields_correctly() {
+        let routes = codex_synthesis_routes();
+        let settings = synthesize_codex_aggregate_settings(&routes, "http://127.0.0.1:15721")
+            .expect("settings");
+        let config = settings["config"]
+            .as_str()
+            .expect("config is a TOML string");
+        let header = config
+            .find("[model_providers.cc-switch-aggregate]")
+            .expect("seed provider table");
+
+        // 顶层字段必须在表头之前：Codex CLI 只在文档根部读它们，写进表里等于没写
+        let model_line = config
+            .find("model = \"kimi-k3\"")
+            .expect("top-level model line");
+        assert!(model_line < header, "顶层 model 必须在表头之前:\n{config}");
+        let disable_storage = config
+            .find("disable_response_storage = true")
+            .expect("top-level disable_response_storage");
+        assert!(
+            disable_storage < header,
+            "顶层 disable_response_storage 必须在表头之前:\n{config}"
+        );
+
+        // 表内字段必须在表头之后
+        for inside in [
+            "base_url = \"http://127.0.0.1:15721\"",
+            "wire_api = \"responses\"",
+            "name = \"cc-switch Aggregate\"",
+            "requires_openai_auth = true",
+        ] {
+            let at = config
+                .find(inside)
+                .unwrap_or_else(|| panic!("缺少 {inside}:\n{config}"));
+            assert!(at > header, "{inside} 必须写在表内:\n{config}");
+        }
+
+        // base_url 是代理 origin 根（无 /claude-desktop 尾巴）：/v1/responses 挂在根路由
+        assert!(config.contains("model_provider = \"cc-switch-aggregate\""));
+        assert!(!config.contains("/claude-desktop"));
+        // 顶层 model 取 defaultModel 命中的槽位
+        assert!(!config.contains("model = \"gpt-5.1\""));
+
+        assert_eq!(settings["auth"]["OPENAI_API_KEY"], json!("PROXY_MANAGED"));
+        assert_eq!(
+            settings["modelCatalog"]["models"]
+                .as_array()
+                .expect("catalog models")
+                .len(),
+            3
+        );
+    }
+
+    #[test]
+    fn codex_aggregate_seed_toml_falls_back_to_first_slot_model() {
+        // defaultModel 缺失/悬空 → 顶层 model 取槽位序首位（与 Claude 侧同款）
+        let mut routes = codex_synthesis_routes();
+        routes.default_model = None;
+        let settings = synthesize_codex_aggregate_settings(&routes, "http://127.0.0.1:15721")
+            .expect("settings");
+        assert!(settings["config"]
+            .as_str()
+            .expect("config")
+            .contains("model = \"gpt-5.1\""));
+
+        routes.default_model = Some("gpt-missing".into());
+        let dangling = synthesize_codex_aggregate_settings(&routes, "http://127.0.0.1:15721")
+            .expect("dangling default must not error");
+        assert!(dangling["config"]
+            .as_str()
+            .expect("config")
+            .contains("model = \"gpt-5.1\""));
+    }
+
+    #[test]
+    fn codex_aggregate_catalog_preserves_slot_order_and_pins_default() {
+        let routes = codex_synthesis_routes();
+        let catalog = codex_aggregate_model_catalog(&routes);
+
+        let slugs: Vec<&str> = catalog
+            .iter()
+            .map(|entry| entry["model"].as_str().expect("model slug"))
+            .collect();
+        assert_eq!(
+            slugs,
+            vec!["kimi-k3", "gpt-5.1", "glm-5.3"],
+            "defaultModel 命中的槽位置顶，其余保持槽位序"
+        );
+        // 无 label 的槽不写 displayName 键（回填/保存时靠它区分「用户留空」与「显式清空」）
+        assert!(catalog[1].get("displayName").is_none());
+    }
+
+    #[test]
+    fn codex_aggregate_catalog_keeps_non_empty_label_as_display_name() {
+        let mut routes = codex_synthesis_routes();
+        routes.slots[0].label = Some("  Kimi K2 (Moonshot)  ".to_string());
+        routes.slots[1].label = Some("   ".to_string());
+
+        let catalog = codex_aggregate_model_catalog(&routes);
+        // defaultModel 命中置顶，按 model 查条目（槽位下标与目录下标不一致）
+        let entry = |model: &str| {
+            catalog
+                .iter()
+                .find(|entry| entry["model"].as_str() == Some(model))
+                .unwrap_or_else(|| panic!("catalog 缺少 {model}"))
+        };
+        assert_eq!(entry("gpt-5.1")["displayName"], json!("Kimi K2 (Moonshot)"));
+        assert!(
+            entry("glm-5.3").get("displayName").is_none(),
+            "纯空白 label 视同留空"
+        );
+    }
+
+    #[test]
+    fn codex_aggregate_synthesis_skips_half_finished_slots() {
+        // 半成品槽位（模型名/上游模型留空 = 用户正编辑中）必须跳过，不得产出会让
+        // Codex 拿到空 model 的条目；与 Claude 侧 aggregate_model_routes 的
+        // trim+过滤同款。
+        let routes = CodexAggregateRoutes {
+            slots: vec![
+                codex_slot("  ", "p-kimi", "kimi-k2"),
+                codex_slot("glm-5.3", "p-zhipu", "   "),
+                codex_slot("kimi-k3", "p-ark", "kimi-k3-instruct"),
+            ],
+            default_target: DefaultTarget::ProviderId("p-kimi".into()),
+            default_model: Some("glm-5.3".into()),
+        };
+
+        let catalog = codex_aggregate_model_catalog(&routes);
+        let slugs: Vec<&str> = catalog
+            .iter()
+            .map(|entry| entry["model"].as_str().expect("model slug"))
+            .collect();
+        assert_eq!(slugs, vec!["kimi-k3"]);
+
+        // 被过滤掉的 defaultModel 不得留下悬空顶层 model
+        let settings = synthesize_codex_aggregate_settings(&routes, "http://127.0.0.1:15721")
+            .expect("settings");
+        assert!(settings["config"]
+            .as_str()
+            .expect("config")
+            .contains("model = \"kimi-k3\""));
+    }
+
+    #[test]
+    fn codex_aggregate_synthesis_errors_when_all_slots_are_unusable() {
+        // 全部槽位不可用 → 明确报错（而不是安静地写出没有模型的空目录）
+        let routes = CodexAggregateRoutes {
+            slots: vec![codex_slot(" ", "p-kimi", " ")],
+            default_target: DefaultTarget::ProviderId("p-kimi".into()),
+            default_model: None,
+        };
+
+        let err = synthesize_codex_aggregate_settings(&routes, "http://127.0.0.1:15721")
+            .expect_err("all slots unusable must error");
+        assert_eq!(localized_key(&err), "codex_aggregate.routes_empty");
+    }
+}
+
+/// seed `config.toml` 里的 provider 表 id。Codex CLI 读它作为 `model_provider`
+/// 的取值；刻意不用 `custom` 等通用名，避免与用户自己手写的同名表相撞。
+pub const CODEX_AGGREGATE_PROVIDER_ID: &str = "cc-switch-aggregate";
+/// seed `config.toml` 里的表显示名。
+const CODEX_AGGREGATE_PROVIDER_NAME: &str = "cc-switch Aggregate";
+/// auth 占位值：聚合自身无凭据，真实 token 由本地代理按目标供应商注入。
+/// 与代理接管写入的占位字面量一致（codex_config::CODEX_PROXY_AUTH_PLACEHOLDER
+/// 同值，但那是私有常量，这里只能按字面量写——见全局约束「字面量逐字」）。
+const CODEX_AGGREGATE_AUTH_PLACEHOLDER: &str = "PROXY_MANAGED";
+
+/// 从 Codex 聚合路由表派生客户端可见的模型条目（`[{model, displayName?}]`）。
+/// - 半成品槽位（模型名或上游模型留空 = 用户正编辑）跳过，与 Claude 侧
+///   `aggregate_model_routes` 的 trim+过滤同款。
+/// - `defaultModel` 命中则该槽位置顶——Codex CLI 的默认模型取目录第一条。
+/// - `label` trim 后非空才写 `displayName`，留空时回落到 slug。
+///
+/// 落盘成 `models_cache.json` 形状是既有管线（`write_codex_provider_live_with_catalog`
+/// → `prepare_codex_config_text_with_model_catalog`）的职责，这里只产出 settings 级形状。
+pub fn codex_aggregate_model_catalog(routes: &CodexAggregateRoutes) -> Vec<serde_json::Value> {
+    let mut out: Vec<serde_json::Value> = Vec::with_capacity(routes.slots.len());
+    for slot in &routes.slots {
+        let model = slot.model.trim();
+        if model.is_empty() || slot.upstream_model.trim().is_empty() {
+            continue;
+        }
+        let mut entry = serde_json::Map::new();
+        entry.insert(
+            "model".to_string(),
+            serde_json::Value::String(model.to_string()),
+        );
+        if let Some(label) = slot
+            .label
+            .as_deref()
+            .map(str::trim)
+            .filter(|label| !label.is_empty())
+        {
+            entry.insert(
+                "displayName".to_string(),
+                serde_json::Value::String(label.to_string()),
+            );
+        }
+        out.push(serde_json::Value::Object(entry));
+    }
+
+    // 默认模型置顶；引用悬空（槽已删/改名）时静默忽略、保持原序。
+    if let Some(default_model) = routes.default_model.as_deref().map(str::trim) {
+        if !default_model.is_empty() {
+            if let Some(pos) = out
+                .iter()
+                .position(|entry| entry["model"].as_str() == Some(default_model))
+            {
+                let pinned = out.remove(pos);
+                out.insert(0, pinned);
+            }
+        }
+    }
+
+    out
+}
+
+/// 由 Codex 聚合路由表合成写 live 用的有效配置（`{auth, config, modelCatalog}`）。
+///
+/// 聚合供应商按设计无端点无凭据（`settings_config` 是空对象），而 Codex live 写入
+/// 要求 `auth` 是 JSON 对象、`config` 是 TOML 字符串——本函数在**有效快照**里满足
+/// 这两个校验，DB 行保持空（与 Claude Desktop 聚合的「无端点无凭据」一致）。
+///
+/// `proxy_origin` 是代理 origin **根**（`http://127.0.0.1:15721`），由运行期代理
+/// 配置派生、不硬编码；Codex 的 `/v1/responses` 挂在根路由上，因此不带
+/// `/claude-desktop` 这类应用前缀（那串前缀只属于 Claude Desktop 网关）。
+///
+/// seed 的字段位置是承重的：Codex CLI 只在文档根部读 `model` / `model_provider` /
+/// `disable_response_storage`，写进 `[model_providers.*]` 表里等于没写。
+pub fn synthesize_codex_aggregate_settings(
+    routes: &CodexAggregateRoutes,
+    proxy_origin: &str,
+) -> Result<serde_json::Value, AppError> {
+    let catalog = codex_aggregate_model_catalog(routes);
+    let Some(default_entry) = catalog.first() else {
+        return Err(AppError::localized(
+            "codex_aggregate.routes_empty",
+            "Codex 聚合供应商的路由表至少需要一个可用的模型槽位",
+            "Codex aggregate provider requires at least one usable model route slot",
+        ));
+    };
+    let default_model = default_entry["model"]
+        .as_str()
+        .ok_or_else(|| {
+            AppError::localized(
+                "codex_aggregate.routes_empty",
+                "Codex 聚合供应商的路由表至少需要一个可用的模型槽位",
+                "Codex aggregate provider requires at least one usable model route slot",
+            )
+        })?
+        .to_string();
+
+    let config = format!(
+        "model = \"{default_model}\"\n\
+         model_provider = \"{CODEX_AGGREGATE_PROVIDER_ID}\"\n\
+         disable_response_storage = true\n\
+         \n\
+         [model_providers.{CODEX_AGGREGATE_PROVIDER_ID}]\n\
+         name = \"{CODEX_AGGREGATE_PROVIDER_NAME}\"\n\
+         requires_openai_auth = true\n\
+         base_url = \"{proxy_origin}\"\n\
+         wire_api = \"responses\"\n"
+    );
+
+    Ok(serde_json::json!({
+        "auth": { "OPENAI_API_KEY": CODEX_AGGREGATE_AUTH_PLACEHOLDER },
+        "config": config,
+        "modelCatalog": { "models": catalog },
+    }))
 }
 
 /// 该供应商是否为聚合供应商。

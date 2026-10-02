@@ -878,9 +878,50 @@ pub(crate) fn build_effective_provider_for_live_with_codex_oauth_manager(
     let mut effective_provider = provider.clone();
     effective_provider.settings_config =
         build_effective_settings_with_common_config(db, app_type, provider)?;
+    apply_codex_aggregate_seed(app_type, db, &mut effective_provider)?;
     apply_codex_official_auth(app_type, &mut effective_provider, Some(codex_oauth_manager))?;
     neutralize_codex_proxy_oauth_fallback(app_type, &mut effective_provider);
     Ok(effective_provider)
+}
+
+/// Codex 聚合供应商的 live 写入快照：用合成配置顶掉它那个空的 `settings_config`。
+///
+/// 聚合卡片无端点无凭据（DB 行保持空对象），而 Codex 的 live 写入要求
+/// `auth` 是 JSON 对象、`config` 是 TOML 字符串，`config.toml` 里还必须有
+/// 一张指向本地代理的 `[model_providers.*]` 表。合成在**有效快照**里做，
+/// 永不写回 DB——与 Claude Desktop 聚合的「无端点无凭据」同款约束。
+///
+/// 必须在 `apply_codex_official_auth` / `neutralize_codex_proxy_oauth_fallback`
+/// 之前跑：那两步只认具体卡片的形状，seed 必须在它们的判据之前就位。
+fn apply_codex_aggregate_seed(
+    app_type: &AppType,
+    db: &Database,
+    provider: &mut Provider,
+) -> Result<(), AppError> {
+    if !matches!(app_type, AppType::Codex)
+        || !crate::aggregate::is_codex_aggregate_provider(provider)
+    {
+        return Ok(());
+    }
+
+    // seed 的 base_url 指向代理 origin 根（`/v1/responses` 挂在根路由），地址从运行期
+    // 代理配置派生；端口 0 意味着代理还没起或用了随机端口，写进去的 live 配置
+    // Codex 一定连不上，直接报错让用户先启动代理。
+    let proxy_config = futures::executor::block_on(db.get_proxy_config())?;
+    if proxy_config.listen_port == 0 {
+        return Err(AppError::Config(
+            "Codex 聚合需要真实监听端口的本地代理；请先启动本地代理或使用固定端口".to_string(),
+        ));
+    }
+    let origin = crate::claude_desktop_config::proxy_origin_from_parts(
+        &proxy_config.listen_address,
+        proxy_config.listen_port,
+    );
+
+    let routes = crate::aggregate::codex_routes_of(provider)?.clone();
+    provider.settings_config =
+        crate::aggregate::synthesize_codex_aggregate_settings(&routes, &origin)?;
+    Ok(())
 }
 
 /// Proxy-managed OAuth cards (xai_oauth, github_copilot, …) are keyless by
@@ -2518,6 +2559,9 @@ mod tests {
     use super::*;
     use crate::provider::{AuthBinding, AuthBindingSource, ProviderMeta};
     use serde_json::json;
+    use serial_test::serial;
+    use std::env;
+    use tempfile::TempDir;
 
     #[test]
     fn proxy_oauth_codex_snapshot_neutralizes_official_auth_fallback() {
@@ -3758,5 +3802,212 @@ base_url = "https://a.example/v1"
         let merged = merge_claude_settings_for_live(&existing, &provider);
         assert!(merged["env"].get("ANTHROPIC_AUTH_TOKEN").is_none());
         assert_eq!(merged["env"]["MY_CUSTOM_KEY"], json!("keep-me"));
+    }
+
+    /// 把 HOME/USERPROFILE/LOCALAPPDATA/CC_SWITCH_TEST_HOME 全部钉到临时目录：
+    /// `write_live_with_common_config_for_codex_oauth_manager` 走真实
+    /// `~/.codex/*` 写入路径，测试必须整体搬家（2026-09-22 事故口径）。
+    struct TempHome {
+        #[allow(dead_code)]
+        dir: TempDir,
+        original_home: Option<String>,
+        #[cfg(windows)]
+        original_local_app_data: Option<String>,
+        original_userprofile: Option<String>,
+        original_test_home: Option<String>,
+        #[cfg(target_os = "linux")]
+        original_xdg_config_home: Option<std::ffi::OsString>,
+    }
+
+    impl TempHome {
+        fn new() -> Self {
+            let dir = TempDir::new().expect("failed to create temp home");
+            let original_home = env::var("HOME").ok();
+            #[cfg(windows)]
+            let original_local_app_data = env::var("LOCALAPPDATA").ok();
+            let original_userprofile = env::var("USERPROFILE").ok();
+            let original_test_home = env::var("CC_SWITCH_TEST_HOME").ok();
+            #[cfg(target_os = "linux")]
+            let original_xdg_config_home = env::var_os("XDG_CONFIG_HOME");
+
+            env::set_var("HOME", dir.path());
+            #[cfg(windows)]
+            env::set_var("LOCALAPPDATA", dir.path().join("AppData").join("Local"));
+            env::set_var("USERPROFILE", dir.path());
+            env::set_var("CC_SWITCH_TEST_HOME", dir.path());
+            #[cfg(target_os = "linux")]
+            env::remove_var("XDG_CONFIG_HOME");
+            // `get_codex_override_dir` 读的是 settings store 的缓存值，必须一并重载
+            crate::settings::reload_settings().expect("reload settings for isolated test home");
+
+            Self {
+                dir,
+                original_home,
+                #[cfg(windows)]
+                original_local_app_data,
+                original_userprofile,
+                original_test_home,
+                #[cfg(target_os = "linux")]
+                original_xdg_config_home,
+            }
+        }
+    }
+
+    impl Drop for TempHome {
+        fn drop(&mut self) {
+            match &self.original_home {
+                Some(value) => env::set_var("HOME", value),
+                None => env::remove_var("HOME"),
+            }
+            #[cfg(windows)]
+            {
+                match &self.original_local_app_data {
+                    Some(value) => env::set_var("LOCALAPPDATA", value),
+                    None => env::remove_var("LOCALAPPDATA"),
+                }
+            }
+            match &self.original_userprofile {
+                Some(value) => env::set_var("USERPROFILE", value),
+                None => env::remove_var("USERPROFILE"),
+            }
+            match &self.original_test_home {
+                Some(value) => env::set_var("CC_SWITCH_TEST_HOME", value),
+                None => env::remove_var("CC_SWITCH_TEST_HOME"),
+            }
+            #[cfg(target_os = "linux")]
+            {
+                match &self.original_xdg_config_home {
+                    Some(value) => env::set_var("XDG_CONFIG_HOME", value),
+                    None => env::remove_var("XDG_CONFIG_HOME"),
+                }
+            }
+            let _ = crate::settings::reload_settings();
+        }
+    }
+
+    fn codex_aggregate_card() -> Provider {
+        // 聚合卡片按设计无端点无凭据：settings_config 是空对象，seed 只存在于
+        // 写 live 的有效快照里。
+        let mut provider = Provider::with_id(
+            "agg-codex".to_string(),
+            "Codex Aggregate".to_string(),
+            json!({}),
+            None,
+        );
+        provider.meta = Some(ProviderMeta {
+            codex_aggregate_routes: Some(crate::aggregate::CodexAggregateRoutes {
+                slots: vec![
+                    crate::aggregate::CodexAggregateSlot {
+                        model: "gpt-5.1".to_string(),
+                        provider_id: "p-kimi".to_string(),
+                        upstream_model: "kimi-k2".to_string(),
+                        label: None,
+                    },
+                    crate::aggregate::CodexAggregateSlot {
+                        model: "glm-5.3".to_string(),
+                        provider_id: "p-zhipu".to_string(),
+                        upstream_model: "glm-5.3".to_string(),
+                        label: None,
+                    },
+                ],
+                default_target: crate::aggregate::DefaultTarget::ProviderId("p-kimi".to_string()),
+                default_model: Some("glm-5.3".to_string()),
+            }),
+            ..Default::default()
+        });
+        provider
+    }
+
+    #[test]
+    #[serial]
+    fn codex_aggregate_effective_settings_synthesize_seed_and_catalog_for_live() {
+        let _home = TempHome::new();
+        let db = Database::memory().expect("create memory db");
+        // 端口取一个非默认值：合成必须从运行期代理配置派生 origin，不得硬编码 15721
+        futures::executor::block_on(db.update_proxy_config(crate::proxy::types::ProxyConfig {
+            listen_port: 15999,
+            ..Default::default()
+        }))
+        .expect("update proxy config");
+        let codex_oauth_manager = Arc::new(CodexOAuthManager::new(
+            std::env::temp_dir().join("cc-switch-task3-oauth"),
+        ));
+        let provider = codex_aggregate_card();
+
+        write_live_with_common_config_for_codex_oauth_manager(
+            &db,
+            &AppType::Codex,
+            &provider,
+            &codex_oauth_manager,
+        )
+        .expect("aggregate live write must pass sync_codex_live validation");
+
+        let config = std::fs::read_to_string(crate::codex_config::get_codex_config_path())
+            .expect("read written config.toml");
+        let header = config
+            .find("[model_providers.cc-switch-aggregate]")
+            .expect("seed provider table in written config.toml");
+        assert!(
+            config.find("model = \"glm-5.3\"").expect("top-level model") < header,
+            "顶层 model 必须写在表头之前:\n{config}"
+        );
+        assert!(
+            config
+                .find("base_url = \"http://127.0.0.1:15999\"")
+                .expect("proxy origin from runtime config")
+                > header
+        );
+        assert!(config.contains("wire_api = \"responses\""));
+        assert!(config.contains("model_provider = \"cc-switch-aggregate\""));
+
+        // 客户端可见的模型列表走既有 catalog 落盘管线：slug 集合 == 槽位 model 集合
+        let catalog = std::fs::read_to_string(crate::codex_config::get_codex_model_catalog_path())
+            .expect("read generated model catalog");
+        let catalog: Value = serde_json::from_str(&catalog).expect("parse generated catalog");
+        let mut slugs: Vec<&str> = catalog["models"]
+            .as_array()
+            .expect("catalog models")
+            .iter()
+            .map(|entry| entry["slug"].as_str().expect("catalog slug"))
+            .collect();
+        slugs.sort_unstable();
+        assert_eq!(slugs, vec!["glm-5.3", "gpt-5.1"]);
+        assert!(config.contains("model_catalog_json"));
+    }
+
+    #[test]
+    #[serial]
+    fn codex_aggregate_live_write_is_rejected_when_no_slot_is_usable() {
+        let _home = TempHome::new();
+        let db = Database::memory().expect("create memory db");
+        let codex_oauth_manager = Arc::new(CodexOAuthManager::new(
+            std::env::temp_dir().join("cc-switch-task3-oauth"),
+        ));
+        let mut provider = codex_aggregate_card();
+        provider.meta.as_mut().unwrap().codex_aggregate_routes =
+            Some(crate::aggregate::CodexAggregateRoutes {
+                slots: vec![crate::aggregate::CodexAggregateSlot {
+                    model: "  ".to_string(),
+                    provider_id: "p-kimi".to_string(),
+                    upstream_model: " ".to_string(),
+                    label: None,
+                }],
+                default_target: crate::aggregate::DefaultTarget::ProviderId("p-kimi".to_string()),
+                default_model: None,
+            });
+
+        let err = write_live_with_common_config_for_codex_oauth_manager(
+            &db,
+            &AppType::Codex,
+            &provider,
+            &codex_oauth_manager,
+        )
+        .expect_err("a route table with no usable slot must not write live");
+        let key = match &err {
+            AppError::Localized { key, .. } => *key,
+            other => panic!("expected a localized error, got: {other}"),
+        };
+        assert_eq!(key, "codex_aggregate.routes_empty");
+        assert!(!crate::codex_config::get_codex_config_path().exists());
     }
 }

@@ -3322,5 +3322,27 @@
     "addAliasRule": "Add rule",
     "removeAliasRule": "Remove rule",
     "aliasTip": "An overly broad prefix (e.g. claude-) swallows every unmatched name; mind the scope"
+  },
+  "codexAggregate": {
+    "enable": "Enable aggregate routing",
+    "title": "Aggregate provider",
+    "hint": "Holds no endpoint or key; routes requests to other providers by model.",
+    "model": "Model",
+    "modelPlaceholder": "Client model name",
+    "targetProvider": "Target provider",
+    "targetProviderPlaceholder": "Pick a provider",
+    "upstreamModel": "Upstream model",
+    "upstreamModelPlaceholder": "Upstream model name",
+    "displayName": "Display name",
+    "addSlot": "Add model",
+    "removeSlot": "Remove this model",
+    "fetchModels": "Fetch model list",
+    "emptyState": "No slots yet — use “Add model” below to start.",
+    "defaultTarget": "Fallback target",
+    "defaultTargetHint": "Requests matching no slot go here",
+    "defaultTargetPlaceholder": "Required: unmatched requests fall back here",
+    "defaultModel": "Default model",
+    "defaultModelHint": "The model Codex CLI starts on; defaults to the first slot",
+    "defaultModelPlaceholder": "Unset: follow the first slot"
   }
 }

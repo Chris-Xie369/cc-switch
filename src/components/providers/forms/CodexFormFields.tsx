@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { FormLabel } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
   Select,
@@ -52,13 +53,16 @@ import {
 } from "@/lib/api/model-fetch";
 import { CustomUserAgentField } from "./CustomUserAgentField";
 import { LocalProxyRequestOverridesField } from "./LocalProxyRequestOverridesField";
+import { CodexAggregateFields } from "./CodexAggregateFields";
 import { cn } from "@/lib/utils";
 import type {
   ClaudeApiKeyField,
+  CodexAggregateRoutes,
   CodexApiFormat,
   CodexCatalogModel,
   CodexChatReasoning,
   PromptCacheRoutingMode,
+  Provider,
   ProviderCategory,
 } from "@/types";
 import type { ManagedAuthProvider } from "@/lib/api";
@@ -135,6 +139,21 @@ interface CodexFormFieldsProps {
   // Model Catalog
   catalogModels?: CodexCatalogModel[];
   onCatalogModelsChange?: (models: CodexCatalogModel[]) => void;
+
+  // Codex 聚合路由表（扁平槽位编辑器）。传 undefined 时不渲染任何聚合 UI，
+  // 普通 Codex 供应商与 Grok Build 的行为完全不变。
+  codexAggregateRoutes?: CodexAggregateRoutes;
+  /** 传 undefined = 关闭聚合（父组件据此 delete meta.codexAggregateRoutes） */
+  onCodexAggregateRoutesChange?: (
+    routes: CodexAggregateRoutes | undefined,
+  ) => void;
+  /** 聚合槽位可指向的目标：同 app 下的常规供应商，排除聚合供应商（禁嵌套）、
+   *  正在编辑的自身（禁自引用）与官方供应商（1P 无网关凭据） */
+  codexAggregateCandidates?: Provider[];
+  /** 目标供应商已拉取到的模型列表，按供应商 id 缓存 */
+  codexAggregateModelsByProvider?: Record<string, FetchedModel[]>;
+  onCodexAggregateFetchModels?: (provider: Provider) => void;
+  fetchingCodexAggregateProviderId?: string | null;
 
   // Speed Test Endpoints
   speedTestEndpoints: EndpointCandidate[];
@@ -417,6 +436,12 @@ export function CodexFormFields({
   onPromptCacheRoutingChange,
   catalogModels = [],
   onCatalogModelsChange,
+  codexAggregateRoutes,
+  onCodexAggregateRoutesChange,
+  codexAggregateCandidates = [],
+  codexAggregateModelsByProvider,
+  onCodexAggregateFetchModels,
+  fetchingCodexAggregateProviderId = null,
   speedTestEndpoints,
   customUserAgent,
   onCustomUserAgentChange,
@@ -719,6 +744,51 @@ export function CodexFormFields({
 
   return (
     <>
+      {/* 聚合路由开关（Grok Build 与官方卡片不参与；未传受控回调时不渲染）。
+          放在表单最顶部——与 Claude Desktop 表单同款位置。 */}
+      {appId === "codex" &&
+        category !== "official" &&
+        onCodexAggregateRoutesChange && (
+          <>
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-border-default p-3">
+              <Label htmlFor="codex-aggregate" className="text-sm font-medium">
+                {t("codexAggregate.enable", {
+                  defaultValue: "启用聚合路由",
+                })}
+              </Label>
+              <Switch
+                id="codex-aggregate"
+                checked={codexAggregateRoutes !== undefined}
+                onCheckedChange={(checked) =>
+                  onCodexAggregateRoutesChange(
+                    checked
+                      ? {
+                          slots: [],
+                          defaultTarget: { kind: "providerId", value: "" },
+                        }
+                      : undefined,
+                  )
+                }
+              />
+            </div>
+
+            {codexAggregateRoutes && (
+              <CodexAggregateFields
+                value={codexAggregateRoutes}
+                onChange={onCodexAggregateRoutesChange}
+                candidates={codexAggregateCandidates}
+                modelsForProvider={(providerId) =>
+                  codexAggregateModelsByProvider?.[providerId] ?? []
+                }
+                fetchingProviderId={fetchingCodexAggregateProviderId}
+                onFetchModels={(provider) =>
+                  onCodexAggregateFetchModels?.(provider)
+                }
+              />
+            )}
+          </>
+        )}
+
       {/* Codex OAuth 账号选择 */}
       {isCodexOauthPreset && (
         <CodexOAuthSection

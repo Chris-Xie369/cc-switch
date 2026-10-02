@@ -20,15 +20,24 @@ import {
 } from "@/lib/api";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import type {
+  Provider,
   ProviderCategory,
   ProviderMeta,
   ClaudeApiFormat,
+  CodexAggregateRoutes,
   CodexApiFormat,
   CodexCatalogModel,
   CodexChatReasoning,
   PromptCacheRoutingMode,
   ClaudeApiKeyField,
 } from "@/types";
+import type { FetchedModel } from "@/lib/api/model-fetch";
+import {
+  fetchModelsForConfig,
+  showFetchModelsError,
+} from "@/lib/api/model-fetch";
+import { useProvidersQuery } from "@/lib/query/queries";
+import { isAggregateProvider } from "@/utils/aggregateRoutes";
 import {
   providerPresets,
   type ProviderPreset,
@@ -70,6 +79,8 @@ import {
   setCodexWireApi,
   extractCodexModelName,
   setCodexModelName as setCodexModelNameInConfig,
+  extractCodexBaseUrl,
+  extractCodexExperimentalBearerToken,
 } from "@/utils/providerConfigUtils";
 import { isNonNegativeDecimalString } from "@/types/usage";
 import { getCodexCustomTemplate } from "@/config/codexTemplates";
@@ -434,6 +445,10 @@ function ProviderFormFull({
         initialData?.meta?.localProxyRequestOverrides?.body,
       ),
     );
+    // 切换编辑对象 / 预设时重载聚合表与它的模型缓存，否则会残留上一张卡片的草稿
+    setCodexAggregateRoutes(initialData?.meta?.codexAggregateRoutes);
+    setCodexAggregateModelsByProvider({});
+    setFetchingCodexAggregateProviderId(null);
   }, [appId, initialData, supportsFullUrl]);
 
   const defaultValues: ProviderFormData = useMemo(
@@ -653,6 +668,72 @@ function ProviderFormFull({
     handleCodexConfigChange: originalHandleCodexConfigChange,
     resetCodexConfig,
   } = useCodexConfigState({ initialData });
+
+  // Codex 聚合路由表：仅在「聚合供应商」开关打开时存在；关闭时置 undefined，
+  // 提交时据此删除 meta.codexAggregateRoutes（普通供应商 JSON 不变）。
+  const [codexAggregateRoutes, setCodexAggregateRoutes] = useState<
+    CodexAggregateRoutes | undefined
+  >(() => initialData?.meta?.codexAggregateRoutes);
+  // 目标供应商的模型列表，按供应商 id 缓存：同一供应商的多行共用一份，
+  // 增删行不会让缓存与行错位（Claude 侧聚合的既有教训）。
+  const [codexAggregateModelsByProvider, setCodexAggregateModelsByProvider] =
+    useState<Record<string, FetchedModel[]>>({});
+  const [
+    fetchingCodexAggregateProviderId,
+    setFetchingCodexAggregateProviderId,
+  ] = useState<string | null>(null);
+
+  const { data: codexProvidersData } = useProvidersQuery("codex");
+  // 聚合槽位可指向的目标：同 app 下的常规供应商，排除聚合供应商（禁嵌套，
+  // 后端亦拒绝）、正在编辑的自身（禁自引用）与官方供应商（1P 无网关凭据）。
+  const codexAggregateCandidates = useMemo<Provider[]>(
+    () =>
+      Object.values(codexProvidersData?.providers ?? {}).filter(
+        (provider) =>
+          provider.id !== providerId &&
+          !isAggregateProvider(provider) &&
+          !provider.meta?.codexAggregateRoutes &&
+          provider.category !== "official",
+      ),
+    [codexProvidersData?.providers, providerId],
+  );
+
+  // 聚合槽位按「目标供应商」拉取模型列表：凭据取自该供应商自身的
+  // settingsConfig（auth.OPENAI_API_KEY 或 TOML 里的 bearer token）。
+  // 聚合卡片自身没有端点，表单顶部的「获取模型列表」对它无从下手。
+  const handleFetchCodexAggregateModels = async (target: Provider) => {
+    const config =
+      typeof target.settingsConfig?.config === "string"
+        ? target.settingsConfig.config
+        : "";
+    const auth = target.settingsConfig?.auth as
+      | { OPENAI_API_KEY?: unknown }
+      | undefined;
+    const targetBaseUrl = (extractCodexBaseUrl(config) ?? "").trim();
+    const targetApiKey =
+      (typeof auth?.OPENAI_API_KEY === "string" && auth.OPENAI_API_KEY) ||
+      extractCodexExperimentalBearerToken(config) ||
+      "";
+
+    setFetchingCodexAggregateProviderId(target.id);
+    try {
+      const models = await fetchModelsForConfig(targetBaseUrl, targetApiKey);
+      setCodexAggregateModelsByProvider((current) => ({
+        ...current,
+        [target.id]: models,
+      }));
+      toast.success(
+        t("providerForm.fetchModelsSuccess", { count: models.length }),
+      );
+    } catch (err) {
+      showFetchModelsError(err, t, {
+        hasApiKey: !!targetApiKey,
+        hasBaseUrl: !!targetBaseUrl,
+      });
+    } finally {
+      setFetchingCodexAggregateProviderId(null);
+    }
+  };
 
   const initialCodexApiFormat: CodexApiFormat =
     initialData?.meta?.apiFormat === "openai_chat"
@@ -1845,6 +1926,31 @@ function ProviderFormFull({
       delete nextMeta.githubAccountId;
     }
 
+    // Codex 聚合路由表：开关打开时写入，关闭时彻底移除，保证普通供应商的
+    // meta 不变。展示名留空则不落键（后端以 skip_serializing_if 省略空 label，
+    // 留空串会在模型目录里显出一个空 displayName）。
+    const saveCodexAggregateRoutes =
+      appId === "codex" &&
+      category !== "official" &&
+      codexAggregateRoutes !== undefined;
+    if (saveCodexAggregateRoutes && codexAggregateRoutes) {
+      nextMeta.codexAggregateRoutes = {
+        ...codexAggregateRoutes,
+        slots: codexAggregateRoutes.slots.map((slot) => {
+          const label = slot.label?.trim();
+          return label
+            ? { ...slot, label }
+            : {
+                model: slot.model,
+                providerId: slot.providerId,
+                upstreamModel: slot.upstreamModel,
+              };
+        }),
+      };
+    } else if ("codexAggregateRoutes" in nextMeta) {
+      delete nextMeta.codexAggregateRoutes;
+    }
+
     payload.meta = nextMeta;
 
     await onSubmit(payload);
@@ -2504,6 +2610,14 @@ function ProviderFormFull({
               onPromptCacheRoutingChange={setPromptCacheRouting}
               catalogModels={codexCatalogModels}
               onCatalogModelsChange={setCodexCatalogModels}
+              codexAggregateRoutes={codexAggregateRoutes}
+              onCodexAggregateRoutesChange={setCodexAggregateRoutes}
+              codexAggregateCandidates={codexAggregateCandidates}
+              codexAggregateModelsByProvider={codexAggregateModelsByProvider}
+              onCodexAggregateFetchModels={handleFetchCodexAggregateModels}
+              fetchingCodexAggregateProviderId={
+                fetchingCodexAggregateProviderId
+              }
               speedTestEndpoints={speedTestEndpoints}
               customUserAgent={customUserAgent}
               onCustomUserAgentChange={setCustomUserAgent}

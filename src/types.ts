@@ -164,6 +164,30 @@ export interface AggregateRoutes {
   aliasRules?: AggregateAliasRule[];
 }
 
+// Codex 聚合路由（与上面的 Claude 侧表平行、形状互不兼容：独立 meta 键
+// `codexAggregateRoutes`）。没有档位 / 思考强度 / 别名层——那些是 Claude Desktop
+// 的协议概念；Codex 侧只有「客户端模型名 → 目标供应商 + 上游模型」。
+export interface CodexAggregateSlot {
+  /** 客户端模型名（Codex CLI 从模型目录里选的 slug，路由键）。
+   *  非空 + 全表唯一由后端保存校验兜底。 */
+  model: string;
+  /** 目标 Codex 供应商 id（被引用者受删除保护） */
+  providerId: string;
+  /** 发往该供应商的模型名 */
+  upstreamModel: string;
+  /** 模型目录显示名；留空则回落 slug（后端以 skip_serializing_if 省略空值） */
+  label?: string;
+}
+
+export interface CodexAggregateRoutes {
+  /** 有序（= 客户端模型目录的顺序） */
+  slots: CodexAggregateSlot[];
+  defaultTarget: DefaultTarget;
+  /** 默认模型（槽位 model）：写 modelCatalog 时置顶、seed TOML 顶层 model 取它。
+   *  未设置 = 跟随槽位首位。 */
+  defaultModel?: string;
+}
+
 export type CodexChatThinkingParam =
   | "none"
   | "thinking"
@@ -222,6 +246,8 @@ export interface ProviderMeta {
   claudeDesktopModelRoutes?: Record<string, ClaudeDesktopModelRoute>;
   // 聚合供应商：无端点无凭据，按模型把请求分流到其他供应商
   aggregateRoutes?: AggregateRoutes;
+  // Codex 聚合供应商：同上，按客户端模型名分流（形状与 aggregateRoutes 平行但不通用）
+  codexAggregateRoutes?: CodexAggregateRoutes;
   // 用量查询脚本配置
   usage_script?: UsageScript;
   // 请求地址管理：测速后自动选择最佳端点

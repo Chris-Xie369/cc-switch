@@ -3322,5 +3322,27 @@
     "addAliasRule": "添加规则",
     "removeAliasRule": "删除该规则",
     "aliasTip": "前缀过宽（如 claude-）会吞掉所有未命中槽位的请求名，注意范围"
+  },
+  "codexAggregate": {
+    "enable": "启用聚合路由",
+    "title": "聚合供应商",
+    "hint": "自身不存端点与密钥，按模型把请求分流到其他供应商。",
+    "model": "模型名",
+    "modelPlaceholder": "客户端模型名",
+    "targetProvider": "目标供应商",
+    "targetProviderPlaceholder": "选择供应商",
+    "upstreamModel": "上游模型",
+    "upstreamModelPlaceholder": "上游模型名",
+    "displayName": "显示名",
+    "addSlot": "添加模型",
+    "removeSlot": "删除该模型",
+    "fetchModels": "获取模型列表",
+    "emptyState": "还没有槽位，点击下方「添加模型」开始配置。",
+    "defaultTarget": "兜底目标",
+    "defaultTargetHint": "未命中任何槽位的请求发往这里",
+    "defaultTargetPlaceholder": "必选：未命中槽位的请求回落到这里",
+    "defaultModel": "默认模型",
+    "defaultModelHint": "Codex CLI 默认选中的模型；未设置时取槽位第一条",
+    "defaultModelPlaceholder": "未设置：跟随槽位首位"
   }
 }

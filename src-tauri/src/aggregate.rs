@@ -984,13 +984,13 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_codex_target_default_slot_matches_padded_slot_model() {
-        // `SlotId` 兜底名与槽位路由键都按 trim 后的名字比较，两侧都带空格也要解析成功
-        // （保存校验正是这么比重的），不能硬失败。
+        // `SlotId` 兜底名与槽位路由键按 trim 后的名字比较：两侧垫边不一致也必须解析成功
+        // （一侧垫空格、另一侧不垫，恰好复现修复前的硬失败——对整段回退有判别力）。
         let db = crate::database::Database::memory().expect("db");
         save_codex_target(&db, "p-kimi");
         let aggregate = codex_aggregate_with(
             vec![codex_slot(" gpt-5.1 ", "p-kimi", "kimi-k2")],
-            DefaultTarget::SlotId(" gpt-5.1 ".into()),
+            DefaultTarget::SlotId("gpt-5.1".into()),
         );
 
         let (target, upstream) = resolve_codex_target(&db, "codex", &aggregate, "gpt-9.9")

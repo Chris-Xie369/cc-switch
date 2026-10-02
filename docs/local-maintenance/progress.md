@@ -1662,3 +1662,7 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - 真实机器验收（2026-10-02 晚，71a68adb 安装版）：开本地路由→3 次热切换供应商→关路由。热切换态三次对照基线 **lost/added/changed 全 ∅**（10 个用户键逐字节存活，env 稳定占位形态）——补丁 F 重投影合并路径在真实数据上成立；接管激活/关闭的 verbatim 写与恢复路径亦符合预期。取证存档 `%LOCALAPPDATA%\Temp\cc-switch-switch-verify\`。
 - 验收中暴露**先于补丁 F 的独立缺口**：每次热切换 `update_live_backup_from_provider` 把恢复源备份替换成供应商投影（回填陈旧副本），关接管整份恢复后用户领地回退（丢 theme/includeCoAuthoredBy，model/modelSettings/enabledPlugins/statusLine 换成回填值，多出回填 hooks）。属既有「备份跟随供应商」设计（测试钉死、补丁 F 任务明示不动），**未改**；用户的 10 个领地键已手工恢复原值，回退态留证 state-4-rolledback-by-restore.json。后续可选：备份更新改为「供应商投影 + 既有备份的领地键合并」，需同步改 switch_proxy_target_updates_live_backup_when_taken_over 等钉住测试。
 - 备份跟随供应商缺口修复（a65bffb0，TDD）：`update_live_backup_from_provider` Claude 分支改为 `merge_claude_settings_for_live(既有备份, 供应商投影)`——热切换备份继承激活时原快照的用户领地（owned 键仍跟随目标供应商），无既有备份保持原语义（7975 对照绿）。RED 双挂（theme light≠dark、permissions Read≠Bash，含翻转 1 个钉住旧「备份=供应商投影」的 7633 断言）→ GREEN 5/5；全量 2997 过 / 10 失败与环境性基线**逐条同集**；fmt 干净。Codex/Grok/Gemini 分支未动。
+- Codex 终审收口：**Ready to merge = Yes**（516d7d28 复核通过）——Chat 臂 e2e 判别力实测闭合（摘守卫红于正确断言+路径断言堵假绿）；表单收口含负对照（豁免不外溢）；出站 trim 语义自洽并文档化（全空 upstream→None 系有意取舍）
+  · Important 2 caveat 裁量：存量卡「曾开聚合+通用配置」的片段被合成吞掉属如实标注的存量行为，可接受——跟进项（不阻塞）：后续二选一「聚合开启时清 commonConfigEnabled」或「片段合进合成」
+  · 新增留档：模型目录编辑器/maxOutputTokens 等高级区在聚合卡仍可见不生效（同「假控件」原则延伸，后续可一刀切 isCodexAggregate 门禁）；Minor#7 仅剩引用扫描半边未 trim
+  · Codex 代码侧全部闭合。余留：Task 7 手动验收（Codex CLI /model 出槽位、逐槽归属、chat/anthropic 各验一槽）

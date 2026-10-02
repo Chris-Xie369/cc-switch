@@ -1461,4 +1461,328 @@ mod tests {
         proxy.stop().await.expect("stop test proxy");
         mock_handle.abort();
     }
+
+    /// 起一个只回固定 JSON 的 mock 上游，返回 (地址, 捕获句柄, 后台任务)。
+    /// `response_body` 按路径复用：原生 Responses 与 Anthropic 转换两条路径各回
+    /// 自己的形状，与 `handle_responses_for_app` 的分支一一对应。
+    async fn spawn_mock_responses_upstream(
+        responses_body: &'static str,
+        messages_body: &'static str,
+    ) -> (
+        std::net::SocketAddr,
+        Arc<Mutex<Vec<CapturedRequest>>>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let captured = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
+        let capture = |captured: Arc<Mutex<Vec<CapturedRequest>>>, response_body: &'static str| {
+            move |request: axum::extract::Request| {
+                let captured = captured.clone();
+                async move {
+                    let (parts, body) = request.into_parts();
+                    let body = axum::body::to_bytes(body, 1024 * 1024)
+                        .await
+                        .expect("read mock request body");
+                    captured.lock().await.push(CapturedRequest {
+                        path_and_query: parts
+                            .uri
+                            .path_and_query()
+                            .map(|value| value.as_str().to_string())
+                            .unwrap_or_else(|| parts.uri.path().to_string()),
+                        authorization: parts
+                            .headers
+                            .get(header::AUTHORIZATION)
+                            .and_then(|value| value.to_str().ok())
+                            .map(ToString::to_string),
+                        body: serde_json::from_slice(&body).expect("parse mock request body"),
+                    });
+
+                    (
+                        StatusCode::OK,
+                        [(header::CONTENT_TYPE, "application/json")],
+                        response_body,
+                    )
+                }
+            }
+        };
+        let mock_app = Router::new()
+            .route(
+                "/v1/responses",
+                post(capture(captured.clone(), responses_body)),
+            )
+            .route(
+                "/v1/messages",
+                post(capture(captured.clone(), messages_body)),
+            );
+        let mock_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind mock upstream");
+        let mock_addr = mock_listener.local_addr().expect("mock upstream address");
+        let mock_handle = tokio::spawn(async move {
+            axum::serve(mock_listener, mock_app)
+                .await
+                .expect("serve mock upstream");
+        });
+
+        (mock_addr, captured, mock_handle)
+    }
+
+    /// Codex 聚合供应商（无端点无凭据，只有一张路由表）。
+    fn codex_aggregate(
+        slots: Vec<crate::aggregate::CodexAggregateSlot>,
+        default_target: crate::aggregate::DefaultTarget,
+    ) -> Provider {
+        let mut provider = Provider::with_id(
+            "codex-agg".to_string(),
+            "Codex Aggregate".to_string(),
+            json!({ "env": {} }),
+            None,
+        );
+        provider.meta = Some(ProviderMeta {
+            codex_aggregate_routes: Some(crate::aggregate::CodexAggregateRoutes {
+                slots,
+                default_target,
+                default_model: None,
+            }),
+            ..Default::default()
+        });
+        provider
+    }
+
+    fn codex_slot(
+        model: &str,
+        provider_id: &str,
+        upstream_model: &str,
+    ) -> crate::aggregate::CodexAggregateSlot {
+        crate::aggregate::CodexAggregateSlot {
+            model: model.to_string(),
+            provider_id: provider_id.to_string(),
+            upstream_model: upstream_model.to_string(),
+            label: None,
+        }
+    }
+
+    /// 最小可用的 Responses 请求体（与 `handle_responses_for_app` 解析的形状一致）。
+    fn codex_responses_request(model: &str) -> Value {
+        json!({
+            "model": model,
+            "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hi"}]}],
+            "stream": false,
+        })
+    }
+
+    #[tokio::test]
+    async fn codex_aggregate_native_passthrough_rewrites_model_and_credentials() {
+        let (mock_addr, captured, mock_handle) = spawn_mock_responses_upstream(
+            r#"{"id":"resp_1","object":"response","status":"completed","model":"kimi-k2","output":[],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}"#,
+            r#"{"id":"msg_1","type":"message","role":"assistant","model":"kimi-k2","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":3,"output_tokens":2}}"#,
+        )
+        .await;
+
+        let db = Arc::new(Database::memory().expect("memory database"));
+
+        // 槽位目标：端点与凭据都来自它自己
+        let target = Provider::with_id(
+            "codex-target".to_string(),
+            "Codex Target".to_string(),
+            json!({
+                "base_url": format!("http://{mock_addr}/v1"),
+                "auth": {"OPENAI_API_KEY": "target-secret"}
+            }),
+            None,
+        );
+        db.save_provider("codex", &target)
+            .expect("save slot target");
+
+        // 默认目标：未命中路由时兜底
+        let default_target = Provider::with_id(
+            "codex-default".to_string(),
+            "Codex Default".to_string(),
+            json!({
+                "base_url": format!("http://{mock_addr}/v1"),
+                "auth": {"OPENAI_API_KEY": "default-secret"},
+                "model": "default-model"
+            }),
+            None,
+        );
+        db.save_provider("codex", &default_target)
+            .expect("save default target");
+
+        let aggregate = codex_aggregate(
+            vec![codex_slot("gpt-5.1", "codex-target", "kimi-k2")],
+            crate::aggregate::DefaultTarget::ProviderId("codex-default".to_string()),
+        );
+        db.save_provider("codex", &aggregate)
+            .expect("save codex aggregate");
+        db.set_current_provider("codex", "codex-agg")
+            .expect("select codex aggregate provider");
+
+        let proxy = ProxyServer::new(
+            ProxyConfig {
+                listen_port: 0,
+                enable_logging: true,
+                non_streaming_timeout: 10,
+                ..ProxyConfig::default()
+            },
+            db.clone(),
+            None,
+        );
+        let proxy_info = proxy.start().await.expect("start test proxy");
+        let client = reqwest::Client::new();
+        let responses_url = format!("http://127.0.0.1:{}/v1/responses", proxy_info.port);
+
+        // 命中：model = 槽位 model → 目标供应商 + 上游模型名改写（原生透传路径）
+        let hit = client
+            .post(&responses_url)
+            .header(header::AUTHORIZATION, "Bearer client-secret")
+            .json(&codex_responses_request("gpt-5.1"))
+            .send()
+            .await
+            .expect("send codex aggregate hit request");
+        assert_eq!(
+            hit.status(),
+            StatusCode::OK,
+            "aggregate hit: {}",
+            hit.text().await.unwrap_or_default()
+        );
+
+        {
+            let captured = captured.lock().await;
+            assert_eq!(captured.len(), 1, "hit reached upstream exactly once");
+            let request = &captured[0];
+            assert_eq!(
+                request.body["model"], "kimi-k2",
+                "slot upstream model must reach the outbound body on native passthrough"
+            );
+            assert_eq!(
+                request.authorization.as_deref(),
+                Some("Bearer target-secret"),
+                "auth must come from the slot target, not the aggregate provider"
+            );
+        }
+
+        // 聚合供应商必须仍是持久化的当前供应商（UI 不得被切走）；不得发生伪故障转移。
+        assert_eq!(
+            db.get_current_provider("codex")
+                .expect("read current provider")
+                .as_deref(),
+            Some("codex-agg"),
+            "codex aggregate provider must stay the persisted current provider"
+        );
+        assert_eq!(
+            proxy.get_status().await.failover_count,
+            0,
+            "codex aggregate routing must not be mistaken for a failover switch"
+        );
+
+        // 未命中：不匹配任何槽位 → 走默认目标，聚合层不改写模型名
+        let miss = client
+            .post(&responses_url)
+            .header(header::AUTHORIZATION, "Bearer client-secret")
+            .json(&codex_responses_request("gpt-9.9"))
+            .send()
+            .await
+            .expect("send codex aggregate miss request");
+        assert_eq!(miss.status(), StatusCode::OK, "aggregate miss");
+
+        {
+            let captured = captured.lock().await;
+            assert_eq!(captured.len(), 2, "miss reached upstream");
+            let request = &captured[1];
+            assert_eq!(
+                request.body["model"], "gpt-9.9",
+                "miss must not apply the slot's upstream model"
+            );
+            assert_eq!(
+                request.authorization.as_deref(),
+                Some("Bearer default-secret"),
+                "miss must be routed to the default target"
+            );
+        }
+
+        proxy.stop().await.expect("stop test proxy");
+        mock_handle.abort();
+    }
+
+    #[tokio::test]
+    async fn codex_aggregate_skips_apply_codex_upstream_model_when_overridden() {
+        let (mock_addr, captured, mock_handle) = spawn_mock_responses_upstream(
+            r#"{"id":"resp_1","object":"response","status":"completed","model":"kimi-k2","output":[],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}"#,
+            r#"{"id":"msg_1","type":"message","role":"assistant","model":"kimi-k2","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":3,"output_tokens":2}}"#,
+        )
+        .await;
+
+        let db = Arc::new(Database::memory().expect("memory database"));
+
+        // 目标供应商带顶层 model 与 modelCatalog：若聚合改写后又被它们二次改写，
+        // 出站模型名就会变成别的模型（聚合层拥有模型名语义，必须原样送达）。
+        // `api_format: "anthropic"` 让这条请求走 Responses→Anthropic 转换路径 ——
+        // `apply_codex_upstream_model` 就在该路径上被调用。
+        let target = Provider::with_id(
+            "codex-catalog-target".to_string(),
+            "Codex Catalog Target".to_string(),
+            json!({
+                "base_url": format!("http://{mock_addr}/v1"),
+                "auth": {"OPENAI_API_KEY": "target-secret"},
+                "api_format": "anthropic",
+                "model": "catalog-default-model",
+                "modelCatalog": {"models": [{"model": "some-other-model"}]}
+            }),
+            None,
+        );
+        db.save_provider("codex", &target)
+            .expect("save catalog target");
+
+        let aggregate = codex_aggregate(
+            vec![codex_slot("gpt-5.1", "codex-catalog-target", "kimi-k2")],
+            crate::aggregate::DefaultTarget::ProviderId("codex-catalog-target".to_string()),
+        );
+        db.save_provider("codex", &aggregate)
+            .expect("save codex aggregate");
+        db.set_current_provider("codex", "codex-agg")
+            .expect("select codex aggregate provider");
+
+        let proxy = ProxyServer::new(
+            ProxyConfig {
+                listen_port: 0,
+                enable_logging: true,
+                non_streaming_timeout: 10,
+                ..ProxyConfig::default()
+            },
+            db.clone(),
+            None,
+        );
+        let proxy_info = proxy.start().await.expect("start test proxy");
+        let client = reqwest::Client::new();
+
+        let response = client
+            .post(format!("http://127.0.0.1:{}/v1/responses", proxy_info.port))
+            .header(header::AUTHORIZATION, "Bearer client-secret")
+            .json(&codex_responses_request("gpt-5.1"))
+            .send()
+            .await
+            .expect("send codex aggregate request");
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "aggregate hit: {}",
+            response.text().await.unwrap_or_default()
+        );
+
+        {
+            let captured = captured.lock().await;
+            assert_eq!(captured.len(), 1, "request reached upstream exactly once");
+            assert_eq!(
+                captured[0].path_and_query.split('?').next().unwrap(),
+                "/v1/messages",
+                "this case must exercise the Responses→Anthropic conversion path"
+            );
+            assert_eq!(
+                captured[0].body["model"], "kimi-k2",
+                "aggregate rewrite must survive the target provider's modelCatalog / default model"
+            );
+        }
+
+        proxy.stop().await.expect("stop test proxy");
+        mock_handle.abort();
+    }
 }

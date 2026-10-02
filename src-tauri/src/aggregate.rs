@@ -807,6 +807,159 @@ mod tests {
         let routes = codex_routes_of(&with_routes).expect("route table");
         assert_eq!(routes.slots[0].upstream_model, "kimi-k2");
     }
+
+    /// Codex 槽位构造器：客户端模型名 → (目标供应商, 上游模型)。
+    fn codex_slot(model: &str, provider_id: &str, upstream_model: &str) -> CodexAggregateSlot {
+        CodexAggregateSlot {
+            model: model.to_string(),
+            provider_id: provider_id.to_string(),
+            upstream_model: upstream_model.to_string(),
+            label: None,
+        }
+    }
+
+    fn codex_aggregate_with(
+        slots: Vec<CodexAggregateSlot>,
+        default_target: DefaultTarget,
+    ) -> Provider {
+        codex_aggregate_provider(Some(CodexAggregateRoutes {
+            slots,
+            default_target,
+            default_model: None,
+        }))
+    }
+
+    /// 保存一个 Codex 目标供应商（端点/凭据不在本组用例的断言范围内）。
+    fn save_codex_target(db: &crate::database::Database, id: &str) {
+        let provider = crate::provider::Provider::with_id(
+            id.to_string(),
+            id.to_string(),
+            serde_json::json!({}),
+            None,
+        );
+        db.save_provider("codex", &provider)
+            .expect("save codex target");
+    }
+
+    #[tokio::test]
+    async fn resolve_codex_target_exact_match_rewrites_model() {
+        let db = crate::database::Database::memory().expect("db");
+        save_codex_target(&db, "p-kimi");
+        let aggregate = codex_aggregate_with(
+            vec![codex_slot("gpt-5.1", "p-kimi", "kimi-k2")],
+            DefaultTarget::ProviderId("p-kimi".into()),
+        );
+
+        let (target, upstream) =
+            resolve_codex_target(&db, "codex", &aggregate, "gpt-5.1").expect("exact slot hit");
+        assert_eq!(target.id, "p-kimi");
+        assert_eq!(upstream.as_deref(), Some("kimi-k2"));
+    }
+
+    #[tokio::test]
+    async fn resolve_codex_target_falls_back_to_default_provider_without_rewrite() {
+        let db = crate::database::Database::memory().expect("db");
+        save_codex_target(&db, "p-kimi");
+        save_codex_target(&db, "p-other");
+        let aggregate = codex_aggregate_with(
+            vec![codex_slot("gpt-5.1", "p-kimi", "kimi-k2")],
+            DefaultTarget::ProviderId("p-other".into()),
+        );
+
+        let (target, upstream) =
+            resolve_codex_target(&db, "codex", &aggregate, "gpt-9.9").expect("miss falls back");
+        assert_eq!(target.id, "p-other");
+        assert_eq!(upstream, None, "兜底不改写模型名");
+    }
+
+    #[tokio::test]
+    async fn resolve_codex_target_default_slot_rewrites_to_slot_upstream() {
+        let db = crate::database::Database::memory().expect("db");
+        save_codex_target(&db, "p-kimi");
+        let aggregate = codex_aggregate_with(
+            vec![codex_slot("gpt-5.1", "p-kimi", "kimi-k2")],
+            DefaultTarget::SlotId("gpt-5.1".into()),
+        );
+
+        // 与 Claude 侧同款：SlotId 兜底保留该槽的上游模型名（槽位本身就是一份路由）
+        let (target, upstream) =
+            resolve_codex_target(&db, "codex", &aggregate, "gpt-9.9").expect("slot fallback");
+        assert_eq!(target.id, "p-kimi");
+        assert_eq!(upstream.as_deref(), Some("kimi-k2"));
+    }
+
+    #[tokio::test]
+    async fn resolve_codex_target_dangling_default_slot_errors() {
+        let db = crate::database::Database::memory().expect("db");
+        save_codex_target(&db, "p-kimi");
+        let aggregate = codex_aggregate_with(
+            vec![codex_slot("gpt-5.1", "p-kimi", "kimi-k2")],
+            DefaultTarget::SlotId("gpt-missing".into()),
+        );
+
+        let err = resolve_codex_target(&db, "codex", &aggregate, "gpt-9.9")
+            .expect_err("default target pointing at a missing slot must error");
+        assert_eq!(
+            localized_key(&err),
+            "codex_aggregate.default_target_slot_missing"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_codex_target_errors_when_target_provider_missing() {
+        let db = crate::database::Database::memory().expect("db");
+        let aggregate = codex_aggregate_with(
+            vec![codex_slot("gpt-5.1", "p-missing", "kimi-k2")],
+            DefaultTarget::ProviderId("p-missing".into()),
+        );
+
+        let err = resolve_codex_target(&db, "codex", &aggregate, "gpt-5.1")
+            .expect_err("missing target provider must error");
+        assert_eq!(
+            localized_key(&err),
+            "codex_aggregate.target_provider_missing"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_codex_target_strips_1m_marker_before_lookup() {
+        let db = crate::database::Database::memory().expect("db");
+        save_codex_target(&db, "p-kimi");
+        save_codex_target(&db, "p-other");
+        let aggregate = codex_aggregate_with(
+            vec![codex_slot("gpt-5.1", "p-kimi", "kimi-k2")],
+            DefaultTarget::ProviderId("p-other".into()),
+        );
+
+        // 客户端可能带 1M 能力标记发请求；不剥离就会整批漏到兜底，再由目标供应商
+        // 自己的路由表改写模型名（与 Claude 侧 2026-09-23 同款事故）。
+        for requested in ["gpt-5.1[1M]", "gpt-5.1[1m]", "gpt-5.1 [1m]"] {
+            let (target, upstream) = resolve_codex_target(&db, "codex", &aggregate, requested)
+                .unwrap_or_else(|e| panic!("{requested} 应命中槽位: {e:?}"));
+            assert_eq!(target.id, "p-kimi", "{requested} 不应漏到兜底");
+            assert_eq!(upstream.as_deref(), Some("kimi-k2"), "{requested}");
+        }
+    }
+
+    #[tokio::test]
+    async fn resolve_codex_target_requires_exact_model_match() {
+        // Codex 侧没有别名层：前缀相近的模型名不得误命中（否则会把用户请求发到
+        // 一家他没选的供应商上）。
+        let db = crate::database::Database::memory().expect("db");
+        save_codex_target(&db, "p-kimi");
+        save_codex_target(&db, "p-other");
+        let aggregate = codex_aggregate_with(
+            vec![codex_slot("gpt-5.1", "p-kimi", "kimi-k2")],
+            DefaultTarget::ProviderId("p-other".into()),
+        );
+
+        for requested in ["gpt-5.10", "gpt-5", "GPT-5.1", "gpt-5.1-codex"] {
+            let (target, upstream) =
+                resolve_codex_target(&db, "codex", &aggregate, requested).expect("fallback");
+            assert_eq!(target.id, "p-other", "{requested} 必须走兜底");
+            assert_eq!(upstream, None, "{requested}");
+        }
+    }
 }
 
 /// 该供应商是否为聚合供应商。
@@ -993,6 +1146,58 @@ pub fn resolve_target(
     Ok((target, None))
 }
 
+/// 解析 Codex 聚合路由：给定聚合供应商与请求里的模型名，返回 (目标供应商, 需改写的
+/// 上游模型名)。与 `resolve_target` 同构但查表键不同：
+/// - 命中槽位 → 返回该槽位的目标与上游模型
+/// - 未命中 → 返回默认目标（`ProviderId` 不改写模型名；`SlotId` 保留该槽上游模型名）
+/// - 默认目标不可用 / 目标供应商缺失 → 明确错误（不静默降级）
+///
+/// 查找前同样先剥离 `[1m]` 标记（与 Claude 侧同一个 helper）：客户端可能给模型名
+/// 加上这个后缀再发请求，不剥离的话整批变体会漏到默认目标。
+///
+/// Codex 侧**没有别名层**：客户端模型名是 CLI 从 modelCatalog 里选的 slug，
+/// 精确匹配即可；加前缀回落只会把请求误发给用户没选的供应商。
+pub fn resolve_codex_target(
+    db: &crate::database::Database,
+    app_type: &str,
+    aggregate: &Provider,
+    request_model: &str,
+) -> Result<(Provider, Option<String>), AppError> {
+    let routes = codex_routes_of(aggregate)?;
+
+    let requested =
+        crate::claude_desktop_config::strip_one_m_suffix_for_route_lookup(request_model);
+
+    for slot in &routes.slots {
+        if slot.model == requested {
+            let target = load_codex_provider(db, app_type, &slot.provider_id)?;
+            return Ok((target, Some(slot.upstream_model.clone())));
+        }
+    }
+
+    // 未命中 → 默认目标
+    let (fallback_id, fallback_upstream) = match &routes.default_target {
+        DefaultTarget::ProviderId(id) => (id.clone(), None),
+        // SlotId 兜底本身就是一份路由：保留该槽的上游模型名（与 Claude 侧同款）
+        DefaultTarget::SlotId(slot_id) => {
+            let slot = routes
+                .slots
+                .iter()
+                .find(|slot| &slot.model == slot_id)
+                .ok_or_else(|| {
+                    AppError::localized(
+                        "codex_aggregate.default_target_slot_missing",
+                        "Codex 聚合供应商的默认目标指向了不存在的槽位",
+                        "Codex aggregate default target points to a missing slot",
+                    )
+                })?;
+            (slot.provider_id.clone(), Some(slot.upstream_model.clone()))
+        }
+    };
+    let target = load_codex_provider(db, app_type, &fallback_id)?;
+    Ok((target, fallback_upstream))
+}
+
 fn load_provider(
     db: &crate::database::Database,
     app_type: &str,
@@ -1004,6 +1209,23 @@ fn load_provider(
                 "aggregate.target_provider_missing",
                 "聚合供应商的目标供应商不存在",
                 "Aggregate target provider does not exist",
+            )
+        })
+}
+
+/// `load_provider` 的 Codex 版：报错带 Codex 聚合自己的 key，便于用户把日志里的
+/// 问题定位到 Codex 侧路由表（两套路由表互不相通）。
+fn load_codex_provider(
+    db: &crate::database::Database,
+    app_type: &str,
+    provider_id: &str,
+) -> Result<Provider, AppError> {
+    db.get_provider_by_id(provider_id, app_type)?
+        .ok_or_else(|| {
+            AppError::localized(
+                "codex_aggregate.target_provider_missing",
+                "Codex 聚合供应商的目标供应商不存在",
+                "Codex aggregate target provider does not exist",
             )
         })
 }

@@ -1307,7 +1307,7 @@ impl RequestForwarder {
         // 映射成真实上游模型名，并且未知 route 要直接报错，不能使用默认模型兜底。
         //
         // 聚合路由命中时不走目标供应商自己的路由表：模型映射由聚合路由表（槽位的
-        // 上游模型名）直接给出，聚合供应商与目标供应商的 route_id 空间互不相干，
+        // 上游模型名）直接给出，聚合供应商与目标供应商的 route_id/model 空间互不相干，
         // 若仍用 target 做映射会命中 route_unknown / routes_missing。
         let mapped_body = if matches!(app_type, AppType::ClaudeDesktop) {
             match self.aggregate_override.as_deref() {
@@ -1323,6 +1323,15 @@ impl RequestForwarder {
                         .map_err(|e| ProxyError::InvalidRequest(e.to_string()))?
                 }
             }
+        } else if let Some(upstream) = self.aggregate_override.as_deref() {
+            // Codex 聚合：客户端模型名（body 顶层 `model`）已在聚合路由表里查成
+            // 真实上游模型名。改写点必须在此处（三条消费路径之前）：原生 Responses
+            // 透传 / Responses→Chat / Responses→Anthropic 一次改写全覆盖。
+            let mut body = body.clone();
+            if let Some(obj) = body.as_object_mut() {
+                obj.insert("model".to_string(), Value::String(upstream.to_string()));
+            }
+            body
         } else {
             let (mapped_body, _original_model, _mapped_model) =
                 super::model_mapper::apply_model_mapping(body.clone(), provider);
@@ -1642,7 +1651,12 @@ impl RequestForwarder {
                     "[Codex] Restored or enriched {restored} cached function call item(s) for Chat upstream"
                 );
             }
-            super::providers::apply_codex_chat_upstream_model(provider, &mut mapped_body);
+            // 聚合路由已给出该请求的上游模型名：目标供应商的 modelCatalog 白名单 /
+            // 顶层 `model` 不能再改写它（撞名时白名单会吞掉聚合的判定，或把聚合指定的
+            // 模型换成目标供应商的默认模型——聚合层拥有模型名语义）。
+            if self.aggregate_override.is_none() {
+                super::providers::apply_codex_chat_upstream_model(provider, &mut mapped_body);
+            }
             let reasoning_config =
                 super::providers::resolve_codex_chat_reasoning_config(provider, &mapped_body);
             let mut chat_body = super::providers::transform_codex_chat::responses_to_chat_completions_with_reasoning(
@@ -1659,7 +1673,11 @@ impl RequestForwarder {
             chat_body
         } else if codex_responses_to_anthropic {
             let mut mapped_body = mapped_body;
-            super::providers::apply_codex_upstream_model(provider, &mut mapped_body);
+            // 同 Chat 路径：聚合路由已定模型名时不再让目标供应商的 catalog / 顶层
+            // `model` 二次改写。
+            if self.aggregate_override.is_none() {
+                super::providers::apply_codex_upstream_model(provider, &mut mapped_body);
+            }
             // Per-provider output ceiling override. Codex does not forward its
             // `model_max_output_tokens` in the request body, so honor the value
             // configured on the provider here — it takes precedence over any

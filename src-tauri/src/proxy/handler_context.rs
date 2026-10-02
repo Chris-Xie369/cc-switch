@@ -153,45 +153,48 @@ impl RequestContext {
         // 聚合供应商：按请求模型把「本次使用的供应商」换成路由表里的目标供应商。
         // 目标供应商负责端点 / 凭据 / 协议转换 / 熔断；`aggregate_override` 记录
         // 需改写的上游模型名，转发前据此改写 `body.model`。
-        // 聚合路由是 Claude Desktop 专属能力：转发层（`forwarder.rs`）只在
-        // `AppType::ClaudeDesktop` 下应用 `aggregate_override` 的模型改写。若这里不按
-        // app 收口，非 claude-desktop 的供应商带上 `aggregate_routes` 时会「路由到目标
-        // 但不改模型」——半生效状态。两层必须一致。
-        let aggregate_override = if matches!(app_type, AppType::ClaudeDesktop)
-            && crate::aggregate::is_aggregate_provider(&provider)
-        {
-            let (target, upstream) = crate::aggregate::resolve_target(
-                &state.db,
-                app_type_str,
-                &provider,
-                &request_model,
-            )
-            .map_err(|e| ProxyError::ConfigError(e.to_string()))?;
-            log::debug!(
-                "[{}] Aggregate route: {} -> provider {} (upstream model: {:?})",
-                tag,
-                request_model,
-                target.name,
-                upstream
-            );
-            // 转发层按 providers 列表逐个尝试（见 `forward_with_retry_inner`）——只换
-            // `provider` 字段不够，必须把列表首位也换成目标供应商，否则仍会拿无端点
-            // 无凭据的聚合供应商去发请求。
-            providers[0] = target.clone();
-            // 只保留目标：`aggregate_override` 是请求级字段，链上其余成员若被尝试，会
-            // 收到槽位的上游模型名（绕过它自己的路由）——那是它从未配置过的模型。且它
-            // 一旦成功，成功回填会把用户的聚合供应商切走，聚合静默失效。设计 §6 规定
-            // 聚合层不引入自己的故障转移策略：目标熔断即视为不可用（显式失败）。
-            // 截断后 `current_provider_id` 的抑制也不再只是「仅首跳正确」。
-            providers.truncate(1);
-            // 让 current_provider_id 指向目标：否则转发成功后会把「实际供应商 ≠ 当前
-            // 供应商」判为故障转移并切换，把用户选中的聚合供应商切走（下一次请求就不再
-            // 命中聚合路由）。
-            current_provider_id = target.id.clone();
-            provider = target;
-            upstream
-        } else {
-            None
+        // 聚合路由只对 Claude Desktop 与 Codex 两种 AppType 开启：转发层
+        // （`forwarder.rs`）只在 `AppType::ClaudeDesktop | AppType::Codex` 下应用
+        // `aggregate_override` 的模型改写。若这里不按 app 收口，非这两类的供应商
+        // 带上聚合路由表时会「路由到目标但不改模型」——半生效状态。两层必须一致。
+        let aggregate_override = match &app_type {
+            AppType::ClaudeDesktop if crate::aggregate::is_aggregate_provider(&provider) => {
+                let (target, upstream) = crate::aggregate::resolve_target(
+                    &state.db,
+                    app_type_str,
+                    &provider,
+                    &request_model,
+                )
+                .map_err(|e| ProxyError::ConfigError(e.to_string()))?;
+                take_aggregate_route(
+                    target,
+                    upstream,
+                    &mut provider,
+                    &mut providers,
+                    &mut current_provider_id,
+                    tag,
+                    &request_model,
+                )
+            }
+            AppType::Codex if crate::aggregate::is_codex_aggregate_provider(&provider) => {
+                let (target, upstream) = crate::aggregate::resolve_codex_target(
+                    &state.db,
+                    app_type_str,
+                    &provider,
+                    &request_model,
+                )
+                .map_err(|e| ProxyError::ConfigError(e.to_string()))?;
+                take_aggregate_route(
+                    target,
+                    upstream,
+                    &mut provider,
+                    &mut providers,
+                    &mut current_provider_id,
+                    tag,
+                    &request_model,
+                )
+            }
+            _ => None,
         };
 
         log::debug!(
@@ -328,6 +331,45 @@ impl RequestContext {
             }
         }
     }
+}
+
+/// 聚合路由命中后的共同尾部：记日志、把目标供应商装进首位并截断故障转移链、
+/// 抑制「实际供应商 ≠ 当前供应商」的切换判定，并返回要改写的上游模型名。
+///
+/// Claude Desktop 与 Codex 两条分支除「用哪个 resolve 函数」外完全同构，故共用此
+/// 函数——两份拷贝迟早会各自漂移（这正是本函数被抽出来的原因）。
+fn take_aggregate_route(
+    target: Provider,
+    upstream: Option<String>,
+    provider: &mut Provider,
+    providers: &mut Vec<Provider>,
+    current_provider_id: &mut String,
+    tag: &str,
+    request_model: &str,
+) -> Option<String> {
+    log::debug!(
+        "[{}] Aggregate route: {} -> provider {} (upstream model: {:?})",
+        tag,
+        request_model,
+        target.name,
+        upstream
+    );
+    // 转发层按 providers 列表逐个尝试（见 `forward_with_retry_inner`）——只换
+    // `provider` 字段不够，必须把列表首位也换成目标供应商，否则仍会拿无端点
+    // 无凭据的聚合供应商去发请求。
+    providers[0] = target.clone();
+    // 只保留目标：`aggregate_override` 是请求级字段，链上其余成员若被尝试，会
+    // 收到槽位的上游模型名（绕过它自己的路由）——那是它从未配置过的模型。且它
+    // 一旦成功，成功回填会把用户的聚合供应商切走，聚合静默失效。设计 §6 规定
+    // 聚合层不引入自己的故障转移策略：目标熔断即视为不可用（显式失败）。
+    // 截断后 `current_provider_id` 的抑制也不再只是「仅首跳正确」。
+    providers.truncate(1);
+    // 让 current_provider_id 指向目标：否则转发成功后会把「实际供应商 ≠ 当前
+    // 供应商」判为故障转移并切换，把用户选中的聚合供应商切走（下一次请求就不再
+    // 命中聚合路由）。
+    *current_provider_id = target.id.clone();
+    *provider = target;
+    upstream
 }
 
 /// Pull the Gemini model name out of an API path.

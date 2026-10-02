@@ -52,26 +52,20 @@ fn make_row(model: &str, label: Option<&str>, behaves: Option<&str>) -> Value {
     row
 }
 
-/// 由路由表生成 modelPicker 值。顺序 = 路由序（供应商分组 × 档位、默认模型置顶），
-/// supports_1m 的槽位在本体行后追加 `[1m]` 行。
+/// 由路由表生成 modelPicker 值。顺序 = 路由序（供应商分组 × 档位、默认模型置顶）。
+/// 不生成 `[1m]` 变体行：CLI 目录只渲染显式登记了 1M 变体的真 Anthropic ID
+/// （2.1.284 实测 13 行仅存活 3 个），合成 ID 的 `[1m]` 行被整行丢弃
+/// （2026-10-02 实测 + 用户裁决）；需要 1M 时用 `--model claude-fable-1[1m]` 显式指定。
 pub fn model_picker_value(routes: &[ResolvedModelRoute]) -> Value {
-    let mut options: Vec<Value> = Vec::with_capacity(routes.len() * 2);
+    let mut options: Vec<Value> = Vec::with_capacity(routes.len());
     for route in routes {
         let behaves = behaves_as_for(route.tier.as_deref());
-        // 空白 label 视为无 label（D4）：否则会写出空标签行与裸 " · 1M" 后缀行
+        // 空白 label 视为无 label（D4）
         let label = route
             .label_override
             .as_deref()
             .filter(|l| !l.trim().is_empty());
         options.push(make_row(&route.route_id, label, behaves));
-        if route.supports_1m {
-            let label_1m = label.map(|l| format!("{l} · 1M"));
-            options.push(make_row(
-                &format!("{}[1m]", route.route_id),
-                label_1m.as_deref(),
-                behaves,
-            ));
-        }
     }
     json!({ "replaceBuiltInOptions": false, "options": options })
 }
@@ -199,42 +193,41 @@ mod tests {
         );
     }
 
+    /// CLI 目录只渲染登记了 1M 变体的真 ID，合成 ID 的 `[1m]` 行被整行丢弃
+    /// （2026-10-02 实测 + 用户裁决）——生成器对 supports_1m 槽位也只出一行
     #[test]
-    fn appends_1m_row_only_when_supported() {
-        let with = model_picker_value(&[route("claude-fable-1", "fable", Some("A"), true)]);
-        assert_eq!(with["options"].as_array().unwrap().len(), 2);
-        assert_eq!(with["options"][1]["model"], json!("claude-fable-1[1m]"));
-        assert_eq!(with["options"][1]["label"], json!("A · 1M"));
-        assert_eq!(with["options"][1]["behavesAs"], json!("claude-fable-5"));
-        assert_eq!(
-            with["options"][1]["behavesAs"],
-            with["options"][0]["behavesAs"]
+    fn never_emits_1m_rows() {
+        let value = model_picker_value(&[
+            route("claude-fable-1", "fable", Some("A"), true),
+            route("claude-sonnet-4", "sonnet", Some("B"), true),
+        ]);
+        let options = value["options"].as_array().unwrap();
+        assert_eq!(options.len(), 2);
+        assert!(
+            options
+                .iter()
+                .all(|r| !r["model"].as_str().unwrap().ends_with("[1m]")),
+            "不得出现 [1m] 行"
         );
-        let without = model_picker_value(&[route("claude-fable-1", "fable", Some("A"), false)]);
-        assert_eq!(without["options"].as_array().unwrap().len(), 1);
     }
 
     #[test]
     fn omits_label_when_missing() {
         let value = model_picker_value(&[route("claude-fable-1", "fable", None, true)]);
         let options = value["options"].as_array().unwrap();
-        assert_eq!(options.len(), 2);
+        assert_eq!(options.len(), 1);
         assert_eq!(options[0]["model"], json!("claude-fable-1"));
-        assert_eq!(options[1]["model"], json!("claude-fable-1[1m]"));
         assert!(options[0].get("label").is_none());
-        // 无基名 → 1M 行同样省略（默认渲染 model 名，自带 [1m] 可区分）
-        assert!(options[1].get("label").is_none());
     }
 
-    /// D4「空则省略」：空白 label 等价于无 label，否则 1M 行会写出裸 " · 1M"
+    /// D4「空则省略」：空白 label 等价于无 label
     #[test]
     fn omits_label_when_blank() {
         for blank in ["", "  "] {
             let value = model_picker_value(&[route("claude-fable-1", "fable", Some(blank), true)]);
             let options = value["options"].as_array().unwrap();
-            assert_eq!(options.len(), 2, "blank {blank:?}");
+            assert_eq!(options.len(), 1, "blank {blank:?}");
             assert!(options[0].get("label").is_none(), "blank {blank:?}");
-            assert!(options[1].get("label").is_none(), "blank {blank:?}");
         }
     }
 
@@ -270,12 +263,7 @@ mod tests {
             .collect();
         assert_eq!(
             models,
-            [
-                "claude-opus-4-8",
-                "claude-fable-1",
-                "claude-fable-1[1m]",
-                "claude-sonnet-4"
-            ]
+            ["claude-opus-4-8", "claude-fable-1", "claude-sonnet-4"]
         );
     }
 

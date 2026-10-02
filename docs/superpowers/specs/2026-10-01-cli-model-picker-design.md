@@ -51,9 +51,11 @@ Desktop 侧已有 `inferenceModels`，本设计补 CLI 侧的对应物 `modelPic
 ### D4. 行生成规则
 
 - 每槽位一行：`{model: route_id, label: label_override?（空则省略）, behavesAs: 档位表}`。
-- `supports_1m` 槽位追加 1M 行：`model: route_id + "[1m]"`，label 加后缀 ` · 1M`
-  （Desktop 做不到的名字后缀，CLI 侧 label 由我们控制，顺带回应 09-24 用户诉求）。
-  1M 行紧随本体行。
+- ~~`supports_1m` 槽位追加 1M 行~~ **修订（2026-10-02 实测 + 用户裁决：全去）**：CLI 目录只渲染
+  显式登记了 1M 变体的真 Anthropic ID（2.1.284 实测 13 行仅存活 `sonnet-4-6/4-5[1m]`、
+  `opus-4-6[1m]` 三个），合成 ID 的 `[1m]` 行被整行丢弃且无提示。生成器只出 base 行；
+  需要 1M 时用 `--model claude-fable-1[1m]` 显式指定（该路径不过行过滤）。真实 1M 能力
+  由上游模型与槽位 `supports1m` 决定，与 modelPicker 无关（Desktop 端不受影响）。
 - behavesAs 档位表（CLI 2.1.284 二进制目录取证，高频已知 ID）：
 
   | tier | behavesAs | 依据 |
@@ -108,6 +110,8 @@ Claude Code CLI（Desktop 内嵌/终端）读 user settings → `/model` 选择�
 - 终端 CLI 的 `env.ANTHROPIC_BASE_URL` 若指直连上游，聚合行在该上游不可用
   （选择报错）；完整体验需 BASE_URL 指向本地网关（`/claude-desktop` + 网关 token）。
   Desktop 内嵌 CLI 无此问题（宿主网关注入，本会话即证）。
-- `[1m]` 行能否被该版 CLI 选择器列出取决于它对 `[1m]` 模型字段的接受度；
-  逐行容错下最坏情况只是 1M 行被忽略。留用户验收确认。
+- ~~`[1m]` 行能否被该版 CLI 选择器列出~~ **已实测定案（2026-10-02）**：CLI 目录只渲染登记了
+  1M 变体的真 ID（三个存活），其余 `[1m]` 行被静默丢弃——生成器已按 D4 修订去掉全部
+  `[1m]` 行；1M 走 `--model` 显式指定。另实测：目录标记退役的 ID（如 claude-sonnet-4，
+  2026-06-15 退役）其行同样被过滤，Desktop 端不受影响。
 - 非聚合供应商不生成行（D3 移除逻辑接管）。

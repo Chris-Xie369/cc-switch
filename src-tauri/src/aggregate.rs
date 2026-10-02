@@ -992,6 +992,13 @@ mod tests {
             .find("model = \"kimi-k3\"")
             .expect("top-level model line");
         assert!(model_line < header, "顶层 model 必须在表头之前:\n{config}");
+        let provider_line = config
+            .find("model_provider = \"cc-switch-aggregate\"")
+            .expect("top-level model_provider line");
+        assert!(
+            provider_line < header,
+            "顶层 model_provider 必须在表头之前:\n{config}"
+        );
         let disable_storage = config
             .find("disable_response_storage = true")
             .expect("top-level disable_response_storage");
@@ -1014,7 +1021,6 @@ mod tests {
         }
 
         // base_url 是代理 origin 根（无 /claude-desktop 尾巴）：/v1/responses 挂在根路由
-        assert!(config.contains("model_provider = \"cc-switch-aggregate\""));
         assert!(!config.contains("/claude-desktop"));
         // 顶层 model 取 defaultModel 命中的槽位
         assert!(!config.contains("model = \"gpt-5.1\""));
@@ -1219,15 +1225,11 @@ pub fn synthesize_codex_aggregate_settings(
             "Codex aggregate provider requires at least one usable model route slot",
         ));
     };
+    // 条目由 `codex_aggregate_model_catalog` 用 String 构造，`model` 必为字符串，
+    // 取不到的唯一情形（首条目形状异常）已被上面的 `routes_empty` 覆盖。
     let default_model = default_entry["model"]
         .as_str()
-        .ok_or_else(|| {
-            AppError::localized(
-                "codex_aggregate.routes_empty",
-                "Codex 聚合供应商的路由表至少需要一个可用的模型槽位",
-                "Codex aggregate provider requires at least one usable model route slot",
-            )
-        })?
+        .expect("codex_aggregate_model_catalog 产出的条目必带 String model")
         .to_string();
 
     let config = format!(

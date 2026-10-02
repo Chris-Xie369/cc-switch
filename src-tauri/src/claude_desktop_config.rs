@@ -1483,8 +1483,12 @@ fn paths_from_dirs(normal_dir: PathBuf, threep_dir: PathBuf) -> ClaudeDesktopPat
 
 /// 代理 origin 根（`http://host:port`），由运行期代理配置的监听地址/端口派生。
 /// 监听通配地址会被改写成回环地址——客户端无法连接 `0.0.0.0` / `::`；IPv6 字面量
-/// 需补方括号才能进 URL。三处调用方（Desktop 网关、Codex 聚合 seed、代理接管）
-/// 共享同一派生，避免各自手写 host 归一化后漂移。
+/// 需补方括号才能进 URL。Desktop 网关与 Codex 聚合 seed 两处调用方共享此派生，
+/// 避免各自手写 host 归一化后漂移。
+///
+/// 注意：`services/proxy.rs` 的 `build_proxy_urls` 里尚存一份**独立的同源推导**
+/// （通配地址归一化 + IPv6 方括号，逻辑等价且多了一段运行期端口回填），尚未迁移
+/// 到本函数——改动它不在本轮范围内。
 pub(crate) fn proxy_origin_from_parts(listen_address: &str, listen_port: u16) -> String {
     let connect_host = match listen_address {
         "0.0.0.0" => "127.0.0.1",

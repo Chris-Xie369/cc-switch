@@ -884,6 +884,11 @@ pub(crate) fn build_effective_provider_for_live_with_codex_oauth_manager(
     Ok(effective_provider)
 }
 
+/// 聚合快照里钉死目录 tool profile 用的 `apiFormat` 字面量。
+/// `CodexCatalogToolProfile::from_api_format` 把它映射为 `NativeResponses`
+/// （`codex_config.rs:436`）。**只存在于有效快照**，永不写回 DB。
+const CODEX_AGGREGATE_API_FORMAT: &str = "openai_responses";
+
 /// Codex 聚合供应商的 live 写入快照：用合成配置顶掉它那个空的 `settings_config`。
 ///
 /// 聚合卡片无端点无凭据（DB 行保持空对象），而 Codex 的 live 写入要求
@@ -918,9 +923,40 @@ fn apply_codex_aggregate_seed(
         proxy_config.listen_port,
     );
 
+    // 这里整份覆盖 `settings_config`，**丢弃**上一步 `build_effective_settings_with_common_config`
+    // 刚合进来的通用配置片段。当前无损失：聚合卡片的表单不开通用配置
+    // （`enableCommonConfig` 恒 false），故那一步对本 provider 是恒等变换。**若将来
+    // 允许聚合卡片开通用配置，必须先在这里把它合进合成配置**——否则那段配置会在
+    // 写 live 时被静默吞掉，且 DB 行仍是空的，看不出是丢在这里。
     let routes = crate::aggregate::codex_routes_of(provider)?.clone();
     provider.settings_config =
         crate::aggregate::synthesize_codex_aggregate_settings(&routes, &origin)?;
+
+    // 目录 tool profile 钉死 NativeResponses（spec D2）：槽位目标横跨 Chat/Responses/
+    // Anthropic 三类网关，而聚合把它们统一收敛到自己的原生透传路径，模型能力必须取
+    // 三者交集。沿用默认的 ProxyChat 会套上 gpt-5.5 模板、声明 freeform
+    // `apply_patch` 自定义工具，原生透传把它原样转给槽位目标 → 拒收 `type=="custom"`
+    // 的网关直接 400。
+    //
+    // 这里借 `meta.api_format` 让 `resolve_codex_catalog_tool_profile` 走既有判据，
+    // 而不是给它开特例参数：聚合自身「说」哪种协议本就是虚构的（请求由路由层改投
+    // 槽位目标），但这个虚构值**必须只活在本有效快照里**，逐条核过它的读侧：
+    // - `codex_provider_uses_chat_completions` / `codex_provider_uses_anthropic`
+    //   都优先读 meta.api_format：`is_chat_wire_api` / `is_anthropic_wire_api` 对
+    //   `"openai_responses"` 同为 false，与改前落到 seed TOML `wire_api="responses"`
+    //   的结果一致 —— 请求路径行为不变。
+    // - `resolve_codex_catalog_tool_profile` 的 Anthropic 分支同上为 false，直达
+    //   `from_api_format` → NativeResponses（本条即目标）。
+    // - `is_codex_native_responses_url` / `is_codex_official_provider` /
+    //   `uses_proxy_injected_oauth` 均不读 api_format。
+    // - Claude Desktop 侧的 api_format 读点（`claude_desktop_config.rs:400/460/884`）
+    //   够不到这里：本函数对非 `AppType::Codex` 首行即返回，且聚合不走那条写入路径。
+    // - 代理的请求路径从 DB 取供应商（`ProviderRouter::select_providers` →
+    //   `db.get_provider_by_id`），拿不到有效快照；DB 行也从不被这份快照回写。
+    provider
+        .meta
+        .get_or_insert_with(Default::default)
+        .api_format = Some(CODEX_AGGREGATE_API_FORMAT.to_string());
     Ok(())
 }
 
@@ -3973,6 +4009,66 @@ base_url = "https://a.example/v1"
         slugs.sort_unstable();
         assert_eq!(slugs, vec!["glm-5.3", "gpt-5.1"]);
         assert!(config.contains("model_catalog_json"));
+    }
+
+    /// spec D2：聚合的目录条目一律取 `NativeResponses` 形状 —— 槽位目标可能横跨
+    /// Chat/Responses/Anthropic 三类网关，但聚合走的是自己的原生透传路径，模型
+    /// 能力的「统一上限」必须是三者交集。若沿用 ProxyChat 的 gpt-5.5 模板，条目会
+    /// 声明 freeform `apply_patch` 自定义工具，而原生透传会把请求原样转给槽位目标
+    /// ——其中拒收 `type=="custom"` 的原生网关会直接 400。
+    ///
+    /// 钉住的是**落盘目录的键集**（`codex_catalog_model_entry` 的 strip/add 名单，
+    /// 见 `codex_config.rs:1612-1652`），不是某个字段的取值：`shell_type` 必须在
+    /// （改编辑手段），`apply_patch_tool_type` / `web_search_tool_type` /
+    /// `model_messages` 必须不在（自由形态工具面不得泄漏）。
+    #[test]
+    #[serial]
+    fn codex_aggregate_catalog_uses_native_responses_tool_profile() {
+        let _home = TempHome::new();
+        let db = Database::memory().expect("create memory db");
+        futures::executor::block_on(db.update_proxy_config(crate::proxy::types::ProxyConfig {
+            listen_port: 15999,
+            ..Default::default()
+        }))
+        .expect("update proxy config");
+        let codex_oauth_manager = Arc::new(CodexOAuthManager::new(
+            std::env::temp_dir().join("cc-switch-task3-oauth"),
+        ));
+
+        write_live_with_common_config_for_codex_oauth_manager(
+            &db,
+            &AppType::Codex,
+            &codex_aggregate_card(),
+            &codex_oauth_manager,
+        )
+        .expect("aggregate live write");
+
+        let catalog: Value = serde_json::from_str(
+            &std::fs::read_to_string(crate::codex_config::get_codex_model_catalog_path())
+                .expect("read generated model catalog"),
+        )
+        .expect("parse generated catalog");
+        let models = catalog["models"].as_array().expect("catalog models");
+        assert_eq!(models.len(), 2, "两条槽位都要落盘");
+        for entry in models {
+            let slug = entry["slug"].as_str().expect("catalog slug");
+            assert_eq!(
+                entry["shell_type"].as_str(),
+                Some("shell_command"),
+                "{slug}: NativeResponses 画像必须用 shell_command 改文件"
+            );
+            for stripped in [
+                "apply_patch_tool_type",
+                "web_search_tool_type",
+                "tools",
+                "model_messages",
+            ] {
+                assert!(
+                    entry.get(stripped).is_none(),
+                    "{slug}: NativeResponses 画像不得带 {stripped}（会向网关发自由形态工具）"
+                );
+            }
+        }
     }
 
     #[test]

@@ -44,9 +44,13 @@ git push origin fix/profile-merge
 | **C** 本地构建 | `e3695f0e` `418fa7e4` | 移除 `plugins.updater` / `createUpdaterArtifacts`；版本号 `<版本>-local` | **纯本地**，永不上游 |
 | **D** 上游状态检查 | `feat(upstream): 检查并提醒上游状态` | 应用内检查 PR #5417 是否合并 + 是否有新 release，有变化才提醒（`commands/upstream.rs` + `lib/updater.ts` + `UpdateContext` + `AboutSection`） | **纯本地**（上游不会接受"检测本 fork 是否落后"）；每次同步需保留 |
 | **E** Claude Desktop 多供应商共存（聚合供应商） | `750e1a34`…`543c90cb`（7 个任务的实现链） | 让多家供应商的模型**同时**出现在 Claude 的选择器里：虚拟「聚合供应商」自身无端点无凭据、只存路由表（`Provider.meta.aggregateRoutes`），代理按请求模型把请求分流到目标供应商并改写模型名；含保存校验、删除保护、配置界面 | 社区诉求极高（#3703 血书 / #5109 / #7146）但**上游 #5937 只覆盖 CLI+Codex**，Desktop 侧无实现；提 PR 有机会进主干 |
+| **F** Claude settings.json 合并语义 | `d6b7719f` `d79d91e3` | settings.json 反向白名单合并（顶层只接管 env/apiKey，其余顶层键与非 owned env 子键是用户领地）：普通切换两条路径（`write_live_snapshot` / `sync_claude_live`，d6b7719f）+ 代理接管重投影（`write_claude_live` 改合并，d79d91e3；同时拆出 `write_claude_live_verbatim` 保住备份恢复/占位符清理/接管字段 RMW 的整份写与删除语义） | 上游无对应修复（#5417 仅覆盖 profile）；与 A 同属「写入不得丢用户键」类，值得提 PR；上游吸收前本地必须保留 |
 
 **补丁 E 的触及面（同步时注意）**：`src-tauri/src/aggregate.rs`(新)、`proxy/handler_context.rs`、`proxy/forwarder.rs`、`claude_desktop_config.rs`、`services/provider/mod.rs`、`src/types.ts`、`src/utils/aggregateRoutes.ts`(新)、`components/providers/forms/` 两个组件、i18n zh/en。
 > ⚠️ 其中 `claude_desktop_config.rs` 与 `services/provider/mod.rs` 是**修复过程中新增的触达**（原任务只声明前端文件）——因为设计规定聚合供应商无端点无凭据，后端不放宽校验则功能不可用。同步冲突排查时别遗漏这两处。
+
+**补丁 F 的触及面（同步时注意）**：`src-tauri/src/services/config.rs`、`src-tauri/src/services/provider/live.rs`（d6b7719f）、`src-tauri/src/services/provider/mod.rs`、`src-tauri/src/services/proxy.rs`（d79d91e3）。
+> ⚠️ Claude settings.json 有**三条**写入路径必须同语义（live.rs 的 `write_live_snapshot` / `sync_claude_live` + proxy 的接管重投影）；同步时若上游重构任何一条，三条一起核对——历史上第三条掉队过一次（接管重投影丢用户键，2026-10-02 修复）。备份恢复/占位符清理走 `write_claude_live_verbatim`，别误改成合并写。
 
 > 还有若干 `docs(...)` 提交（设计/计划/账本），是本地决策记录，与上游无关。
 

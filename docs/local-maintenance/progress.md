@@ -1666,3 +1666,18 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   · Important 2 caveat 裁量：存量卡「曾开聚合+通用配置」的片段被合成吞掉属如实标注的存量行为，可接受——跟进项（不阻塞）：后续二选一「聚合开启时清 commonConfigEnabled」或「片段合进合成」
   · 新增留档：模型目录编辑器/maxOutputTokens 等高级区在聚合卡仍可见不生效（同「假控件」原则延伸，后续可一刀切 isCodexAggregate 门禁）；Minor#7 仅剩引用扫描半边未 trim
   · Codex 代码侧全部闭合。余留：Task 7 手动验收（Codex CLI /model 出槽位、逐槽归属、chat/anthropic 各验一槽）
+
+## 2026-10-02 B 验收（自动部分）——通过
+- 用户重存 MoA（聚合卡，DB 确认 meta.aggregateRoutes 在、is_current=true）触发 apply
+- settings.json modelPicker：28 行（15 槽 + 13 个 [1m] 行）与 DB 派生**逐字一致**；replaceBuiltInOptions:false；defaultModel 置顶生效（首行 space-bunny）；存证与文件一致（ownership 证明）；邻键 11 个全保
+- 副作用核验：Desktop profile 21 键 / Chris / 15 inferenceModels 完好
+- 剩用户视觉步：CLI /model 选择器见聚合行 + 选槽发消息（无法自动化）
+- B 追加修复（2026-10-02，用户裁决「全去」）：modelPicker 去掉全部显式 [1m] 行——实测 CLI 目录只渲染登记了 1M 变体的真 ID（13 行仅活 sonnet-4-6/4-5[1m]、opus-4-6[1m]），合成 ID 的 [1m] 行被静默丢弃；claude-sonnet-4 行另因「Sonnet 4 于 2026-06-15 退役」被目录过滤（探针实测到 CLI 退役警告）
+  · 提交 + 重建部署（ee63fd5e 双向一致/pubkey 0/新前端资源 index-BRubWgy6.js 命中 1）+ 用户重存 MoA 复验：15 槽→15 行逐字一致、零 [1m] 行、存证一致、邻键 12 键、Desktop profile 21 键无损
+  · spec D4/§6 已按实测修订；1M 用法 = --model claude-fable-1[1m]（不过行过滤）
+  · 终端 picker 注意：space-bunny（claude-sonnet-4）行因退役在 CLI 端不可见（Desktop 端正常）；终端直连 DeepSeek 的 env 下聚合行仅展示用
+- B 追加修复 2（2026-10-03，用户裁决「改名两槽位」）：CLI 选择器 15 行只显 13——终审核实两缺行为 **CLI 目录生命周期撞名**（非生成器缺陷）：claude-sonnet-4 被目录退役（2026-06-15，行过滤器 xZ 硬拒）、claude-fable-5 被降级 section:"overflow"（继任 Fable 5.1 占 main，行被压走）。终端 2.1.288 二进制取证 + 假 ID 对照探针定案
+  · 根治 = 池固化（commit 3d330011，vitest 36/36）：RECOGNIZED_IDS sonnet#4→claude-sonnet-3、fable#5→claude-fable-6——assignSlotIds 重算不动点成立（编辑器保存不回退）
+  · 数据迁移（脚本先验证固定点 15/15 后写入；DB meta + profile inferenceModels + modelPicker + 存证四处同步改名；备份 .bak-cliid-20261003-071503）
+  · 重建部署（aba93bcb 双向一致、pubkey 0、前端 index-Yf39Ux1v.js 命中 1、网关 200）；终验：三方集合一致 + defaultModel 置顶序一致；新 ID 探针无「目录未描述」警告
+  · 已知代价：Desktop/CLI 记住的 claude-sonnet-4 / claude-fable-5 旧选择一次性失效回落（重选恢复）；重启 Claude Desktop 与 CLI 会话后 /model 应见 15/15

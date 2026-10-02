@@ -33,9 +33,16 @@ describe("slotId", () => {
 
   it("池子用尽后退回 claude-{档位}-{序号}", () => {
     expect(slotId("sonnet", 2)).toBe("claude-sonnet-4-5");
-    expect(slotId("sonnet", 4)).toBe("claude-sonnet-4");
+    expect(slotId("sonnet", 7)).toBe("claude-sonnet-7");
     expect(slotId("haiku", 2)).toBe("claude-haiku-2");
     expect(slotId("opus", 4)).toBe("claude-opus-4");
+  });
+
+  it("池固化避开 CLI 目录生命周期撞名（sonnet-4 退役 / fable-5 降级 overflow）", () => {
+    // 与 CLI 目录条目撞名的真 ID 会被 /model 选择器过滤（退役硬拒 / 溢出排尾），
+    // 合成名经 behavesAs 永远可显示——这两个池值把存量槽的新名固化成不动点。
+    expect(slotId("sonnet", 4)).toBe("claude-sonnet-3");
+    expect(slotId("fable", 5)).toBe("claude-fable-6");
   });
 
   it("同档位的 ID 互不相同（assignSlotIds 批量路径，池内 + 溢出混合）", () => {

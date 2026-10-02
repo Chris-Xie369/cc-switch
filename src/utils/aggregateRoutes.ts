@@ -41,10 +41,19 @@ const RECOGNIZED_IDS: Record<
 > = {
   opus: { 1: "claude-opus-4-8", 2: "claude-opus-4-7", 3: "claude-opus-4-6" },
   // claude-sonnet-5 在 Desktop 精确表内且阶梯最全（low…xhigh…max）。
-  sonnet: { 1: "claude-sonnet-4-6", 2: "claude-sonnet-4-5", 3: "claude-sonnet-5" },
+  // 序号 4 固化 claude-sonnet-3：claude-sonnet-4 已被 CLI 目录退役（2026-06-15），
+  // 与目录条目撞名的 ID 会被 /model 选择器过滤；合成名经 behavesAs 永远可显示。
+  sonnet: {
+    1: "claude-sonnet-4-6",
+    2: "claude-sonnet-4-5",
+    3: "claude-sonnet-5",
+    4: "claude-sonnet-3",
+  },
   haiku: { 1: "claude-haiku-4-5" },
-  // fable 族的强度阶梯由族正则兜底，序号可无限生成，无需 ID 池。
-  fable: {},
+  // fable 族的强度阶梯由族正则兜底，序号可无限生成，通常无需 ID 池。
+  // 序号 5 固化 claude-fable-6：claude-fable-5 被 CLI 目录降级进 overflow 区
+  // （继任 Fable 5.1 占 main），同名行在 /model 选择器被压走；合成名无此问题。
+  fable: { 5: "claude-fable-6" },
 };
 
 /**
@@ -220,7 +229,9 @@ export function assignSlotIds(routes: AggregateRoutes): AggregateRoutes {
     const index = rule.slotId
       ? routes.slots.findIndex((slot) => slot.routeId === rule.slotId)
       : -1;
-    return index >= 0 ? { ...rule, slotId: ids[index] } : { ...rule, slotId: "" };
+    return index >= 0
+      ? { ...rule, slotId: ids[index] }
+      : { ...rule, slotId: "" };
   });
 
   return {

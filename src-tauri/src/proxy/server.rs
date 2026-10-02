@@ -454,6 +454,10 @@ mod tests {
         body: Value,
     }
 
+    /// mock 上游对 Chat 路径的固定回复（`chat.completion` 形状）。放在这里而不是
+    /// 逐个调用点内联：形状只有一份定义，Chat 转换器的入参契约改动时不会漏改。
+    const CODEX_CHAT_COMPLETION_BODY: &str = r#"{"id":"chatcmpl_1","object":"chat.completion","created":1,"model":"kimi-k2","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}"#;
+
     /// A base URL pasted as a complete endpoint with the full-URL switch left off
     /// must derive the sibling standalone endpoint instead of having the
     /// standalone path appended to it.
@@ -1463,11 +1467,26 @@ mod tests {
     }
 
     /// 起一个只回固定 JSON 的 mock 上游，返回 (地址, 捕获句柄, 后台任务)。
-    /// `response_body` 按路径复用：原生 Responses 与 Anthropic 转换两条路径各回
-    /// 自己的形状，与 `handle_responses_for_app` 的分支一一对应。
+    /// `response_body` 按路径复用：原生 Responses、Anthropic 转换与 Chat 转换三条
+    /// 路径各回自己的形状，与 `handle_responses_for_app` 的分支一一对应。
     async fn spawn_mock_responses_upstream(
         responses_body: &'static str,
         messages_body: &'static str,
+    ) -> (
+        std::net::SocketAddr,
+        Arc<Mutex<Vec<CapturedRequest>>>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        spawn_mock_codex_upstream(responses_body, messages_body, CODEX_CHAT_COMPLETION_BODY).await
+    }
+
+    /// `spawn_mock_responses_upstream` 的可换 body 版：Chat 路径要回 Chat 形状的
+    /// `chat.completion`，而 Chat→Responses 转换器的入参形状与 Responses 不同，
+    /// 不能复用 Responses 那份固定体。
+    async fn spawn_mock_codex_upstream(
+        responses_body: &'static str,
+        messages_body: &'static str,
+        chat_body: &'static str,
     ) -> (
         std::net::SocketAddr,
         Arc<Mutex<Vec<CapturedRequest>>>,
@@ -1512,6 +1531,10 @@ mod tests {
             .route(
                 "/v1/messages",
                 post(capture(captured.clone(), messages_body)),
+            )
+            .route(
+                "/v1/chat/completions",
+                post(capture(captured.clone(), chat_body)),
             );
         let mock_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
             .await
@@ -1779,6 +1802,102 @@ mod tests {
             assert_eq!(
                 captured[0].body["model"], "kimi-k2",
                 "aggregate rewrite must survive the target provider's modelCatalog / default model"
+            );
+        }
+
+        proxy.stop().await.expect("stop test proxy");
+        mock_handle.abort();
+    }
+
+    /// Chat 臂的同款守卫用例。`forwarder.rs` 里 Responses→Chat 与
+    /// Responses→Anthropic 两条转换各有**一个独立的** `aggregate_override.is_none()`
+    /// 守卫，上一条只钉住了 Anthropic 那一个——删掉 Chat 臂的守卫仍然全绿。而
+    /// Chat 是第三方 Codex 网关最常见的上游形状，这条空白恰好盖住最常见的那类目标。
+    #[tokio::test]
+    async fn codex_aggregate_skips_apply_codex_chat_upstream_model_when_overridden() {
+        let (mock_addr, captured, mock_handle) = spawn_mock_codex_upstream(
+            r#"{"id":"resp_1","object":"response","status":"completed","model":"kimi-k2","output":[],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}"#,
+            r#"{"id":"msg_1","type":"message","role":"assistant","model":"kimi-k2","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":3,"output_tokens":2}}"#,
+            CODEX_CHAT_COMPLETION_BODY,
+        )
+        .await;
+
+        let db = Arc::new(Database::memory().expect("memory database"));
+
+        // 与 Anthropic 臂同款构造：`modelCatalog` 只含 `some-other-model`，所以
+        // 「kimi-k2」既不在白名单里、也不等于顶层 `model`。守卫一旦缺失，
+        // `apply_codex_chat_upstream_model` 就会用 `codex_provider_upstream_model`
+        // 把 body.model 改写成 `catalog-default-model` —— 断言因此有判别力。
+        // `api_format: "openai_chat"` 让请求走 Responses→Chat 转换路径 ——
+        // `apply_codex_chat_upstream_model` 就在该路径上被调用。
+        let target = Provider::with_id(
+            "codex-chat-target".to_string(),
+            "Codex Chat Target".to_string(),
+            json!({
+                "base_url": format!("http://{mock_addr}/v1"),
+                "auth": {"OPENAI_API_KEY": "target-secret"},
+                "api_format": "openai_chat",
+                "model": "catalog-default-model",
+                "modelCatalog": {"models": [{"model": "some-other-model"}]}
+            }),
+            None,
+        );
+        db.save_provider("codex", &target)
+            .expect("save chat catalog target");
+
+        let aggregate = codex_aggregate(
+            vec![codex_slot("gpt-5.1", "codex-chat-target", "kimi-k2")],
+            crate::aggregate::DefaultTarget::ProviderId("codex-chat-target".to_string()),
+        );
+        db.save_provider("codex", &aggregate)
+            .expect("save codex aggregate");
+        db.set_current_provider("codex", "codex-agg")
+            .expect("select codex aggregate provider");
+
+        let proxy = ProxyServer::new(
+            ProxyConfig {
+                listen_port: 0,
+                enable_logging: true,
+                non_streaming_timeout: 10,
+                ..ProxyConfig::default()
+            },
+            db.clone(),
+            None,
+        );
+        let proxy_info = proxy.start().await.expect("start test proxy");
+        let client = reqwest::Client::new();
+
+        let response = client
+            .post(format!("http://127.0.0.1:{}/v1/responses", proxy_info.port))
+            .header(header::AUTHORIZATION, "Bearer client-secret")
+            .json(&codex_responses_request("gpt-5.1"))
+            .send()
+            .await
+            .expect("send codex aggregate chat request");
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "aggregate chat hit: {}",
+            response.text().await.unwrap_or_default()
+        );
+
+        {
+            let captured = captured.lock().await;
+            assert_eq!(captured.len(), 1, "request reached upstream exactly once");
+            assert!(
+                captured[0]
+                    .path_and_query
+                    .split('?')
+                    .next()
+                    .unwrap()
+                    .ends_with("/chat/completions"),
+                "this case must exercise the Responses→Chat conversion path, got {}",
+                captured[0].path_and_query
+            );
+            assert_eq!(
+                captured[0].body["model"], "kimi-k2",
+                "aggregate rewrite must survive the target provider's modelCatalog / default model \
+                 on the Chat arm"
             );
         }
 

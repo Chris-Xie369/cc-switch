@@ -999,6 +999,48 @@ mod tests {
         assert_eq!(upstream.as_deref(), Some("kimi-k2"));
     }
 
+    #[tokio::test]
+    async fn resolve_codex_target_trims_upstream_model_on_the_way_out() {
+        // 槽位上游模型名带粘贴空格时必须 trim 后出站：它会被原样送到网关，尾随空格
+        // 足以让该槽位 400。trim 后为空则退成「不改写」（与未命中同义，运行时不做 repair）。
+        let db = crate::database::Database::memory().expect("db");
+        save_codex_target(&db, "p-kimi");
+        save_codex_target(&db, "p-other");
+        let aggregate = codex_aggregate_with(
+            vec![codex_slot("gpt-5.1", "p-kimi", " kimi-k2 ")],
+            DefaultTarget::SlotId("gpt-9.9".into()),
+        );
+
+        let (target, upstream) =
+            resolve_codex_target(&db, "codex", &aggregate, "gpt-5.1").expect("padded upstream hit");
+        assert_eq!(target.id, "p-kimi");
+        assert_eq!(
+            upstream.as_deref(),
+            Some("kimi-k2"),
+            "出站上游模型名必须 trim，不能把粘贴空格发去上游"
+        );
+
+        // 全空的上游名：不给上游送一个空模型名，语义回落成「不改写」。
+        let blank = codex_aggregate_with(
+            vec![codex_slot("gpt-5.1", "p-kimi", "   ")],
+            DefaultTarget::ProviderId("p-other".into()),
+        );
+        let (target, upstream) = resolve_codex_target(&db, "codex", &blank, "gpt-5.1")
+            .expect("blank upstream falls through");
+        assert_eq!(target.id, "p-kimi");
+        assert_eq!(upstream, None, "空白上游名不得作为模型名发出");
+
+        // 槽位里的目标供应商 id 同样是手填值：查询输入也 trim，否则整条请求硬失败。
+        let padded_id = codex_aggregate_with(
+            vec![codex_slot("gpt-5.1", " p-kimi ", "kimi-k2")],
+            DefaultTarget::ProviderId("p-other".into()),
+        );
+        let (target, upstream) = resolve_codex_target(&db, "codex", &padded_id, "gpt-5.1")
+            .expect("padded provider id hit");
+        assert_eq!(target.id, "p-kimi", "带空格的 provider_id 必须 trim 后查库");
+        assert_eq!(upstream.as_deref(), Some("kimi-k2"));
+    }
+
     /// 合成用的三槽路由表：默认模型 = 第 3 槽（与 Claude 侧用例同款构造）。
     fn codex_synthesis_routes() -> CodexAggregateRoutes {
         CodexAggregateRoutes {
@@ -1482,6 +1524,8 @@ pub fn resolve_target(
 /// 加上这个后缀再发请求，不剥离的话整批变体会漏到默认目标。helper 顺带 trim 了
 /// 请求名，槽位路由键与 `SlotId` 兜底名两侧也 trim 后比较——与目录派生的 trim
 /// 口径对齐（否则带空格的槽位键永不可达），与 Claude 侧在派生侧 trim 的做法同理。
+/// **出站的上游模型名同样 trim**（`trimmed_upstream`）：它会原样发往上游网关，
+/// 粘贴带出的尾随空格会让整个槽位 400。
 ///
 /// Codex 侧**没有别名层**：客户端模型名是 CLI 从 modelCatalog 里选的 slug，
 /// 精确匹配即可；加前缀回落只会把请求误发给用户没选的供应商。
@@ -1502,7 +1546,7 @@ pub fn resolve_codex_target(
         // 默认目标。不改存储值——保存校验才是「重复/空白」的唯一入口。
         if slot.model.trim() == requested {
             let target = load_codex_provider(db, app_type, &slot.provider_id)?;
-            return Ok((target, Some(slot.upstream_model.clone())));
+            return Ok((target, trimmed_upstream(&slot.upstream_model)));
         }
     }
 
@@ -1522,11 +1566,24 @@ pub fn resolve_codex_target(
                         "Codex aggregate default target points to a missing slot",
                     )
                 })?;
-            (slot.provider_id.clone(), Some(slot.upstream_model.clone()))
+            (
+                slot.provider_id.clone(),
+                trimmed_upstream(&slot.upstream_model),
+            )
         }
     };
     let target = load_codex_provider(db, app_type, &fallback_id)?;
     Ok((target, fallback_upstream))
+}
+
+/// 槽位里 `upstream_model` 的出站值：trim 后非空才发出。
+///
+/// 粘贴常带首尾空格，而模型名会被原样送到上游网关——一个尾随空格足以让网关对
+/// 整个槽位返回 400。空值返回 `None`（不改写模型名），与「未命中」同义：保存校验
+/// 是「槽位可用」的唯一入口，运行时不做 repair。
+fn trimmed_upstream(upstream_model: &str) -> Option<String> {
+    let trimmed = upstream_model.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 fn load_provider(
@@ -1546,12 +1603,15 @@ fn load_provider(
 
 /// `load_provider` 的 Codex 版：报错带 Codex 聚合自己的 key，便于用户把日志里的
 /// 问题定位到 Codex 侧路由表（两套路由表互不相通）。
+///
+/// 查询输入 trim：槽位里的 `provider_id` 与路由键同样是用户手填/粘贴的原始值，
+/// 带一个空格就查不到目标供应商，整条请求直接失败。
 fn load_codex_provider(
     db: &crate::database::Database,
     app_type: &str,
     provider_id: &str,
 ) -> Result<Provider, AppError> {
-    db.get_provider_by_id(provider_id, app_type)?
+    db.get_provider_by_id(provider_id.trim(), app_type)?
         .ok_or_else(|| {
             AppError::localized(
                 "codex_aggregate.target_provider_missing",

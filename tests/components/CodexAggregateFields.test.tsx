@@ -326,7 +326,10 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@/components/providers/forms/CodexConfigEditor", () => ({
-  default: () => <div data-testid="codex-config-editor" />,
+  // 用 hideForAggregate 当门闸渲染出 testid：配置块藏起时它一并消失，
+  // 便于断言「聚合开启 → 端点/凭据/通用配置整块不再暴露」。
+  default: ({ hideForAggregate }: { hideForAggregate?: boolean }) =>
+    hideForAggregate ? null : <div data-testid="codex-config-editor" />,
 }));
 
 vi.mock("@/components/providers/forms/ProviderAdvancedConfig", () => ({
@@ -495,5 +498,92 @@ describe("Codex 聚合：开关接线与 meta 提交", () => {
   it("官方 Codex 卡片不渲染聚合开关", () => {
     renderCodexProviderForm({ onSubmit: vi.fn(), category: "official" });
     expect(screen.queryByRole("switch", { name: "启用聚合路由" })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 聚合开启时的表单门禁：聚合卡片无端点无凭据，写 live 时由后端
+// `apply_codex_aggregate_seed` 合成整份配置顶替用户输入。渲染出来的端点 / Key /
+// 通用配置开关全是「改了看不到效果」的假控件，软校验还会为它们弹「仍要保存？」。
+// 判据与 Claude Desktop 侧聚合一致：开启即豁免、开启即藏起来。
+// ---------------------------------------------------------------------------
+
+describe("Codex 聚合：表单门禁（藏端点/凭据/配置块 + 豁免软校验）", () => {
+  const routes: CodexAggregateRoutes = {
+    slots: [{ model: "gpt-5.1", providerId: "p1", upstreamModel: "kimi-k2" }],
+    defaultTarget: { kind: "providerId", value: "p1" },
+  };
+
+  it("聚合关闭时端点 / Key / 配置块照常渲染", () => {
+    const { container } = renderCodexProviderForm({ onSubmit: vi.fn() });
+
+    // i18n 在测试里回落成 key，按稳定的元素 id 定位（label 文案会随 locale 变）
+    expect(container.querySelector("#codexApiKey")).not.toBeNull();
+    expect(container.querySelector("#codexBaseUrl")).not.toBeNull();
+    expect(screen.getByTestId("codex-config-editor")).toBeInTheDocument();
+  });
+
+  it("聚合开启后端点 / Key / 配置块一并消失", () => {
+    const { container } = renderCodexProviderForm({
+      onSubmit: vi.fn(),
+      initialMeta: { codexAggregateRoutes: routes },
+    });
+
+    expect(container.querySelector("#codexApiKey")).toBeNull();
+    expect(container.querySelector("#codexBaseUrl")).toBeNull();
+    expect(screen.queryByTestId("codex-config-editor")).toBeNull();
+  });
+
+  it("存量聚合卡片（无端点无 Key）保存不弹「仍要保存？」确认框", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    // settingsConfig 为空对象：聚合卡片本就没有端点与凭据
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <ProviderForm
+          appId="codex"
+          submitLabel="save-provider"
+          onSubmit={onSubmit}
+          onCancel={vi.fn()}
+          initialData={{
+            name: "Agg",
+            category: "custom",
+            settingsConfig: { auth: {}, config: "" },
+            meta: { codexAggregateRoutes: routes },
+          }}
+        />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "save-provider" }));
+
+    // 软校验豁免 → 直接提交，没有确认框拦截
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("仍要保存")).toBeNull();
+  });
+
+  it("非聚合卡片缺端点时仍弹确认框（豁免不外溢）", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <ProviderForm
+          appId="codex"
+          submitLabel="save-provider"
+          onSubmit={onSubmit}
+          onCancel={vi.fn()}
+          initialData={{
+            name: "Plain",
+            category: "custom",
+            settingsConfig: { auth: {}, config: "" },
+          }}
+        />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "save-provider" }));
+
+    expect(await screen.findByText("仍要保存")).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 });

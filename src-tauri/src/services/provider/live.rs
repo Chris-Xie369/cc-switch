@@ -924,10 +924,11 @@ fn apply_codex_aggregate_seed(
     );
 
     // 这里整份覆盖 `settings_config`，**丢弃**上一步 `build_effective_settings_with_common_config`
-    // 刚合进来的通用配置片段。当前无损失：聚合卡片的表单不开通用配置
-    // （`enableCommonConfig` 恒 false），故那一步对本 provider 是恒等变换。**若将来
-    // 允许聚合卡片开通用配置，必须先在这里把它合进合成配置**——否则那段配置会在
-    // 写 live 时被静默吞掉，且 DB 行仍是空的，看不出是丢在这里。
+    // 刚合进来的通用配置片段。当前无损失：聚合卡片的表单不开通用配置（提交前已把
+    // 整个配置编辑器连同通用配置开关一起藏掉），故那一步对本 provider 是恒等变换。
+    // 注意：UI 门禁只挡新编辑——存量卡片若曾开过通用配置，那段片段仍会被这里静默
+    // 吞掉（DB 行是空的，看不出是丢在这里）；**若将来允许聚合卡片开通用配置，
+    // 必须先在这里把它合进合成配置**。
     let routes = crate::aggregate::codex_routes_of(provider)?.clone();
     provider.settings_config =
         crate::aggregate::synthesize_codex_aggregate_settings(&routes, &origin)?;

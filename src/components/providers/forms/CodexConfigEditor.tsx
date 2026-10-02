@@ -39,6 +39,14 @@ interface CodexConfigEditorProps {
   onExtract?: () => void;
 
   isExtracting?: boolean;
+
+  /**
+   * Codex 聚合卡片：整块配置编辑器（auth JSON / config TOML / 通用配置开关）都不渲染。
+   * 聚合按设计无端点无凭据，写 live 时由后端 `apply_codex_aggregate_seed` 合成整份
+   * 配置顶替这里的输入——渲染出来只会让用户改一份看不到效果的东西。存量已开过
+   * 通用配置的卡片靠后端合成兜住，无需在这里提示或迁移。
+   */
+  hideForAggregate?: boolean;
 }
 
 const CodexConfigEditor: React.FC<CodexConfigEditorProps> = ({
@@ -60,6 +68,7 @@ const CodexConfigEditor: React.FC<CodexConfigEditorProps> = ({
   configError,
   onExtract,
   isExtracting,
+  hideForAggregate = false,
 }) => {
   const { t } = useTranslation();
   const [isCommonConfigModalOpen, setIsCommonConfigModalOpen] = useState(false);
@@ -68,6 +77,10 @@ const CodexConfigEditor: React.FC<CodexConfigEditorProps> = ({
     onCommonConfigErrorClear();
     setIsCommonConfigModalOpen(false);
   };
+
+  if (hideForAggregate) {
+    return null;
+  }
 
   return (
     <div className="space-y-6">

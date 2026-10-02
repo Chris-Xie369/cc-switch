@@ -698,6 +698,13 @@ function ProviderFormFull({
     [codexProvidersData?.providers, providerId],
   );
 
+  // Codex 聚合卡片「开启聚合路由」状态。聚合卡片无端点无凭据（DB 行是空对象，
+  // 写 live 时由后端 `apply_codex_aggregate_seed` 合成），因此普通供应商的端点 /
+  // Key / 通用配置开关对它一律无意义：开关藏起来、软校验豁免（与 Claude Desktop
+  // 侧聚合同款判据，见 ClaudeDesktopProviderForm 的 isAggregate）。
+  const isCodexAggregate =
+    appId === "codex" && codexAggregateRoutes !== undefined;
+
   // 聚合槽位按「目标供应商」拉取模型列表：凭据取自该供应商自身的
   // settingsConfig（auth.OPENAI_API_KEY 或 TOML 里的 bearer token）。
   // 聚合卡片自身没有端点，表单顶部的「获取模型列表」对它无从下手。
@@ -1522,15 +1529,15 @@ function ProviderFormFull({
         }
       } else if (appId === "codex") {
         // 托管 OAuth 预设（xAI）：端点由 adapter 硬定向、token 由代理注入，
-        // 两项都不需要用户填写
-        if (!isXaiOauthProvider && !codexBaseUrl.trim()) {
+        // 两项都不需要用户填写；聚合卡片无端点无凭据（写 live 时合成），同样跳过
+        if (!isXaiOauthProvider && !isCodexAggregate && !codexBaseUrl.trim()) {
           issues.push(
             t("providerForm.endpointRequired", {
               defaultValue: "非官方供应商请填写 API 端点",
             }),
           );
         }
-        if (!isXaiOauthProvider && !codexApiKey.trim()) {
+        if (!isXaiOauthProvider && !isCodexAggregate && !codexApiKey.trim()) {
           issues.push(
             t("providerForm.apiKeyRequired", {
               defaultValue: "非官方供应商请填写 API Key",
@@ -2618,6 +2625,7 @@ function ProviderFormFull({
               fetchingCodexAggregateProviderId={
                 fetchingCodexAggregateProviderId
               }
+              isCodexAggregate={isCodexAggregate}
               speedTestEndpoints={speedTestEndpoints}
               customUserAgent={customUserAgent}
               onCustomUserAgentChange={setCustomUserAgent}
@@ -2768,6 +2776,11 @@ function ProviderFormFull({
                 configError={codexConfigError}
                 onExtract={handleCodexExtract}
                 isExtracting={isCodexExtracting}
+                // 聚合卡片无端点无凭据，写 live 时由后端合成整份配置：这里渲染出来的
+                // auth / config / 通用配置片段都会被那份合成配置整份顶掉（用户改了也
+                // 看不到效果），故整块藏起来——与 Claude Desktop 侧对聚合藏掉端点/Key
+                // 同款处理。存量已开过通用配置的卡片也不受影响：后端合成不看它。
+                hideForAggregate={isCodexAggregate}
               />
               {settingsConfigErrorField}
             </>

@@ -154,6 +154,9 @@ interface CodexFormFieldsProps {
   codexAggregateModelsByProvider?: Record<string, FetchedModel[]>;
   onCodexAggregateFetchModels?: (provider: Provider) => void;
   fetchingCodexAggregateProviderId?: string | null;
+  /** 聚合开关已打开：藏掉端点 / API Key（聚合卡片无端点无凭据，写 live 时由后端
+   *  合成），与 Claude Desktop 侧 `isAggregate` 对端点/Key 的处理同款。 */
+  isCodexAggregate?: boolean;
 
   // Speed Test Endpoints
   speedTestEndpoints: EndpointCandidate[];
@@ -442,6 +445,7 @@ export function CodexFormFields({
   codexAggregateModelsByProvider,
   onCodexAggregateFetchModels,
   fetchingCodexAggregateProviderId = null,
+  isCodexAggregate = false,
   speedTestEndpoints,
   customUserAgent,
   onCustomUserAgentChange,
@@ -822,8 +826,8 @@ export function CodexFormFields({
         />
       )}
 
-      {/* Codex API Key 输入框（托管 OAuth 预设无需 Key） */}
-      {!isCodexOauthPreset && !isXaiOauthPreset && (
+      {/* Codex API Key 输入框（托管 OAuth 预设无需 Key；聚合卡片无凭据） */}
+      {!isCodexOauthPreset && !isXaiOauthPreset && !isCodexAggregate && (
         <ApiKeySection
           id="codexApiKey"
           label="API Key"
@@ -845,8 +849,9 @@ export function CodexFormFields({
         />
       )}
 
-      {/* Codex Base URL 输入框（托管 OAuth 端点由 adapter 硬定向，不展示） */}
-      {shouldShowSpeedTest && !isXaiOauthPreset && (
+      {/* Codex Base URL 输入框（托管 OAuth 端点由 adapter 硬定向；聚合卡片无端点，
+          都不展示） */}
+      {shouldShowSpeedTest && !isXaiOauthPreset && !isCodexAggregate && (
         <EndpointField
           id="codexBaseUrl"
           label={t("codexConfig.apiUrlLabel")}

@@ -962,6 +962,43 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn resolve_codex_target_matches_padded_slot_model() {
+        // 槽位路由键带首尾空格时仍须命中：客户端只可能从 modelCatalog 里选到 trim
+        // 后的名字（目录派生即 trim），按原始值比较会让它漏到兜底。
+        let db = crate::database::Database::memory().expect("db");
+        save_codex_target(&db, "p-kimi");
+        save_codex_target(&db, "p-other");
+        let aggregate = codex_aggregate_with(
+            vec![codex_slot(" gpt-5.1 ", "p-kimi", "kimi-k2")],
+            DefaultTarget::ProviderId("p-other".into()),
+        );
+
+        for requested in ["gpt-5.1", "gpt-5.1[1M]"] {
+            let (target, upstream) = resolve_codex_target(&db, "codex", &aggregate, requested)
+                .unwrap_or_else(|e| panic!("{requested} 应命中带空格的槽位: {e:?}"));
+            assert_eq!(target.id, "p-kimi", "{requested} 不应漏到兜底");
+            assert_eq!(upstream.as_deref(), Some("kimi-k2"), "{requested}");
+        }
+    }
+
+    #[tokio::test]
+    async fn resolve_codex_target_default_slot_matches_padded_slot_model() {
+        // `SlotId` 兜底名与槽位路由键都按 trim 后的名字比较，两侧都带空格也要解析成功
+        // （保存校验正是这么比重的），不能硬失败。
+        let db = crate::database::Database::memory().expect("db");
+        save_codex_target(&db, "p-kimi");
+        let aggregate = codex_aggregate_with(
+            vec![codex_slot(" gpt-5.1 ", "p-kimi", "kimi-k2")],
+            DefaultTarget::SlotId(" gpt-5.1 ".into()),
+        );
+
+        let (target, upstream) = resolve_codex_target(&db, "codex", &aggregate, "gpt-9.9")
+            .expect("padded slot fallback");
+        assert_eq!(target.id, "p-kimi");
+        assert_eq!(upstream.as_deref(), Some("kimi-k2"));
+    }
+
     /// 合成用的三槽路由表：默认模型 = 第 3 槽（与 Claude 侧用例同款构造）。
     fn codex_synthesis_routes() -> CodexAggregateRoutes {
         CodexAggregateRoutes {
@@ -1442,7 +1479,9 @@ pub fn resolve_target(
 /// - 默认目标不可用 / 目标供应商缺失 → 明确错误（不静默降级）
 ///
 /// 查找前同样先剥离 `[1m]` 标记（与 Claude 侧同一个 helper）：客户端可能给模型名
-/// 加上这个后缀再发请求，不剥离的话整批变体会漏到默认目标。
+/// 加上这个后缀再发请求，不剥离的话整批变体会漏到默认目标。helper 顺带 trim 了
+/// 请求名，槽位路由键与 `SlotId` 兜底名两侧也 trim 后比较——与目录派生的 trim
+/// 口径对齐（否则带空格的槽位键永不可达），与 Claude 侧在派生侧 trim 的做法同理。
 ///
 /// Codex 侧**没有别名层**：客户端模型名是 CLI 从 modelCatalog 里选的 slug，
 /// 精确匹配即可；加前缀回落只会把请求误发给用户没选的供应商。
@@ -1458,7 +1497,10 @@ pub fn resolve_codex_target(
         crate::claude_desktop_config::strip_one_m_suffix_for_route_lookup(request_model);
 
     for slot in &routes.slots {
-        if slot.model == requested {
+        // 路由键两侧都 trim：客户端只会从 modelCatalog 里选到 trim 过的模型名
+        // （目录派生时已 trim），而槽位里存的原始值可能带空格；不 trim 就会漏到
+        // 默认目标。不改存储值——保存校验才是「重复/空白」的唯一入口。
+        if slot.model.trim() == requested {
             let target = load_codex_provider(db, app_type, &slot.provider_id)?;
             return Ok((target, Some(slot.upstream_model.clone())));
         }
@@ -1472,7 +1514,7 @@ pub fn resolve_codex_target(
             let slot = routes
                 .slots
                 .iter()
-                .find(|slot| &slot.model == slot_id)
+                .find(|slot| slot.model.trim() == slot_id.trim())
                 .ok_or_else(|| {
                     AppError::localized(
                         "codex_aggregate.default_target_slot_missing",

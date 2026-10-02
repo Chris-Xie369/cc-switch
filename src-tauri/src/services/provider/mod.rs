@@ -1940,6 +1940,26 @@ GEMINI_TIMEOUT_MS=30000
                 err.to_string().contains("另一个聚合供应商"),
                 "unexpected error: {err}"
             );
+
+            // 只被兜底目标的 ProviderId 变体指向嵌套供应商同样要拒：槽位都指向
+            // 普通供应商，但未命中槽位的请求会被兜底实发到那个聚合供应商。
+            let fallback_nested = aggregate_provider(
+                "agg-fallback-nested",
+                crate::aggregate::AggregateRoutes {
+                    slots: vec![slot("claude-sonnet-plain", "p-plain")],
+                    default_target: crate::aggregate::DefaultTarget::ProviderId(
+                        "target-agg".into(),
+                    ),
+                    default_model: None,
+                    alias_rules: vec![],
+                },
+            );
+            let err = ProviderService::add(state, AppType::ClaudeDesktop, fallback_nested, false)
+                .expect_err("nesting via the default target must be rejected");
+            assert!(
+                err.to_string().contains("另一个聚合供应商"),
+                "unexpected error: {err}"
+            );
         });
     }
 
@@ -2038,11 +2058,54 @@ GEMINI_TIMEOUT_MS=30000
                 "unexpected error: {err}"
             );
 
-            // 聚合供应商自身可删（解除引用后目标也可删）
+            // 只被兜底目标的 ProviderId 变体引用（槽位没提到它）同样不可删：
+            // 删掉后未命中槽位的请求会在运行时失去落点。
+            state
+                .db
+                .save_provider(
+                    AppType::ClaudeDesktop.as_str(),
+                    &Provider::with_id(
+                        "fallback".into(),
+                        "Fallback".into(),
+                        claude_desktop_direct_settings(),
+                        None,
+                    ),
+                )
+                .expect("save fallback target");
+            let fallback_only = aggregate_provider(
+                "agg-fallback",
+                crate::aggregate::AggregateRoutes {
+                    // 槽位指向另一家普通供应商：只有兜底目标提到 fallback
+                    slots: vec![slot("claude-sonnet-target", "target")],
+                    default_target: crate::aggregate::DefaultTarget::ProviderId("fallback".into()),
+                    default_model: None,
+                    alias_rules: vec![],
+                },
+            );
+            state
+                .db
+                .save_provider(AppType::ClaudeDesktop.as_str(), &fallback_only)
+                .expect("save aggregate naming the fallback target");
+
+            let err = ProviderService::delete(state, AppType::ClaudeDesktop, "fallback")
+                .expect_err(
+                    "a provider named only by the claude default target must not be deletable",
+                );
+            assert!(
+                err.to_string().contains("被聚合供应商引用"),
+                "unexpected error: {err}"
+            );
+
+            // 聚合供应商自身可删（解除引用后目标也可删；agg-fallback 的槽位也引用
+            // target，故须先把它删掉）
             ProviderService::delete(state, AppType::ClaudeDesktop, "agg")
                 .expect("aggregate itself is deletable");
+            ProviderService::delete(state, AppType::ClaudeDesktop, "agg-fallback")
+                .expect("fallback-naming aggregate is deletable");
             ProviderService::delete(state, AppType::ClaudeDesktop, "target")
                 .expect("target is deletable once no longer referenced");
+            ProviderService::delete(state, AppType::ClaudeDesktop, "fallback")
+                .expect("fallback is deletable once no longer referenced");
         });
     }
 
@@ -2159,7 +2222,8 @@ GEMINI_TIMEOUT_MS=30000
 
     #[test]
     fn validate_codex_aggregate_rejects_duplicate_slot_models() {
-        // trim 后重复也算重复——路由键在查表时是 trim 过的，两个等价键必有一个永远命中不了
+        // trim 后重复也算重复——查表（resolve_codex_target）与目录派生都按 trim 后的
+        // 名字匹配，两个等价键必有一个永远命中不了
         let provider = codex_aggregate_provider(
             "agg-codex",
             codex_routes(vec![
@@ -2310,6 +2374,18 @@ GEMINI_TIMEOUT_MS=30000
             );
             let err = ProviderService::add(state, AppType::Codex, nested_mixed, false)
                 .expect_err("codex aggregate must not target a claude-side aggregate row");
+            assert_eq!(localized_key(&err), "codex_aggregate.nested");
+
+            // 只被兜底目标的 ProviderId 变体指向嵌套供应商同样要拒：槽位指向普通
+            // 供应商，但未命中槽位的请求会被兜底实发到那个聚合供应商。
+            let mut fallback_routes =
+                codex_routes(vec![codex_slot("gpt-5.1", "p-plain", "kimi-k2")]);
+            fallback_routes.default_target =
+                crate::aggregate::DefaultTarget::ProviderId("target-codex-agg".into());
+            let fallback_nested =
+                codex_aggregate_provider("agg-codex-fallback-nested", fallback_routes);
+            let err = ProviderService::add(state, AppType::Codex, fallback_nested, false)
+                .expect_err("codex aggregate must not nest via its default target");
             assert_eq!(localized_key(&err), "codex_aggregate.nested");
         });
     }
@@ -8052,10 +8128,10 @@ impl ProviderService {
         Ok(())
     }
 
-    /// 同 app 下是否有聚合供应商的槽位引用了 target_id。
+    /// 同 app 下是否有聚合供应商引用了 target_id。
     /// 禁嵌套的反向检查与删除保护共用同一「引用关系」判定，规则一处维护。
-    /// 查两个 meta 键：Codex 侧的 `codexAggregateRoutes` 槽位与兜底目标的
-    /// `ProviderId` 变体同样是引用关系（Claude 侧只落在槽位里）。
+    /// 查两个 meta 键；两侧的引用都出现在两处：槽位的 `provider_id` 与兜底目标的
+    /// `ProviderId` 变体（后者同样会把未命中槽位的请求实发到目标供应商）。
     fn referencing_aggregate_exists(
         state: &AppState,
         app_type: &AppType,
@@ -8069,12 +8145,11 @@ impl ProviderService {
                 let Some(meta) = other.meta.as_ref() else {
                     return false;
                 };
-                if meta.aggregate_routes.as_ref().is_some_and(|routes| {
-                    routes
-                        .slots
-                        .iter()
-                        .any(|slot| slot.provider_id == target_id)
-                }) {
+                if meta
+                    .aggregate_routes
+                    .as_ref()
+                    .is_some_and(|routes| Self::claude_routes_reference(&routes, target_id))
+                {
                     return true;
                 }
                 meta.codex_aggregate_routes
@@ -8083,8 +8158,30 @@ impl ProviderService {
             }))
     }
 
-    /// Codex 聚合路由表是否引用了 target_id。引用出现在两处：槽位的 `provider_id`，
-    /// 以及兜底目标的 `ProviderId` 变体（它同样会把请求实发到目标供应商）。
+    /// 兜底目标指向供应商时的那个 id；`SlotId` 变体指向本表内的槽位，返回 None
+    /// （该槽的目标供应商已由槽位本身计入引用集合，不重复计入）。
+    fn fallback_provider_id(default_target: &crate::aggregate::DefaultTarget) -> Option<&str> {
+        match default_target {
+            crate::aggregate::DefaultTarget::ProviderId(id) => Some(id.as_str()),
+            crate::aggregate::DefaultTarget::SlotId(_) => None,
+        }
+    }
+
+    /// Claude 聚合路由表是否引用了 target_id：槽位的 `provider_id`，或兜底目标的
+    /// `ProviderId` 变体（删掉/改造成它会让未命中槽位的请求失去落点）。
+    fn claude_routes_reference(
+        routes: &crate::aggregate::AggregateRoutes,
+        target_id: &str,
+    ) -> bool {
+        routes
+            .slots
+            .iter()
+            .any(|slot| slot.provider_id == target_id)
+            || Self::fallback_provider_id(&routes.default_target) == Some(target_id)
+    }
+
+    /// Codex 聚合路由表是否引用了 target_id，判定与 `claude_routes_reference` 同款
+    /// （两张表的槽位类型不同，但「哪两处算引用」的规则一致，故共用上面的取 id 片段）。
     fn codex_routes_reference(
         routes: &crate::aggregate::CodexAggregateRoutes,
         target_id: &str,
@@ -8093,10 +8190,7 @@ impl ProviderService {
             .slots
             .iter()
             .any(|slot| slot.provider_id == target_id)
-            || matches!(
-                &routes.default_target,
-                crate::aggregate::DefaultTarget::ProviderId(id) if id == target_id
-            )
+            || Self::fallback_provider_id(&routes.default_target) == Some(target_id)
     }
 
     /// 禁嵌套：聚合供应商的槽位不得指向另一个聚合供应商。
@@ -8126,11 +8220,14 @@ impl ProviderService {
         // 负责，这里只禁嵌套。两张表各自报错 key（Codex 表用 Codex 侧的 key，便于
         // 用户把问题定位到 Codex 路由表）。
         if let Some(routes) = claude_routes {
-            let target_ids: Vec<&str> = routes
+            // 目标 id = 槽位的 provider_id ∪ 兜底目标的 ProviderId：兜底同样把请求
+            // 实发到那家供应商，指到聚合供应商上就是嵌套。
+            let mut target_ids: Vec<&str> = routes
                 .slots
                 .iter()
                 .map(|slot| slot.provider_id.as_str())
                 .collect();
+            target_ids.extend(Self::fallback_provider_id(&routes.default_target));
             Self::reject_nested_targets(state, app_type, &target_ids, || {
                 AppError::localized(
                     "aggregate.nested_aggregate",
@@ -8140,11 +8237,12 @@ impl ProviderService {
             })?;
         }
         if let Some(routes) = codex_routes {
-            let target_ids: Vec<&str> = routes
+            let mut target_ids: Vec<&str> = routes
                 .slots
                 .iter()
                 .map(|slot| slot.provider_id.as_str())
                 .collect();
+            target_ids.extend(Self::fallback_provider_id(&routes.default_target));
             Self::reject_nested_targets(state, app_type, &target_ids, || {
                 AppError::localized(
                     "codex_aggregate.nested",

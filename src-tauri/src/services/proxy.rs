@@ -2035,7 +2035,7 @@ impl ProxyService {
                 &proxy_url,
                 &claude_provider,
             );
-            self.write_claude_live(&live_config)?;
+            self.write_claude_live_verbatim(&live_config)?;
             log::info!("Claude Live 配置已接管，代理地址: {proxy_url}");
         }
 
@@ -2093,7 +2093,7 @@ impl ProxyService {
                     &proxy_url,
                     &claude_provider,
                 );
-                self.write_claude_live(&live_config)?;
+                self.write_claude_live_verbatim(&live_config)?;
                 log::info!("Claude Live 配置已接管，代理地址: {proxy_url}");
             }
             AppType::Codex => {
@@ -2165,7 +2165,7 @@ impl ProxyService {
                             ClaudeTakeoverAuthPolicy::PreserveExistingOrAuthToken,
                         );
                     }
-                    let _ = self.write_claude_live(&live_config);
+                    let _ = self.write_claude_live_verbatim(&live_config);
                 }
             }
             AppType::Codex if self.read_codex_live().is_ok() => {
@@ -2241,7 +2241,7 @@ impl ProxyService {
                 if let Ok(Some(backup)) = self.db.get_live_backup("claude").await {
                     let config: Value = serde_json::from_str(&backup.original_config)
                         .map_err(|e| format!("解析 Claude 备份失败: {e}"))?;
-                    self.write_claude_live(&config)?;
+                    self.write_claude_live_verbatim(&config)?;
                     log::info!("Claude Live 配置已恢复");
                 }
             }
@@ -2370,7 +2370,7 @@ impl ProxyService {
 
     fn write_live_config_for_app(&self, app_type: &AppType, config: &Value) -> Result<(), String> {
         match app_type {
-            AppType::Claude => self.write_claude_live(config),
+            AppType::Claude => self.write_claude_live_verbatim(config),
             AppType::Codex => self.write_codex_restore_backup(config),
             AppType::Gemini => self.write_gemini_live(config),
             AppType::GrokBuild => self.write_grok_live(config),
@@ -2588,7 +2588,7 @@ impl ProxyService {
             env.remove("ANTHROPIC_BASE_URL");
         }
 
-        self.write_claude_live(&config)?;
+        self.write_claude_live_verbatim(&config)?;
         Ok(())
     }
 
@@ -3549,7 +3549,21 @@ impl ProxyService {
         Ok(value)
     }
 
+    /// 把供应商投影写入 Claude Live：反向白名单合并（与
+    /// [`crate::services::provider::merge_claude_settings_for_live`] 同语义）——
+    /// 顶层只接管 env/apiKey，其余顶层键与非 owned env 子键以文件现值为准
+    /// （用户领地，在切换/接管重投影间存活）。
     fn write_claude_live(&self, config: &Value) -> Result<(), String> {
+        let path = get_claude_settings_path();
+        let existing = read_json_file::<Value>(&path).unwrap_or_else(|_| json!({}));
+        let settings = crate::services::provider::merge_claude_settings_for_live(&existing, config);
+        write_json_file(&path, &settings).map_err(|e| format!("写入 Claude 配置失败: {e}"))
+    }
+
+    /// 整份覆盖写入 Claude Live：调用方给出完整期望文档，删除必须生效。
+    /// 备份恢复（untakeover 快照回写）、接管占位符清理、接管字段回写必须用本
+    /// 函数——合并写会保留文件里的非 owned 键，让本应删除的占位符/残留存活。
+    fn write_claude_live_verbatim(&self, config: &Value) -> Result<(), String> {
         let path = get_claude_settings_path();
         let settings = crate::services::provider::sanitize_claude_settings_for_live(config);
         write_json_file(&path, &settings).map_err(|e| format!("写入 Claude 配置失败: {e}"))
@@ -4789,7 +4803,7 @@ mod tests {
         crate::settings::set_current_provider(&AppType::Claude, Some("p1"))
             .expect("set local current provider");
         service
-            .write_claude_live(&json!({
+            .write_claude_live_verbatim(&json!({
                 "env": {
                     "ANTHROPIC_API_KEY": "live-key",
                     "ANTHROPIC_BASE_URL": "https://api.anthropic.com"
@@ -7685,7 +7699,7 @@ model = "gpt-5.1-codex"
         .await
         .expect("seed live backup");
         service
-            .write_claude_live(&json!({
+            .write_claude_live_verbatim(&json!({
                 "env": {
                     "ANTHROPIC_BASE_URL": "http://127.0.0.1:15721",
                     "ANTHROPIC_API_KEY": PROXY_TOKEN_PLACEHOLDER,
@@ -7705,8 +7719,8 @@ model = "gpt-5.1-codex"
         let live = service.read_claude_live().expect("read live config");
         assert_eq!(
             live.get("permissions"),
-            provider_b.settings_config.get("permissions"),
-            "provider-derived live settings should be refreshed"
+            Some(&json!({ "allow": ["Bash"] })),
+            "非 owned 顶层键是用户领地，重投影保留文件现值，不被供应商副本覆盖"
         );
         assert_eq!(
             live.get("env")
@@ -7789,6 +7803,86 @@ model = "gpt-5.1-codex"
             .expect("backup exists");
         let expected = serde_json::to_string(&provider_b.settings_config).expect("serialize");
         assert_eq!(backup.original_config, expected);
+    }
+
+    /// 接管重投影（代理运行中热切换/回滚）不得丢用户键：顶层只接管
+    /// env/apiKey，其余顶层键与非 owned env 子键是用户领地。
+    #[tokio::test]
+    #[serial]
+    async fn sync_claude_live_while_proxy_active_preserves_user_owned_keys() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload settings");
+
+        let db = Arc::new(Database::memory().expect("init db"));
+        let service = ProxyService::new(db.clone());
+
+        let live_path = crate::config::get_claude_settings_path();
+        std::fs::create_dir_all(live_path.parent().expect("settings parent"))
+            .expect("create settings dir");
+        std::fs::write(
+            &live_path,
+            serde_json::to_string(&json!({
+                "theme": "dark",
+                "modelPicker": { "options": ["opus", "sonnet"] },
+                "statusLine": { "type": "command", "command": "my-status" },
+                "env": {
+                    "ANTHROPIC_API_KEY": "old-key",
+                    "MY_CUSTOM_KEY": "keep-me"
+                }
+            }))
+            .expect("serialize user live config"),
+        )
+        .expect("seed user settings.json");
+
+        let provider = Provider::with_id(
+            "p1".to_string(),
+            "P1".to_string(),
+            json!({
+                "env": {
+                    "ANTHROPIC_API_KEY": "provider-key",
+                    "ANTHROPIC_BASE_URL": "https://api.example.com"
+                }
+            }),
+            None,
+        );
+
+        service
+            .sync_claude_live_from_provider_while_proxy_active(&provider)
+            .await
+            .expect("sync live while proxy active");
+
+        let live = service.read_claude_live().expect("read live");
+        assert_eq!(live.get("theme"), Some(&json!("dark")), "theme 存活");
+        assert_eq!(
+            live.get("modelPicker"),
+            Some(&json!({ "options": ["opus", "sonnet"] })),
+            "modelPicker 存活"
+        );
+        assert_eq!(
+            live.get("statusLine"),
+            Some(&json!({ "type": "command", "command": "my-status" })),
+            "statusLine 存活"
+        );
+        let env = live
+            .get("env")
+            .and_then(|v| v.as_object())
+            .expect("env object");
+        assert_eq!(
+            env.get("MY_CUSTOM_KEY"),
+            Some(&json!("keep-me")),
+            "用户 env 子键存活"
+        );
+        // owned 键随供应商 + 接管字段更新
+        assert_eq!(
+            env.get("ANTHROPIC_API_KEY"),
+            Some(&json!(PROXY_TOKEN_PLACEHOLDER)),
+            "token 键换成接管占位符"
+        );
+        assert_eq!(
+            env.get("ANTHROPIC_BASE_URL"),
+            Some(&json!("http://127.0.0.1:15721")),
+            "base URL 指向本地代理"
+        );
     }
 
     #[tokio::test]
@@ -7923,7 +8017,7 @@ model = "gpt-5.1-codex"
         .await
         .expect("seed live backup");
         service
-            .write_claude_live(&json!({ "env": { "ANTHROPIC_API_KEY": "stale" } }))
+            .write_claude_live_verbatim(&json!({ "env": { "ANTHROPIC_API_KEY": "stale" } }))
             .expect("seed live file");
 
         let guard = service.lock_switch_for_test("claude").await;
@@ -7967,6 +8061,53 @@ model = "gpt-5.1-codex"
         assert_eq!(
             service.read_claude_live().expect("read live"),
             provider_b.settings_config
+        );
+    }
+
+    /// untakeover 恢复必须整份回写备份快照：合并写会让接管期残留键
+    /// （占位符、期间新增的用户键）在恢复态里存活，破坏备份恢复语义。
+    #[tokio::test]
+    #[serial]
+    async fn restore_live_config_writes_backup_verbatim() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload settings");
+
+        let db = Arc::new(Database::memory().expect("init db"));
+        let service = ProxyService::new(db.clone());
+
+        let live_path = crate::config::get_claude_settings_path();
+        std::fs::create_dir_all(live_path.parent().expect("settings parent"))
+            .expect("create settings dir");
+        std::fs::write(
+            &live_path,
+            serde_json::to_string(&json!({
+                "theme": "dark",
+                "env": {
+                    "ANTHROPIC_AUTH_TOKEN": PROXY_TOKEN_PLACEHOLDER,
+                    "ANTHROPIC_BASE_URL": "http://127.0.0.1:15721"
+                }
+            }))
+            .expect("serialize taken-over live"),
+        )
+        .expect("seed taken-over live");
+
+        let backup_doc = json!({ "env": { "ANTHROPIC_API_KEY": "orig-key" } });
+        db.save_live_backup(
+            "claude",
+            &serde_json::to_string(&backup_doc).expect("serialize backup"),
+        )
+        .await
+        .expect("seed backup");
+
+        service
+            .restore_live_config_for_app_with_fallback_inner(&AppType::Claude)
+            .await
+            .expect("restore from backup");
+
+        assert_eq!(
+            service.read_claude_live().expect("read live"),
+            backup_doc,
+            "untakeover 必须整份回写备份：占位符与接管期残留键不得存活"
         );
     }
 
@@ -9729,7 +9870,7 @@ requires_openai_auth = true
 
         // Seed Live with the same proxy placeholder (matches the corrupted state)
         service
-            .write_claude_live(&json!({
+            .write_claude_live_verbatim(&json!({
                 "env": {
                     "ANTHROPIC_AUTH_TOKEN": PROXY_TOKEN_PLACEHOLDER,
                     "ANTHROPIC_BASE_URL": "http://127.0.0.1:15721"
@@ -10498,7 +10639,7 @@ base_url = "https://third.example/v1"
 
         // Seed Live with proxy placeholder (the corrupted state)
         service
-            .write_claude_live(&json!({
+            .write_claude_live_verbatim(&json!({
                 "env": {
                     "ANTHROPIC_AUTH_TOKEN": PROXY_TOKEN_PLACEHOLDER,
                     "ANTHROPIC_BASE_URL": "http://127.0.0.1:15721"
@@ -10566,7 +10707,7 @@ base_url = "https://third.example/v1"
 
         // Seed all three Live files with proxy placeholders
         service
-            .write_claude_live(&json!({
+            .write_claude_live_verbatim(&json!({
                 "env": {
                     "ANTHROPIC_AUTH_TOKEN": PROXY_TOKEN_PLACEHOLDER,
                     "ANTHROPIC_BASE_URL": "http://127.0.0.1:15721"

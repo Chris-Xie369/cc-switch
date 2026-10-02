@@ -2300,8 +2300,9 @@ command = "legacy-cmd"
         let live: Value = read_json_file(&get_claude_settings_path()).expect("read live");
         assert_eq!(
             live.get("permissions"),
-            updated.settings_config.get("permissions"),
-            "provider edits should propagate into Claude live config during takeover"
+            Some(&json!({ "allow": ["Bash"] })),
+            "非 owned 顶层键是用户领地：接管重投影保留文件现值，不被供应商副本覆盖 \
+             （与普通切换的 merge_claude_settings_for_live 语义一致）"
         );
         assert_eq!(
             live.get("env")

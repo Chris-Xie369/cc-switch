@@ -2930,6 +2930,29 @@ impl ProxyService {
             }
         }
 
+        // Claude：备份是关接管时整份恢复的来源，必须继承切换前备份里的
+        // 用户领地键（反向白名单合并）——纯供应商投影带的是 DB 回填的陈旧
+        // 副本，直接替换会让恢复回退用户键（theme/statusLine 等，2026-10-02
+        // 真实切换验收实证）。无既有备份时保持原语义（投影全量入库）。
+        if matches!(app_type_enum, AppType::Claude) {
+            let existing_backup_value = self
+                .db
+                .get_live_backup(app_type)
+                .await
+                .map_err(|e| format!("读取 {app_type} 现有备份失败: {e}"))?
+                .map(|backup| {
+                    serde_json::from_str::<Value>(&backup.original_config)
+                        .map_err(|e| format!("解析 {app_type} 现有备份失败: {e}"))
+                })
+                .transpose()?;
+            if let Some(existing_value) = existing_backup_value.as_ref() {
+                effective_settings = crate::services::provider::merge_claude_settings_for_live(
+                    existing_value,
+                    &effective_settings,
+                );
+            }
+        }
+
         let backup_json = match app_type_enum {
             AppType::Claude => serde_json::to_string(&effective_settings)
                 .map_err(|e| format!("序列化 Claude 配置失败: {e}"))?,
@@ -7801,8 +7824,18 @@ model = "gpt-5.1-codex"
             .await
             .expect("get live backup")
             .expect("backup exists");
-        let expected = serde_json::to_string(&provider_b.settings_config).expect("serialize");
-        assert_eq!(backup.original_config, expected);
+        let backup_value: Value =
+            serde_json::from_str(&backup.original_config).expect("parse backup json");
+        assert_eq!(
+            backup_value.get("env"),
+            provider_b.settings_config.get("env"),
+            "owned env 跟随目标供应商"
+        );
+        assert_eq!(
+            backup_value.get("permissions"),
+            Some(&json!({ "allow": ["Bash"] })),
+            "领地键来自切换前备份（用户领地），不得被目标供应商的回填副本覆盖"
+        );
     }
 
     /// 接管重投影（代理运行中热切换/回滚）不得丢用户键：顶层只接管
@@ -8109,6 +8142,82 @@ model = "gpt-5.1-codex"
             backup_doc,
             "untakeover 必须整份回写备份：占位符与接管期残留键不得存活"
         );
+    }
+
+    /// 热切换更新备份时，用户领地来自切换前的原始快照，不被供应商投影的
+    /// 回填陈旧副本覆盖（否则关接管整份恢复会回退用户键，见 2026-10-02 验收）。
+    #[tokio::test]
+    #[serial]
+    async fn update_live_backup_from_provider_preserves_previous_user_territory() {
+        let _home = TempHome::new();
+        crate::settings::reload_settings().expect("reload settings");
+
+        let db = Arc::new(Database::memory().expect("init db"));
+        let service = ProxyService::new(db.clone());
+
+        // 接管激活时的原始快照：用户领地完整
+        db.save_live_backup(
+            "claude",
+            &serde_json::to_string(&json!({
+                "theme": "dark",
+                "model": "sonnet",
+                "statusLine": { "type": "command", "command": "my-status" },
+                "env": {
+                    "ANTHROPIC_API_KEY": "orig-key",
+                    "ENABLE_TOOL_SEARCH": "true"
+                }
+            }))
+            .expect("serialize original snapshot"),
+        )
+        .await
+        .expect("seed original backup");
+
+        // 目标供应商：自带回填的陈旧领地副本 + 回填 hooks + 新 env
+        let provider = Provider::with_id(
+            "p2".to_string(),
+            "P2".to_string(),
+            json!({
+                "env": {
+                    "ANTHROPIC_API_KEY": "p-key",
+                    "ANTHROPIC_BASE_URL": "https://api.example.com"
+                },
+                "theme": "light",
+                "model": "opus",
+                "hooks": { "SessionStart": [] }
+            }),
+            None,
+        );
+
+        service
+            .update_live_backup_from_provider("claude", &provider)
+            .await
+            .expect("update backup");
+
+        let backup = db
+            .get_live_backup("claude")
+            .await
+            .expect("get backup")
+            .expect("backup exists");
+        let stored: Value =
+            serde_json::from_str(&backup.original_config).expect("parse backup json");
+
+        // owned 键（env）跟随目标供应商
+        assert_eq!(stored["env"]["ANTHROPIC_API_KEY"], json!("p-key"));
+        assert_eq!(
+            stored["env"]["ANTHROPIC_BASE_URL"],
+            json!("https://api.example.com")
+        );
+        // 用户领地来自原快照，不被供应商回填副本覆盖
+        assert_eq!(stored["theme"], json!("dark"), "theme 必须保留原快照值");
+        assert_eq!(stored["model"], json!("sonnet"));
+        assert_eq!(
+            stored["statusLine"],
+            json!({ "type": "command", "command": "my-status" })
+        );
+        // env 用户子键保留
+        assert_eq!(stored["env"]["ENABLE_TOOL_SEARCH"], json!("true"));
+        // 供应商回填带入的键不得进备份
+        assert!(stored.get("hooks").is_none(), "回填 hooks 不得带入备份");
     }
 
     #[tokio::test]

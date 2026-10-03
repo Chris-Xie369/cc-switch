@@ -3,6 +3,18 @@ use crate::error::AppError;
 use crate::provider::{Provider, ProviderMeta};
 use indexmap::IndexMap;
 use rusqlite::{params, OptionalExtension};
+
+/// created_at 容错读取：历史数据可能存为 TEXT（外部写入/迁移残留）。
+/// 单个坏值不得阻断应用启动——启动链（tray → get_all_providers → exit 101）
+/// 在主窗口之前跑，硬读一个坏格子整个应用就打不开且无应用内补救入口。
+fn tolerant_created_at(row: &rusqlite::Row, idx: usize) -> Option<i64> {
+    match row.get::<_, Option<rusqlite::types::Value>>(idx) {
+        Ok(Some(rusqlite::types::Value::Integer(i))) => Some(i),
+        // epoch 毫秒被外部写成 ISO 字符串：尝试解析回整数
+        Ok(Some(rusqlite::types::Value::Text(s))) => s.trim().parse::<i64>().ok(),
+        _ => None,
+    }
+}
 use std::collections::{HashMap, HashSet};
 
 type OmoProviderRow = (
@@ -35,7 +47,7 @@ impl Database {
                 let settings_config_str: String = row.get(2)?;
                 let website_url: Option<String> = row.get(3)?;
                 let category: Option<String> = row.get(4)?;
-                let created_at: Option<i64> = row.get(5)?;
+                let created_at: Option<i64> = tolerant_created_at(row, 5);
                 let sort_index: Option<usize> = row.get(6)?;
                 let notes: Option<String> = row.get(7)?;
                 let icon: Option<String> = row.get(8)?;
@@ -142,7 +154,7 @@ impl Database {
                 let settings_config_str: String = row.get(1)?;
                 let website_url: Option<String> = row.get(2)?;
                 let category: Option<String> = row.get(3)?;
-                let created_at: Option<i64> = row.get(4)?;
+                let created_at: Option<i64> = tolerant_created_at(row, 4);
                 let sort_index: Option<usize> = row.get(5)?;
                 let notes: Option<String> = row.get(6)?;
                 let icon: Option<String> = row.get(7)?;
@@ -923,5 +935,39 @@ mod ensure_official_seed_tests {
         let result =
             db.ensure_official_seed_by_id(CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID, AppType::Claude);
         assert!(result.is_err(), "(id, app_type) mismatch should be Err");
+    }
+
+    /// created_at 被外部写成 TEXT 时，get_all_providers / get_provider_by_id
+    /// 不得报错——启动链（tray）读 providers，一个坏格子不应让整个应用打不开。
+    #[test]
+    fn text_created_at_does_not_break_provider_reads() {
+        let db = Database::memory().expect("memory db");
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO providers(id,app_type,name,settings_config,created_at)
+                 VALUES('text-ca','claude','TextCA','{}','2026-10-03T08:00:00Z')",
+                [],
+            )
+            .expect("insert with TEXT created_at");
+        }
+        let providers = db
+            .get_all_providers("claude")
+            .expect("get_all must not error");
+        let text_ca = providers
+            .iter()
+            .find(|(_, p)| p.name == "TextCA")
+            .map(|(_, p)| p)
+            .expect("TextCA present");
+        assert!(
+            text_ca.created_at.is_none(),
+            "unparseable TEXT falls back to None"
+        );
+
+        let by_id = db
+            .get_provider_by_id("text-ca", "claude")
+            .expect("by-id must not error")
+            .expect("found");
+        assert!(by_id.created_at.is_none());
     }
 }

@@ -1749,3 +1749,14 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - **PR 已改题**：`test(ui): regression test for DropdownMenu above FullScreenPanel` —— 本 PR 现在只带
   41 行回归测试（05d70dc3 无测试覆盖），评论说明并表示若上游愿自加测试可关。
 - 另：#7785 ubuntu flaky 上轮以空提交 `4159ca2f` 触发重跑（lifecycle_coordinator 上游自有）。
+
+## 2026-10-04 #7779/#7789 合并冲突（上游 v8 设置页重构）
+
+- **#7779**（`838ccf1b`）：上游把 SettingsPage 重构为 sections 架构（GeneralSection/
+  AppPageHeader/renderSection）。解法 = 全取上游结构 + **组件迁入 GeneralSection**（语言设置
+  新家），由既有 `onAutoSave` 驱动；i18n 双侧保留。验证 tsc 0/prettier/组件测试 6/6。
+- **#7789**（`67f0236b`）：3 文件冲突——表单侧融合（聚合 modeLockedHint + !isAggregate
+  条件保留、v8 border 类取上游）；i18n 双侧拼接时 **aggregate 段的闭合 `}` 被丢**（拼接点
+  恰在 aggregate/nav 段边界），手工补括号 + prettier 收口。验证 tsc 0/prettier/23 测试过。
+- 两 worktree 已清；教训：**i18n 双侧保留不能纯拼接**——段边界处必须验证 JSON 合法性
+  （json.load 即刻暴露）。

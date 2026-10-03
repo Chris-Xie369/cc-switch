@@ -1709,3 +1709,33 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - 修复：ChatGPT 对话串「Model provider `custom` not found」——CC Switch 切回 OpenAI Official 时未恢复 [model_providers.custom] 表（供应商 settings_config 既有缺口，非聚合代码引入）。手动补回 config.toml 尾段，对话串恢复正常。留档为 OpenAI Official 供应商切换的已知 bug
 - 修复：Codex catalog 模板补完整推理阶梯（b5b70591）——静态模板从 none/high 二态改为 none/low/medium/high/xhigh 五档，惠及全部第三方 Codex 供应商；已部署（b991be57，"Think even harder" 标记命中 1）
 - Codex MoA 日常槽位已更新（deepseek→DeepSeek/v4-pro、zhipu→Zhipu/glm-5.3、opencode→OC/kimi-k3），路由测试通过
+- 功能缺口实测确认（2026-10-03）：聚合路由不支持 OAuth 型目标（OpenAI Official/ChatGPT）——代理认证层拦截「已切换到官方供应商，请重启 Codex」。需 forwarder 在 aggregate_override 存在且目标为官方供应商时注入 OAuth Manager 令牌（代码改动，留待后续 spec/plan）
+
+## 2026-10-03 聚合 OAuth 注入（GPT 模型入聚合）
+- Task 1: complete (commit be52d639，审查 Approved)
+  · 三处注入：①跳过客户端 PROXY_MANAGED 校验 ②auth_headers 注入 Manager 令牌 ③passthrough 让位（实现者发现的计划外必要点）
+  · 非 official / 非聚合路径逐字节不变（构造性保证：仅 2 行删除，其余全为守卫新增）
+  · Minor 留档：接线层无测试（Tauri test feature 限制，验收覆盖）；D4 文案与计划微差；空 upstream_model / 官方 defaultTarget 边缘场景
+
+## 2026-10-03 Codex 聚合 OAuth 注入——最终验收通过 ✅
+
+- 用户确认：codex /model 可选 gpt 槽位、发消息正常回复——**GPT 模型入聚合成功**
+- 端到端链路：codex CLI → 本地代理 → resolve_codex_target(gpt→OpenAI Official) → auth.json 回落取 OAuth 令牌 → ChatGPT 后端 → 响应
+- 修复过程三轮迭代：
+  ① be52d639 三处注入（校验跳过 + auth_headers + passthrough 让位）
+  ② auth.json 回落（Manager 失败时直读 ~/.codex/auth.json 的 tokens.access_token）
+  ③ LocalPool 双模修复（tokio block_in_place / futures block_on 按上下文选择）
+- 关键教训：直接写 DB 必须查列类型实际存储格式（created_at 要 epoch 毫秒非 ISO 字符串）；settings.json 的 currentProviderCodex 是权威源（DB is_current 只是 fallback）；聚合 apply 会删除 auth.json（需要保留给 OAuth 回落用）
+
+## 本会话总交付（2026-10-01 至 2026-10-03）
+
+| 交付项 | 状态 |
+|---|---|
+| B：CLI modelPicker（15/15 行全显 + 池固化避 CLI 目录撞名） | ✅ 验收通过 |
+| Codex 聚合（路由 + 合成 + 校验 + 编辑器 + 3/3 路由验证） | ✅ 验收通过 |
+| Codex 聚合 OAuth 注入（GPT 入聚合 + auth.json 回落） | ✅ 验收通过 |
+| created_at 容错读（防启动崩溃） | ✅ 部署运行 |
+| write_claude_live 合并语义（补丁 F） | ✅ 部署运行 |
+| 推理阶梯五档（catalog 模板） | ✅ 部署运行 |
+| LocalPool executor 修复 | ✅ 部署运行 |
+| 上游 PR #7771/#7773/#7779/#7785/#7786/#7789 | ✅ 已提交 |

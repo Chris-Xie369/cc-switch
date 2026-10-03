@@ -10,8 +10,20 @@
       "description": "Disable Thinking"
     },
     {
+      "effort": "low",
+      "description": "Minimal thinking"
+    },
+    {
+      "effort": "medium",
+      "description": "Everyday hard problems"
+    },
+    {
       "effort": "high",
-      "description": "Enabled Thinking"
+      "description": "Deeper thinking"
+    },
+    {
+      "effort": "xhigh",
+      "description": "Think even harder"
     }
   ],
   "shell_type": "shell_command",

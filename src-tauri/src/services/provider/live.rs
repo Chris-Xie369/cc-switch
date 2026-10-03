@@ -912,7 +912,13 @@ fn apply_codex_aggregate_seed(
     // seed 的 base_url 指向代理 origin 根（`/v1/responses` 挂在根路由），地址从运行期
     // 代理配置派生；端口 0 意味着代理还没起或用了随机端口，写进去的 live 配置
     // Codex 一定连不上，直接报错让用户先启动代理。
-    let proxy_config = futures::executor::block_on(db.get_proxy_config())?;
+    // 双模取值：tokio 上下文里用 block_in_place（futures::executor::block_on 的
+    // LocalPool 嵌套在 tokio 多线程 runtime 里会 panic/EnterError）；同步测试
+    // 上下文里没有 tokio runtime，退回 futures::executor::block_on。
+    let proxy_config = match tokio::runtime::Handle::try_current() {
+        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(db.get_proxy_config()))?,
+        Err(_) => futures::executor::block_on(db.get_proxy_config())?,
+    };
     if proxy_config.listen_port == 0 {
         return Err(AppError::Config(
             "Codex 聚合需要真实监听端口的本地代理；请先启动本地代理或使用固定端口".to_string(),

@@ -1703,3 +1703,6 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - 发现与修正：space-bunny-free / mimo-v2.6-flash 在 OpenCode Go 的 Responses 端点不可用（`Model does not support this protocol`）——上游模型协议覆盖问题（非聚合 bug），换 gpt-5.6-luna 即通；槽位 upstreamModel 已更新
 - 启动事故（created_at TEXT → exit 101）：已修复（f0265cca 容错读 + 957 测试零回归）；「Codex MoA」编辑器保存报错待查（不影响切换路径）
 - 剩：用户 codex CLI 肉眼验证（/model 出三槽 → 选一 → 发消息）
+- Codex 聚合最终验收：**通过（2026-10-03）**——用户 codex /model 见三槽、选 test-deepseek 发消息正常回复。三段闭环（代码+部署+验收）完成
+  · 本会话两大任务全部落地：B（CLI modelPicker）✅ + Codex 聚合 ✅
+  · 留档待查（不挡验收）：编辑器重存路径报错（前端加载边角）；「Codex MoA」测试卡去留由用户定

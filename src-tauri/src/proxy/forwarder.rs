@@ -160,35 +160,68 @@ async fn resolve_aggregate_codex_oauth_credentials_from(
     codex_auth: &CodexOAuthManager,
     provider: &Provider,
 ) -> Result<(String, String), ProxyError> {
-    let account_id = match provider
-        .meta
-        .as_ref()
-        .and_then(|meta| meta.managed_account_id_for("codex_oauth"))
-    {
-        Some(id) => Some(id),
-        None => codex_auth.default_account_id().await,
-    };
-    let account_id = account_id.ok_or_else(|| {
-        ProxyError::AuthError(
-            "ChatGPT 未登录或令牌已过期，请在 CC Switch 切到 OpenAI 官方供应商重新登录".to_string(),
-        )
-    })?;
+    // 先试 Manager（可能有最新刷新的令牌）；失败则回落 auth.json（本地文件，始终可读）
+    let manager_result = async {
+        let account_id = provider
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.managed_account_id_for("codex_oauth"))
+            .map(|id| id.to_string())
+            .or_else(|| codex_auth.default_account_id().await)?;
 
-    let token = codex_auth
-        .get_valid_token_for_account(&account_id)
-        .await
-        .map_err(|e| {
-            log::error!("[CodexOAuth][Aggregate] 获取 access_token 失败: {e}");
-            ProxyError::AuthError(format!(
-                "ChatGPT 未登录或令牌已过期，请在 CC Switch 切到 OpenAI 官方供应商重新登录（{e}）"
-            ))
-        })?;
-    let chatgpt_account_id = codex_auth
-        .chatgpt_account_id_for_account(&account_id)
-        .await
-        .map_err(|e| ProxyError::AuthError(format!("Codex OAuth 账号解析失败: {e}")))?;
-    log::debug!("[CodexOAuth][Aggregate] 成功获取 access_token (account={account_id})");
-    Ok((token, chatgpt_account_id))
+        let token = codex_auth
+            .get_valid_token_for_account(&account_id)
+            .await
+            .map_err(|e| {
+                log::warn!("[CodexOAuth][Aggregate] Manager 路径失败，尝试 auth.json 回落: {e}");
+                ProxyError::AuthError(e.to_string())
+            })?;
+        let workspace = codex_auth
+            .chatgpt_account_id_for_account(&account_id)
+            .await
+            .map_err(|e| ProxyError::AuthError(e.to_string()))?;
+        Ok::<(String, String), ProxyError>((token, workspace))
+    }
+    .await;
+
+    match manager_result {
+        Ok(creds) => Ok(creds),
+        Err(_) => read_codex_auth_json_fallback(),
+    }
+}
+
+/// auth.json 回落：当前供应商是聚合时 Manager 未加载 ChatGPT 凭据，
+/// 直接从 ~/.codex/auth.json 读 tokens（auth_mode=chatgpt 时有 access_token + account_id）。
+fn read_codex_auth_json_fallback() -> Result<(String, String), ProxyError> {
+    let hint = "ChatGPT 未登录或令牌已过期，请在 CC Switch 切到 OpenAI 官方供应商重新登录";
+    let auth_path = crate::codex_config::get_codex_auth_path();
+    let auth: serde_json::Value =
+        serde_json::from_reader(std::fs::File::open(&auth_path).map_err(|e| {
+            ProxyError::AuthError(format!("{hint}（无法读取 {}: {e}）", auth_path.display()))
+        })?)
+        .map_err(|_| ProxyError::AuthError(format!("{hint}（auth.json 解析失败）")))?;
+
+    if auth.get("auth_mode").and_then(|v| v.as_str()) != Some("chatgpt") {
+        return Err(ProxyError::AuthError(format!(
+            "{hint}（auth_mode 非 chatgpt）"
+        )));
+    }
+    let tokens = auth
+        .get("tokens")
+        .ok_or_else(|| ProxyError::AuthError(format!("{hint}（auth.json 无 tokens）")))?;
+    let access_token = tokens
+        .get("access_token")
+        .and_then(|v| v.as_str())
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| ProxyError::AuthError(format!("{hint}（access_token 为空）")))?
+        .to_string();
+    let workspace_id = tokens
+        .get("account_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    log::debug!("[CodexOAuth][Aggregate] auth.json 回落成功（workspace={workspace_id}）");
+    Ok((access_token, workspace_id))
 }
 
 pub struct ForwardResult {
@@ -5917,15 +5950,28 @@ mod tests {
     }
 
     /// 无有效令牌 → 明确报错并指路「切到 OpenAI Official 重新登录」，不静默放行。
+    /// auth.json 回落也找不到（CC_SWITCH_TEST_HOME 指向空目录）时才走到这条路径。
     #[tokio::test]
+    #[serial_test::serial]
     async fn aggregate_official_target_without_login_reports_login_hint() {
         let temp = tempfile::tempdir().expect("temp dir");
         let empty = CodexOAuthManager::new(temp.path().to_path_buf());
         let provider = test_official_codex_provider(None);
 
+        // 隔离 auth.json 回落：指到空 temp 目录，确保 ~/.codex/auth.json 不被读到
+        let previous_test_home = std::env::var("CC_SWITCH_TEST_HOME").ok();
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+
         let error = resolve_aggregate_codex_oauth_credentials_from(&empty, &provider)
             .await
-            .expect_err("an empty manager must not silently forward the placeholder");
+            .expect_err(
+                "an empty manager + no auth.json must not silently forward the placeholder",
+            );
+
+        match previous_test_home {
+            Some(v) => std::env::set_var("CC_SWITCH_TEST_HOME", v),
+            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+        }
 
         assert!(
             matches!(error, ProxyError::AuthError(ref message)

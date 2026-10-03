@@ -1320,6 +1320,14 @@ pub fn synthesize_codex_aggregate_settings(
          name = \"{CODEX_AGGREGATE_PROVIDER_NAME}\"\n\
          requires_openai_auth = true\n\
          base_url = \"{proxy_origin}\"\n\
+         wire_api = \"responses\"\n\
+         \n\
+         # 保留官方 provider 定义：ChatGPT 桌面端的旧对话串引用 model_provider = \"custom\"，\n\
+         # 缺了这个表会报「Model provider `custom` not found」导致对话串打不开。\n\
+         [model_providers.custom]\n\
+         name = \"OpenAI\"\n\
+         requires_openai_auth = true\n\
+         supports_websockets = true\n\
          wire_api = \"responses\"\n"
     );
 

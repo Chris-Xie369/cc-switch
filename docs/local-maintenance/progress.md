@@ -1684,3 +1684,22 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - B 最终验收：**通过（2026-10-03）**——用户贴出 CLI /model：15/15 聚合行全显、置顶与分组序逐行吻合、改名两行（sonnet-3/fable-6）归位。B（CLI 聚合）三段闭环（代码+部署+验收）完成。
   · 本会话旧模型 claude-fable-5[1m] 已悬空→落兜底 space-bunny（同供应商不断流）；回 mimo-pro 用 /model claude-fable-6[1m]
   · 剩：Codex 聚合实机验收（建卡→Codex CLI /model→逐槽归属→chat/anthropic 各验一槽）
+
+## 2026-10-03 Codex 聚合实机验证——启动事故与修复
+
+- **事故**：控制器直接插 DB 创建「Codex MoA」聚合卡时，`created_at` 写成 ISO 字符串 `'2026-10-03T08:00:00Z'` 而非 epoch 毫秒整数——tray → get_all_providers → `row.get(5)?` 硬读 `Option<i64>` 收到 TEXT → InvalidColumnType → setup Err → Tauri exit 101，整个应用打不开（主窗口之前、无应用内补救）
+- **用户侧修复**：备份 DB → created_at 改为 1791014400000 → 应用恢复启动
+- **代码防护**：providers.rs 两处 `row.get(N)?` 硬读改为 `tolerant_created_at` helper（Integer → 直接用 / TEXT → parse 尝试 / 其余 → None）；新增测试 text_created_at_does_not_break_provider_reads（插 TEXT created_at 行，断言 get_all + by_id 不报错、值为 None）
+- **教训**：直接写 DB 必须先查列类型的实际存储格式（epoch 毫秒，不是 ISO 字符串）；控制器创建测试夹具应走 ProviderService::add（有完整校验）或至少精确对齐 schema
+- **「Codex MoA」卡状态**：留在 DB、is_current=1（等验收）；live 三件由控制器手写（catalog 是最小条目），用户需在 UI 里重存一次让它被 Rust 管线正确重写
+
+## 2026-10-03 Codex 聚合实机验收——数据面通过（3/3）
+
+- 控制面：Rust 管线正确产出三件——config.toml seed（`requires_openai_auth=false`+`experimental_bearer_token=PROXY_MANAGED` 嵌入 provider 表内，优于 spec 预期的 auth.json 方案）、catalog（完整模板条目、NativeResponses profile）、auth 占位
+- 数据面（经代理真实 /v1/responses 请求）：
+  · test-deepseek → DeepSeek → deepseek-flash → 200（原生透传）
+  · test-zhipu → Zhipu GLM → glm-5.3-flash → 200（Responses→Chat 转换臂）
+  · test-opencode → OpenCode·Responses → gpt-5.6-luna → 200 + ROUTE_OK（原生透传）
+- 发现与修正：space-bunny-free / mimo-v2.6-flash 在 OpenCode Go 的 Responses 端点不可用（`Model does not support this protocol`）——上游模型协议覆盖问题（非聚合 bug），换 gpt-5.6-luna 即通；槽位 upstreamModel 已更新
+- 启动事故（created_at TEXT → exit 101）：已修复（f0265cca 容错读 + 957 测试零回归）；「Codex MoA」编辑器保存报错待查（不影响切换路径）
+- 剩：用户 codex CLI 肉眼验证（/model 出三槽 → 选一 → 发消息）

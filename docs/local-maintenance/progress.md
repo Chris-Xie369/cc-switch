@@ -1706,3 +1706,6 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - Codex 聚合最终验收：**通过（2026-10-03）**——用户 codex /model 见三槽、选 test-deepseek 发消息正常回复。三段闭环（代码+部署+验收）完成
   · 本会话两大任务全部落地：B（CLI modelPicker）✅ + Codex 聚合 ✅
   · 留档待查（不挡验收）：编辑器重存路径报错（前端加载边角）；「Codex MoA」测试卡去留由用户定
+- 修复：ChatGPT 对话串「Model provider `custom` not found」——CC Switch 切回 OpenAI Official 时未恢复 [model_providers.custom] 表（供应商 settings_config 既有缺口，非聚合代码引入）。手动补回 config.toml 尾段，对话串恢复正常。留档为 OpenAI Official 供应商切换的已知 bug
+- 修复：Codex catalog 模板补完整推理阶梯（b5b70591）——静态模板从 none/high 二态改为 none/low/medium/high/xhigh 五档，惠及全部第三方 Codex 供应商；已部署（b991be57，"Think even harder" 标记命中 1）
+- Codex MoA 日常槽位已更新（deepseek→DeepSeek/v4-pro、zhipu→Zhipu/glm-5.3、opencode→OC/kimi-k3），路由测试通过

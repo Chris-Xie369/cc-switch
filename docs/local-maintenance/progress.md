@@ -1739,3 +1739,13 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 | 推理阶梯五档（catalog 模板） | ✅ 部署运行 |
 | LocalPool executor 修复 | ✅ 部署运行 |
 | 上游 PR #7771/#7773/#7779/#7785/#7786/#7789 | ✅ 已提交 |
+
+## 2026-10-04 #7771 合并冲突处理（修复被上游取代 → 收窄为测试 PR）
+
+- 上游已独立修复同一 bug：`05d70dc3 fix(ui): lift dropdown menus above full-screen panels`
+  （与我们 09-30 的诊断完全一致：z-50 vs FullScreenPanel z-60，Popover/Select 已在 z-100）——**无测试**。
+- 冲突仅 v8 主题类名（`border-border-default` → `border-border`）：取上游侧，双方 z-[100] 一致。
+- 分支 `1ab2f3ab` 已推；prettier/tsc/测试全过（测试对上游实现仍有效）。
+- **PR 已改题**：`test(ui): regression test for DropdownMenu above FullScreenPanel` —— 本 PR 现在只带
+  41 行回归测试（05d70dc3 无测试覆盖），评论说明并表示若上游愿自加测试可关。
+- 另：#7785 ubuntu flaky 上轮以空提交 `4159ca2f` 触发重跑（lifecycle_coordinator 上游自有）。

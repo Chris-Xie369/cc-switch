@@ -23,6 +23,7 @@ use super::{
     ProxyError,
 };
 use crate::commands::{CodexOAuthState, CopilotAuthState, XaiOAuthState};
+use crate::proxy::providers::codex_oauth_auth::CodexOAuthManager;
 use crate::proxy::providers::copilot_auth::CopilotAuthManager;
 use crate::proxy::providers::xai_oauth_auth::XaiOAuthManager;
 use crate::{
@@ -144,6 +145,50 @@ fn validate_codex_official_authorization(
             Ok(())
         }
     }
+}
+
+/// 聚合路由命中官方（ChatGPT OAuth）目标时，从 `CodexOAuthManager` 取
+/// `(access_token, 上游 workspace id)` 供出站认证头使用。
+///
+/// 账号选择与正常（非聚合）路径一致：官方卡的 `authBinding` 绑定了哪个托管账号
+/// 就用哪个，未绑定则回落到 Manager 的默认账号。出站请求头必须带 workspace id
+/// （本地账号 ID 只用于绑定，不能直接送上游）。
+///
+/// 抽成自由函数是为了让单测能直接喂一个 `CodexOAuthManager`——`AppHandle` 在
+/// 单元测试里无法构造，只有 `RequestForwarder` 上那层薄壳需要它。
+async fn resolve_aggregate_codex_oauth_credentials_from(
+    codex_auth: &CodexOAuthManager,
+    provider: &Provider,
+) -> Result<(String, String), ProxyError> {
+    let account_id = match provider
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.managed_account_id_for("codex_oauth"))
+    {
+        Some(id) => Some(id),
+        None => codex_auth.default_account_id().await,
+    };
+    let account_id = account_id.ok_or_else(|| {
+        ProxyError::AuthError(
+            "ChatGPT 未登录或令牌已过期，请在 CC Switch 切到 OpenAI 官方供应商重新登录".to_string(),
+        )
+    })?;
+
+    let token = codex_auth
+        .get_valid_token_for_account(&account_id)
+        .await
+        .map_err(|e| {
+            log::error!("[CodexOAuth][Aggregate] 获取 access_token 失败: {e}");
+            ProxyError::AuthError(format!(
+                "ChatGPT 未登录或令牌已过期，请在 CC Switch 切到 OpenAI 官方供应商重新登录（{e}）"
+            ))
+        })?;
+    let chatgpt_account_id = codex_auth
+        .chatgpt_account_id_for_account(&account_id)
+        .await
+        .map_err(|e| ProxyError::AuthError(format!("Codex OAuth 账号解析失败: {e}")))?;
+    log::debug!("[CodexOAuth][Aggregate] 成功获取 access_token (account={account_id})");
+    Ok((token, chatgpt_account_id))
 }
 
 pub struct ForwardResult {
@@ -339,6 +384,23 @@ impl RequestForwarder {
     pub fn with_aggregate_override(mut self, value: Option<String>) -> Self {
         self.aggregate_override = value;
         self
+    }
+
+    /// 聚合路由命中官方（ChatGPT OAuth）目标时，向 `CodexOAuthManager` 现取
+    /// `(access_token, 上游 workspace id)`。
+    ///
+    /// 账号选择与正常（非聚合）路径一致：官方卡的 `authBinding` 绑定了哪个托管
+    /// 账号就用哪个，未绑定则回落到 Manager 的默认账号。出站请求头必须带
+    /// workspace id（本地账号 ID 只用于绑定，不能直接送上游）。
+    async fn resolve_aggregate_codex_oauth_credentials(
+        &self,
+        provider: &Provider,
+    ) -> Result<(String, String), ProxyError> {
+        let app_handle = self.app_handle.as_ref().ok_or_else(|| {
+            ProxyError::AuthError("Codex OAuth 认证不可用（无 AppHandle）".to_string())
+        })?;
+        let codex_state = app_handle.state::<CodexOAuthState>();
+        resolve_aggregate_codex_oauth_credentials_from(&codex_state.0, provider).await
     }
 
     async fn record_success_result(
@@ -1260,7 +1322,11 @@ impl RequestForwarder {
         let codex_official_auth_passthrough = matches!(app_type, AppType::Codex)
             && super::providers::is_codex_official_provider(provider);
 
-        if codex_official_auth_passthrough {
+        // 聚合路由命中时不做这项校验：它检查的是**客户端**的 Authorization 头，而聚合
+        // 场景下客户端统一用 PROXY_MANAGED 占位符连代理（必然命中下面的占位符分支报错）。
+        // 聚合路径的官方凭据由代理自己从 CodexOAuthManager 取（见 auth 组装处），
+        // 不依赖客户端携带官方登录态，故这里整段跳过；非聚合路径逐字节不变。
+        if codex_official_auth_passthrough && self.aggregate_override.is_none() {
             let (expected_chatgpt_account_id, managed_session_matches) = match provider
                 .meta
                 .as_ref()
@@ -2013,6 +2079,29 @@ impl RequestForwarder {
             Vec::new()
         };
 
+        // 聚合路由命中「官方（OAuth 型）」目标时，客户端发来的 Authorization 只是
+        // PROXY_MANAGED 占位符（聚合 seed 写入 auth.json 的唯一 key），不能出站。
+        // 官方卡刻意不存凭据，故 `extract_auth` 返回 None——此处改为从
+        // CodexOAuthManager 现取 ChatGPT access_token，并补上托管 workspace 头。
+        // 非聚合路径 / 非官方目标都不进这个分支（`auth_headers` 逐字节不变）。
+        if codex_official_auth_passthrough
+            && self.aggregate_override.is_some()
+            && auth_headers.is_empty()
+        {
+            let (token, account_id) = self
+                .resolve_aggregate_codex_oauth_credentials(provider)
+                .await?;
+            auth_headers = vec![(
+                http::HeaderName::from_static("authorization"),
+                http::HeaderValue::from_str(&format!("Bearer {token}")).map_err(|e| {
+                    ProxyError::AuthError(format!("ChatGPT OAuth 令牌无法写入认证头: {e}"))
+                })?,
+            )];
+            codex_oauth_account_id = Some(account_id);
+            should_send_codex_oauth_session_headers = true;
+            log_secrets.push(token);
+        }
+
         let codex_oauth_session_headers =
             if should_send_codex_oauth_session_headers && self.session_client_provided {
                 build_codex_oauth_session_headers(&self.session_id)
@@ -2243,7 +2332,13 @@ impl RequestForwarder {
                 // Codex send the active ChatGPT authorization, which must reach
                 // the official upstream unchanged. Other credential headers
                 // are still discarded.
-                if codex_official_auth_passthrough && key_str.eq_ignore_ascii_case("authorization")
+                //
+                // 聚合路径例外：客户端那份是 PROXY_MANAGED 占位符（聚合 seed 的唯一
+                // auth key），必须换成代理从 CodexOAuthManager 取到的真实令牌，
+                // 否则上游只会看到占位符。`auth_headers` 此时已带上该令牌。
+                if codex_official_auth_passthrough
+                    && self.aggregate_override.is_none()
+                    && key_str.eq_ignore_ascii_case("authorization")
                 {
                     saw_auth = true;
                     ordered_headers.append(key.clone(), value.clone());
@@ -5729,5 +5824,165 @@ mod tests {
         });
         let body = body_with_image("any-model");
         assert!(fwd.media_retry_should_trigger("Claude", false, &body, &image_unsupported_error()));
+    }
+
+    // ==================== 聚合路由 → 官方（ChatGPT OAuth）目标 ====================
+
+    /// 一张绑定了托管 ChatGPT 账号的官方卡（`is_codex_official_provider` 为真，
+    /// 且无 API key——官方卡刻意不存凭据）。
+    fn test_official_codex_provider(account_id: Option<&str>) -> Provider {
+        let mut provider = Provider::with_id(
+            crate::database::CODEX_OFFICIAL_PROVIDER_ID.to_string(),
+            "OpenAI Official".to_string(),
+            json!({ "auth": {}, "config": "" }),
+            None,
+        );
+        provider.category = Some("official".to_string());
+        provider.meta = Some(crate::provider::ProviderMeta {
+            provider_type: Some("codex_oauth".to_string()),
+            auth_binding: account_id.map(|id| crate::provider::AuthBinding {
+                source: crate::provider::AuthBindingSource::ManagedAccount,
+                auth_provider: Some("codex_oauth".to_string()),
+                account_id: Some(id.to_string()),
+            }),
+            ..Default::default()
+        });
+        provider
+    }
+
+    /// 一张普通 API-key 型第三方卡：非官方，`extract_auth` 照常给出 Bearer 头。
+    fn test_api_key_codex_provider() -> Provider {
+        Provider::with_id(
+            "codex-third-party".to_string(),
+            "Third Party".to_string(),
+            json!({
+                "base_url": "https://relay.example.com/v1",
+                "auth": {"OPENAI_API_KEY": "third-party-secret"}
+            }),
+            None,
+        )
+    }
+
+    async fn test_oauth_manager_with_account(
+        token: &str,
+    ) -> (tempfile::TempDir, CodexOAuthManager) {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let manager = CodexOAuthManager::new(temp.path().to_path_buf());
+        let id_token = crate::codex_config::test_codex_id_token("aggregate-user");
+        manager
+            .add_test_account_with_workspace_and_access_token(
+                "acct-1",
+                "workspace-1",
+                token,
+                Some(&id_token),
+            )
+            .await
+            .expect("seed managed ChatGPT account");
+        (temp, manager)
+    }
+
+    /// 聚合 seed 写进 auth.json 的唯一 key 就是 PROXY_MANAGED——客户端带着它连
+    /// 代理，上游必须收到 Manager 里的真实令牌。
+    #[tokio::test]
+    async fn aggregate_official_target_uses_manager_token_not_proxy_managed() {
+        let (_temp, manager) = test_oauth_manager_with_account("chatgpt-access-token").await;
+        let provider = test_official_codex_provider(Some("acct-1"));
+
+        let (token, account_id) =
+            resolve_aggregate_codex_oauth_credentials_from(&manager, &provider)
+                .await
+                .expect("aggregate must resolve the managed ChatGPT token");
+
+        assert_eq!(token, "chatgpt-access-token");
+        assert_ne!(token, PROXY_AUTH_PLACEHOLDER);
+        assert_eq!(
+            account_id, "workspace-1",
+            "出站头必须是上游 workspace ID，不能是本地账号 ID"
+        );
+    }
+
+    /// 未绑定账号的官方卡回落到 Manager 的默认账号（与正常路径同一套账号语义）。
+    #[tokio::test]
+    async fn aggregate_official_target_falls_back_to_default_account() {
+        let (_temp, manager) = test_oauth_manager_with_account("default-account-token").await;
+        let provider = test_official_codex_provider(None);
+
+        let (token, account_id) =
+            resolve_aggregate_codex_oauth_credentials_from(&manager, &provider)
+                .await
+                .expect("aggregate must fall back to the manager default account");
+
+        assert_eq!(token, "default-account-token");
+        assert_eq!(account_id, "workspace-1");
+    }
+
+    /// 无有效令牌 → 明确报错并指路「切到 OpenAI Official 重新登录」，不静默放行。
+    #[tokio::test]
+    async fn aggregate_official_target_without_login_reports_login_hint() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let empty = CodexOAuthManager::new(temp.path().to_path_buf());
+        let provider = test_official_codex_provider(None);
+
+        let error = resolve_aggregate_codex_oauth_credentials_from(&empty, &provider)
+            .await
+            .expect_err("an empty manager must not silently forward the placeholder");
+
+        assert!(
+            matches!(error, ProxyError::AuthError(ref message)
+                if message.contains("ChatGPT 未登录") && message.contains("OpenAI 官方")),
+            "错误必须点名 ChatGPT 登录与 OpenAI 官方供应商，实际: {error}"
+        );
+    }
+
+    /// 绑定了账号但该账号已不在 Manager 中 → 同样是明确的认证错误。
+    #[tokio::test]
+    async fn aggregate_official_target_with_dangling_account_reports_login_hint() {
+        let (_temp, manager) = test_oauth_manager_with_account("unused").await;
+        let provider = test_official_codex_provider(Some("acct-removed"));
+
+        let error = resolve_aggregate_codex_oauth_credentials_from(&manager, &provider)
+            .await
+            .expect_err("a dangling account binding must not be treated as authenticated");
+
+        assert!(
+            matches!(error, ProxyError::AuthError(ref message)
+                if message.contains("ChatGPT 未登录") && message.contains("OpenAI 官方")),
+            "实际: {error}"
+        );
+    }
+
+    /// 非官方目标不参与 OAuth 注入：`extract_auth` / `get_auth_headers` 的结果
+    /// 逐字节不变（改动 B 只在官方分支触发）。
+    #[test]
+    fn aggregate_non_official_target_auth_path_is_untouched() {
+        let adapter = crate::proxy::providers::get_adapter(&AppType::Codex).expect("codex adapter");
+        let provider = test_api_key_codex_provider();
+
+        assert!(
+            !crate::proxy::providers::is_codex_official_provider(&provider),
+            "该用例的前提：第三方卡不算官方目标"
+        );
+
+        let auth = adapter.extract_auth(&provider).expect("api key auth");
+        let headers = adapter.get_auth_headers(&auth).expect("auth headers");
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0].0.as_str(), "authorization");
+        assert_eq!(headers[0].1.to_str().unwrap(), "Bearer third-party-secret");
+    }
+
+    /// 官方目标在**非聚合**路径下依旧不做 OAuth 注入：凭据仍由客户端的
+    /// Authorization 透传（`extract_auth` 对官方卡返回 None）。
+    #[test]
+    fn official_target_without_aggregate_keeps_client_passthrough_auth() {
+        let adapter = crate::proxy::providers::get_adapter(&AppType::Codex).expect("codex adapter");
+        let provider = test_official_codex_provider(Some("acct-1"));
+
+        assert!(crate::proxy::providers::is_codex_official_provider(
+            &provider
+        ));
+        assert!(
+            adapter.extract_auth(&provider).is_none(),
+            "官方卡不存凭据：非聚合路径依赖客户端透传，聚合路径才由代理注入"
+        );
     }
 }

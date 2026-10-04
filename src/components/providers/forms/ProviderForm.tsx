@@ -692,8 +692,9 @@ function ProviderFormFull({
         (provider) =>
           provider.id !== providerId &&
           !isAggregateProvider(provider) &&
-          !provider.meta?.codexAggregateRoutes &&
-          provider.category !== "official",
+          !provider.meta?.codexAggregateRoutes,
+        // 官方供应商（OAuth）不再排除：聚合路由的 OAuth 注入（forwarder 的
+        // auth.json 回落）使其可作为聚合目标；不排除才能在候选下拉里显示名字。
       ),
     [codexProvidersData?.providers, providerId],
   );

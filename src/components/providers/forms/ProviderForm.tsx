@@ -33,6 +33,7 @@ import type {
 } from "@/types";
 import type { FetchedModel } from "@/lib/api/model-fetch";
 import {
+  fetchCodexOauthModels,
   fetchModelsForConfig,
   showFetchModelsError,
 } from "@/lib/api/model-fetch";
@@ -710,6 +711,30 @@ function ProviderFormFull({
   // settingsConfig（auth.OPENAI_API_KEY 或 TOML 里的 bearer token）。
   // 聚合卡片自身没有端点，表单顶部的「获取模型列表」对它无从下手。
   const handleFetchCodexAggregateModels = async (target: Provider) => {
+    // 官方供应商走 OAuth（auth.json），无 baseUrl/apiKey 可供 fetchModelsForConfig——
+    // 改用 OAuth 管理器拉取（与主表单的官方卡同款命令）。
+    if (target.category === "official") {
+      setFetchingCodexAggregateProviderId(target.id);
+      try {
+        const models = await fetchCodexOauthModels();
+        setCodexAggregateModelsByProvider((current) => ({
+          ...current,
+          [target.id]: models,
+        }));
+        toast.success(
+          t("providerForm.fetchModelsSuccess", { count: models.length }),
+        );
+      } catch (err) {
+        showFetchModelsError(err, t, {
+          hasApiKey: true,
+          hasBaseUrl: true,
+        });
+      } finally {
+        setFetchingCodexAggregateProviderId(null);
+      }
+      return;
+    }
+
     const config =
       typeof target.settingsConfig?.config === "string"
         ? target.settingsConfig.config

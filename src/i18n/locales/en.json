@@ -3280,6 +3280,13 @@
     "refresh": "Refresh"
   },
   "aggregate": {
+    "migrationHint": "Existing route IDs are incompatible or duplicated. Normal edits preserve IDs. Back up before converting; existing sessions may need to select a model again.",
+    "migrationPreview": "Preview legacy route conversion",
+    "migrationBackup": "Download route backup",
+    "migrationConfirm": "Confirm route ID conversion",
+    "migrationLimits": "Effort limit",
+    "migrationUnlimited": "Unlimited",
+
     "enable": "Enable aggregate routing",
     "title": "Aggregate provider",
     "hint": "Holds no endpoint or key; routes requests to other providers by model. Restart Claude Desktop after enabling.",

@@ -1,0 +1,25 @@
+{
+  "reviewed_revision": "33ede2ca15598f9cbd4170ce9a7de7e56fe9a279ee0afbefc3f4a504ae39ea4d",
+  "review_report": {
+    "project_id": "cc-switch-aggregate-evaluation",
+    "path": ".agent-org/evidence/aggregate-independent-review.md",
+    "sha256": "55afe4213b985147ce85f007c57cd7f016e433b58ac3cfef0a8ac7435a6cef3d"
+  },
+  "review_result": "passed",
+  "review_run": "/root/cc_switch_aggregate_review",
+  "execution_record": {
+    "actor_id": "cc-switch-aggregate-independent-reviewer",
+    "executor": "project-llm",
+    "kind": "llm",
+    "run_id": "/root/cc_switch_aggregate_review",
+    "model": "gpt-6.1-sol",
+    "provider": "codex-desktop",
+    "effort": "high",
+    "status": "succeeded",
+    "observation_source": {
+      "kind": "declared",
+      "reference": "Actual independent Codex spawn invocation canonical task_name=/root/cc_switch_aggregate_review; controller reports spawn only returned this identifier, not a session UUID. Identity and model/provider/effort are registered controller host-dispatch declarations, not provider authentication. Actual checks are documented in aggregate-independent-review.md; tool chunks c9b89a, b687be, 2b51a5, 9cbb5d, ea31a6, 83864f, 238d0a, 7a5308 and image inspection in this independent task."
+    }
+  },
+  "findings": []
+}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -66,6 +66,8 @@ import {
   slotLabel,
   TIER_ROW_ORDER,
   type ProviderTierRows,
+  needsRouteIdMigration,
+  migrateIncompatibleRouteIds,
 } from "@/utils/aggregateRoutes";
 import {
   effortCapability,
@@ -134,6 +136,24 @@ export function AggregateProviderFields({
 }: Props) {
   const { t } = useTranslation();
 
+  const [migrationPreview, setMigrationPreview] = useState<AggregateRoutes>();
+  const [migrationBackup, setMigrationBackup] = useState(false);
+  useEffect(() => {
+    setMigrationPreview(undefined);
+    setMigrationBackup(false);
+  }, [value]);
+  const downloadMigrationBackup = () => {
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(value, null, 2)], { type: "application/json" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "aggregate-routes-before-migration.json";
+    link.click();
+    URL.revokeObjectURL(url);
+    setMigrationBackup(true);
+  };
+
   // 显示名默认值要带上供应商名：同一个上游模型可能挂在两家供应商上，
   // 只写模型名仍分不清实际调用的是哪一家。
   const providerNameById = new Map(candidates.map((p) => [p.id, p.name]));
@@ -162,16 +182,14 @@ export function AggregateProviderFields({
     return [...grouped, ...extras];
   }, [grouped, pendingProviders]);
 
-  // 每次变更都重算所有槽位 ID：保证「预览 = 实际提交值」。
-  // assignSlotIds 会按档位从零重编号，并让默认目标/默认模型按位置跟随，
-  // 故增删槽位后引用不会悬空（默认目标悬空保持原值交由保存校验拦截；
-  // 默认模型悬空置空回落排序首位）。
+  // 新行分配 ID；既有 ID 不因排序或编辑变化。
+  // assignSlotIds 保留既有身份，并记录删除的 ID 防止重用，
+  // 删除引用目标时默认目标保持原值，由保存校验要求重新选择；
+  // 默认模型悬空置空回落排序首位。
   //
-  // 归一化必须先 assignSlotIds 再判定：槽位增删会让序号轮换、ID 在溢出↔池内
-  // 之间变档，用旧 ID 判定会剥错方向。判定用该 ID 的具体阶梯（effortLevelsFor，
-  // 非 ladder 返回 []）而非三态——同为完整阶梯的 4-6 系不含 xhigh，越阶值同样要剥。
+  // 先为新行分配 ID，再按每行的实际兼容阶梯校验上限；既有 ID 和有效上限不变。
   const commit = (next: AggregateRoutes) => {
-    const assigned = assignSlotIds(next);
+    const assigned = assignSlotIds(next, value);
     return onChange({
       ...assigned,
       slots: assigned.slots.map((s) =>
@@ -186,7 +204,7 @@ export function AggregateProviderFields({
    *  任何档位）存进 pendingProviders。 */
   const commitCards = (next: ProviderTierRows[]) => {
     const hasRows = (card: ProviderTierRows) =>
-      TIER_ROW_ORDER.some((tier) => card.rows[tier]);
+      TIER_ROW_ORDER.some((tier) => card.rows[tier]?.length);
     setPendingProviders(
       next.filter((card) => !hasRows(card)).map((c) => c.providerId),
     );
@@ -202,8 +220,9 @@ export function AggregateProviderFields({
     card.providerId = providerId;
     // 行内的槽位各自带着 providerId（扁平存储的冗余），换卡头时同步改写
     for (const tier of TIER_ROW_ORDER) {
-      const slot = card.rows[tier];
-      if (slot) card.rows[tier] = { ...slot, providerId };
+      const slots = card.rows[tier];
+      if (slots)
+        card.rows[tier] = slots.map((slot) => ({ ...slot, providerId }));
     }
     commitCards(next);
   };
@@ -211,31 +230,45 @@ export function AggregateProviderFields({
   const patchRow = (
     cardIndex: number,
     tier: AggregateTier,
+    rowIndex: number,
     patch: Partial<AggregateRouteSlot>,
   ) => {
     const next = cloneCards(cards);
-    const slot = next[cardIndex].rows[tier];
-    if (!slot) return;
-    next[cardIndex].rows[tier] = { ...slot, ...patch };
+    const slots = next[cardIndex].rows[tier];
+    if (!slots?.[rowIndex]) return;
+    next[cardIndex].rows[tier] = slots.map((slot, i) =>
+      i === rowIndex ? { ...slot, ...patch } : slot,
+    );
     commitCards(next);
   };
 
-  const removeRow = (cardIndex: number, tier: AggregateTier) => {
+  const removeRow = (
+    cardIndex: number,
+    tier: AggregateTier,
+    rowIndex: number,
+  ) => {
     const next = cloneCards(cards);
-    delete next[cardIndex].rows[tier];
+    const remaining = (next[cardIndex].rows[tier] ?? []).filter(
+      (_, i) => i !== rowIndex,
+    );
+    if (remaining.length) next[cardIndex].rows[tier] = remaining;
+    else delete next[cardIndex].rows[tier];
     commitCards(next);
   };
 
-  /** 新增档位行：只允许未占用的档（v3：增量添加替代固定四行）。 */
+  /** 每个档位可以添加多个独立模型。 */
   const addRow = (cardIndex: number, tier: AggregateTier) => {
     const next = cloneCards(cards);
-    next[cardIndex].rows[tier] = {
-      routeId: "",
-      tier,
-      providerId: next[cardIndex].providerId,
-      upstreamModel: "",
-      supports1m: false,
-    };
+    next[cardIndex].rows[tier] = [
+      ...(next[cardIndex].rows[tier] ?? []),
+      {
+        routeId: "",
+        tier,
+        providerId: next[cardIndex].providerId,
+        upstreamModel: "",
+        supports1m: false,
+      },
+    ];
     // 新行自动展开（用户要立刻填它）
     const cardId = next[cardIndex].providerId;
     setExpandedIds((prev) => new Set(prev).add(cardId));
@@ -245,7 +278,7 @@ export function AggregateProviderFields({
   const removeCard = (cardIndex: number) =>
     commitCards(cards.filter((_, i) => i !== cardIndex));
 
-  /** 别名规则改动直接走 commit：assignSlotIds 会跟随重编号，maxEffort 归一化不受影响。 */
+  /** 别名规则改动不改变槽位身份；按实际 ID 校验有效上限。 */
   const patchAliasRule = (
     index: number,
     patch: Partial<AggregateAliasRule>,
@@ -321,6 +354,82 @@ export function AggregateProviderFields({
         <h3 className="text-sm font-medium">{t("aggregate.title")}</h3>
         <p className="text-xs text-muted-foreground">{t("aggregate.hint")}</p>
       </header>
+
+      {needsRouteIdMigration(value) && (
+        <div className="space-y-2 rounded-md border p-3 text-xs">
+          <p>
+            {t("aggregate.migrationHint", {
+              defaultValue:
+                "存量路由 ID 不兼容或重复。普通编辑保留原 ID；转换前请备份，旧会话可能需要重新选择模型。",
+            })}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setMigrationPreview(migrateIncompatibleRouteIds(value));
+              setMigrationBackup(false);
+            }}
+          >
+            {t("aggregate.migrationPreview", {
+              defaultValue: "预览旧路由转换",
+            })}
+          </Button>
+          {migrationPreview && (
+            <>
+              <pre className="whitespace-pre-wrap">
+                {value.slots
+                  .map(
+                    (slot, i) =>
+                      `${slot.routeId} → ${migrationPreview.slots[i]?.routeId}；${t("aggregate.migrationLimits", { defaultValue: "上限" })} ${slot.maxEffort ?? t("aggregate.migrationUnlimited", { defaultValue: "不限制" })} → ${migrationPreview.slots[i]?.maxEffort ?? t("aggregate.migrationUnlimited", { defaultValue: "不限制" })}`,
+                  )
+                  .join("\n")}
+              </pre>
+              <p>
+                {t("aggregate.defaultTarget", { defaultValue: "兜底目标" })}:{" "}
+                {value.defaultTarget.value} →{" "}
+                {migrationPreview.defaultTarget.value}
+              </p>
+              <p>
+                {t("aggregate.defaultModel", { defaultValue: "默认模型" })}:{" "}
+                {value.defaultModel ?? "—"} →{" "}
+                {migrationPreview.defaultModel ?? "—"}
+              </p>
+              {(value.aliasRules ?? []).map((rule, i) => (
+                <p key={i}>
+                  {rule.prefix}: {rule.slotId || "—"} →{" "}
+                  {migrationPreview.aliasRules?.[i]?.slotId || "—"}
+                </p>
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={downloadMigrationBackup}
+              >
+                {t("aggregate.migrationBackup", {
+                  defaultValue: "下载路由备份",
+                })}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!migrationBackup}
+                onClick={() => {
+                  onChange(migrationPreview);
+                  setMigrationPreview(undefined);
+                  setMigrationBackup(false);
+                }}
+              >
+                {t("aggregate.migrationConfirm", {
+                  defaultValue: "确认转换路由 ID",
+                })}
+              </Button>
+            </>
+          )}
+        </div>
+      )}
 
       {!canSaveAggregateRoutes(value) && (
         <p className="text-xs text-destructive">{t("aggregate.notSaveable")}</p>
@@ -544,17 +653,19 @@ export function AggregateProviderFields({
               );
               const target = candidates.find((p) => p.id === card.providerId);
               const fetched = modelsForProvider(card.providerId);
-              const mappedTiers = TIER_ROW_ORDER.filter(
-                (tier) => card.rows[tier],
+              const mappedRows = TIER_ROW_ORDER.flatMap((tier) =>
+                (card.rows[tier] ?? []).map((slot, rowIndex) => ({
+                  tier,
+                  slot,
+                  rowIndex,
+                })),
               );
-              const unusedTiers = TIER_ROW_ORDER.filter(
-                (tier) => !card.rows[tier],
-              );
+              const availableTiers = TIER_ROW_ORDER;
               const expanded = expandedIds.has(card.providerId);
               // routeId 恒非空（每次 commit 都经 assignSlotIds 赋真 ID），无已映射
               // 槽位时 effectiveDefault 为 ""，恒不命中，无需再挡空值。
-              const isDefaultCard = Object.values(card.rows).some(
-                (slot) => slot?.routeId === effectiveDefault,
+              const isDefaultCard = mappedRows.some(
+                ({ slot }) => slot.routeId === effectiveDefault,
               );
               return (
                 <SortableCard key={card.providerId} id={card.providerId}>
@@ -665,15 +776,13 @@ export function AggregateProviderFields({
 
                           {/* 已映射档位的行（v3：增量添加，不再固定四行）。行尾 ×
                               删除该槽；行内不支持改档位（删了重加）。 */}
-                          {mappedTiers.map((tier) => {
-                            const slot = card.rows[tier];
-                            if (!slot) return null;
+                          {mappedRows.map(({ tier, slot, rowIndex }) => {
                             const isEffectiveDefault =
                               slot.routeId === effectiveDefault;
-                            const switchId = `agg-1m-${cardIndex}-${tier}`;
+                            const switchId = `agg-1m-${slot.routeId || `${cardIndex}-${tier}-${rowIndex}`}`;
                             return (
                               <div
-                                key={tier}
+                                key={slot.routeId || `${tier}-${rowIndex}`}
                                 className="flex items-center gap-2"
                                 // 槽位 ID 不占版面，悬停可查——排查代理日志里的
                                 // request_model 时用得上
@@ -684,7 +793,7 @@ export function AggregateProviderFields({
                                 </span>
                                 <EffortBadge routeId={slot.routeId} />
                                 <div className="flex min-w-0 flex-1 gap-1">
-                                {/* 上游模型只改值，不再承担行的生死——删行走
+                                  {/* 上游模型只改值，不再承担行的生死——删行走
                                     行尾 × 按钮（v3 语义）。 */}
                                   <Input
                                     className="h-8 min-w-0 flex-1"
@@ -694,7 +803,7 @@ export function AggregateProviderFields({
                                       { defaultValue: "上游模型名" },
                                     )}
                                     onChange={(e) =>
-                                      patchRow(cardIndex, tier, {
+                                      patchRow(cardIndex, tier, rowIndex, {
                                         upstreamModel: e.target.value,
                                       })
                                     }
@@ -703,7 +812,7 @@ export function AggregateProviderFields({
                                     <ModelDropdown
                                       models={fetched}
                                       onSelect={(id) =>
-                                        patchRow(cardIndex, tier, {
+                                        patchRow(cardIndex, tier, rowIndex, {
                                           upstreamModel: id,
                                         })
                                       }
@@ -717,7 +826,7 @@ export function AggregateProviderFields({
                                     value={slot.label ?? ""}
                                     // 留空则不落库；提交时由表单统一补成「供应商 · 上游模型」
                                     onValueChange={(v) =>
-                                      patchRow(cardIndex, tier, {
+                                      patchRow(cardIndex, tier, rowIndex, {
                                         label: v.trim() ? v : undefined,
                                       })
                                     }
@@ -734,7 +843,9 @@ export function AggregateProviderFields({
                                   routeId={slot.routeId}
                                   value={slot.maxEffort}
                                   onChange={(v) =>
-                                    patchRow(cardIndex, tier, { maxEffort: v })
+                                    patchRow(cardIndex, tier, rowIndex, {
+                                      maxEffort: v,
+                                    })
                                   }
                                 />
                                 <div className="flex w-20 shrink-0 items-center justify-end gap-1.5">
@@ -742,7 +853,7 @@ export function AggregateProviderFields({
                                     id={switchId}
                                     checked={Boolean(slot.supports1m)}
                                     onCheckedChange={(v) =>
-                                      patchRow(cardIndex, tier, {
+                                      patchRow(cardIndex, tier, rowIndex, {
                                         supports1m: v,
                                       })
                                     }
@@ -762,7 +873,9 @@ export function AggregateProviderFields({
                                   title={t("aggregate.removeModel", {
                                     defaultValue: "删除该模型",
                                   })}
-                                  onClick={() => removeRow(cardIndex, tier)}
+                                  onClick={() =>
+                                    removeRow(cardIndex, tier, rowIndex)
+                                  }
                                 >
                                   <X className="h-3.5 w-3.5" />
                                 </Button>
@@ -770,8 +883,8 @@ export function AggregateProviderFields({
                             );
                           })}
 
-                          {/* 新增模型：只列未占用的档位；满 4 档隐藏 */}
-                          {unusedTiers.length > 0 && (
+                          {/* 新增模型：各档位允许多行，不覆盖既有模型 */}
+                          {availableTiers.length > 0 && (
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button
@@ -787,7 +900,7 @@ export function AggregateProviderFields({
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="start">
-                                {unusedTiers.map((tier) => (
+                                {availableTiers.map((tier) => (
                                   <DropdownMenuItem
                                     key={tier}
                                     onClick={() => addRow(cardIndex, tier)}
@@ -803,11 +916,10 @@ export function AggregateProviderFields({
                         /* 折叠态摘要：N 个模型 · M 强度 */
                         <p className="text-xs text-muted-foreground">
                           {t("aggregate.modelsSummaryLadder", {
-                            count: mappedTiers.length,
-                            ladder: mappedTiers.filter(
-                              (tier) =>
-                                effortCapability(card.rows[tier]!.routeId) ===
-                                "ladder",
+                            count: mappedRows.length,
+                            ladder: mappedRows.filter(
+                              ({ slot }) =>
+                                effortCapability(slot.routeId) === "ladder",
                             ).length,
                             defaultValue: "{{count}} 个模型 · {{ladder}} 强度",
                           })}

@@ -55,6 +55,8 @@ pub struct RequestContext {
     pub outbound_model: Option<String>,
     /// 聚合路由命中时需改写的上游模型名（None = 不改写，走既有映射）
     pub aggregate_override: Option<String>,
+    /// 聚合请求来源，与是否改写模型名独立（供应商兜底可不改写模型）。
+    pub is_aggregate_request: bool,
     /// 日志标签（如 "Claude"、"Codex"、"Gemini"）
     pub tag: &'static str,
     /// 应用类型字符串（如 "claude"、"codex"、"gemini"）
@@ -157,6 +159,11 @@ impl RequestContext {
         // （`forwarder.rs`）只在 `AppType::ClaudeDesktop | AppType::Codex` 下应用
         // `aggregate_override` 的模型改写。若这里不按 app 收口，非这两类的供应商
         // 带上聚合路由表时会「路由到目标但不改模型」——半生效状态。两层必须一致。
+        let is_aggregate_request = match &app_type {
+            AppType::ClaudeDesktop => crate::aggregate::is_aggregate_provider(&provider),
+            AppType::Codex => crate::aggregate::is_codex_aggregate_provider(&provider),
+            _ => false,
+        };
         let aggregate_override = match &app_type {
             AppType::ClaudeDesktop if crate::aggregate::is_aggregate_provider(&provider) => {
                 let (target, upstream) = crate::aggregate::resolve_target(
@@ -215,6 +222,7 @@ impl RequestContext {
             request_model,
             outbound_model: None,
             aggregate_override,
+            is_aggregate_request,
             tag,
             app_type_str,
             app_type,
@@ -294,7 +302,7 @@ impl RequestContext {
         )
         // 聚合路由命中时把上游模型名交给转发层：模型映射由聚合路由表给出，
         // 不再走目标供应商自己的路由表。
-        .with_aggregate_override(self.aggregate_override.clone())
+        .with_aggregate_route(self.is_aggregate_request, self.aggregate_override.clone())
     }
 
     /// 获取 Provider 列表（用于故障转移）

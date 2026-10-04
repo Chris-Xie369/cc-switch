@@ -1,0 +1,89 @@
+schema_version: '1.3'
+governance:
+  departments:
+  - PROJECT
+  external_actions:
+  - none
+  fault_domains:
+  - local-only
+  roles:
+  - implementer
+  - reviewer_b
+dept_bucket:
+  PROJECT:
+    primary: []
+task_routing:
+  defaults:
+    implementer:
+      S:
+        tier: flash
+        effort: high
+        reason: Explicit task-observed configuration; no host model inferred
+      M:
+        tier: flash
+        effort: high
+        reason: Explicit task-observed configuration; no host model inferred
+      L:
+        tier: flagship
+        effort: high
+        reason: Explicit task-observed configuration; no host model inferred
+    reviewer_b:
+      S:
+        tier: flash
+        effort: high
+        reason: Explicit task-observed configuration; no host model inferred
+      M:
+        tier: flash
+        effort: high
+        reason: Explicit task-observed configuration; no host model inferred
+      L:
+        tier: flagship
+        effort: high
+        reason: Explicit task-observed configuration; no host model inferred
+  project_overrides:
+    cc-switch-aggregate-evaluation:
+      implementer:
+        M:
+          tier: flagship
+          effort: high
+          providers:
+          - codex-desktop/gpt-6.1-sol
+          reason: Task supplied actual model/effort; registration is not runtime proof
+      reviewer_b:
+        M:
+          tier: flagship
+          effort: high
+          providers:
+          - hermes-cli/glm-4.7
+          reason: Task supplied actual model/effort; registration is not runtime proof
+review_policy:
+  allow_human_review: true
+  cross_family_risks:
+  - high
+  cross_family_grades:
+  - L
+  require_tier_pairing_risks:
+  - high
+  require_tier_pairing_grades:
+  - L
+projects:
+  cc-switch-aggregate-evaluation:
+    root: D:\Workspace\Project\cc-switch\src
+executors:
+  project-llm:
+    kind: llm
+    capabilities: []
+  project-human:
+    kind: human
+    capabilities: []
+  project-service:
+    kind: service
+    capabilities: []
+validation:
+  checks:
+  - same_family_conflict
+  - unregistered_model
+  - unknown_family_misuse
+  - forbidden_endpoint
+  sweep_targets: []
+  document_lints: false

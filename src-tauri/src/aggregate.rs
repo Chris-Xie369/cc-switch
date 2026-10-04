@@ -5,6 +5,10 @@ use crate::error::AppError;
 use crate::provider::Provider;
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+#[path = "aggregate_retirement_tests.rs"]
+mod retirement_tests;
+
 /// 可写入 profile 的 `maxEffort` 合法取值（与 Claude Desktop 的 low…max 阶梯一致）。
 /// 白名单外丢弃——避免用户被 Desktop 静默压到最低档（cap at low，实测 2.9939.4.0）。
 const AGGREGATE_MAX_EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
@@ -76,6 +80,9 @@ pub struct AggregateRoutes {
     /// serde default 反序列化为空列表 —— 行为等同未启用。
     #[serde(default)]
     pub alias_rules: Vec<AggregateAliasRule>,
+    /// 删除的路由名称仍保留身份，禁止旧会话静默改指新模型。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retired_route_ids: Vec<String>,
 }
 
 /// Codex 聚合路由：客户端模型名（精确匹配）→ 目标 Codex 供应商 + 上游模型。
@@ -130,6 +137,7 @@ mod tests {
                 slots,
                 default_target: DefaultTarget::ProviderId("p-target".to_string()),
                 default_model: None,
+                retired_route_ids: vec![],
                 alias_rules: vec![],
             }),
             ..Default::default()
@@ -360,6 +368,7 @@ mod tests {
                 }],
                 default_target: DefaultTarget::ProviderId("p-glm".into()),
                 default_model: None,
+                retired_route_ids: vec![],
                 alias_rules: vec![],
             }),
             ..Default::default()
@@ -415,6 +424,7 @@ mod tests {
                 slots,
                 default_target,
                 default_model: None,
+                retired_route_ids: vec![],
                 alias_rules: vec![],
             }),
             ..Default::default()
@@ -1470,9 +1480,21 @@ pub fn resolve_target(
     let requested =
         crate::claude_desktop_config::strip_one_m_suffix_for_route_lookup(request_model);
 
+    if routes
+        .retired_route_ids
+        .iter()
+        .any(|id| id.trim().eq_ignore_ascii_case(requested))
+    {
+        return Err(AppError::localized(
+            "aggregate.route_retired",
+            "该聚合模型路由已删除，请重新选择模型",
+            "This aggregate model route was removed; select a model again",
+        ));
+    }
+
     // 直接按持久化的槽位 ID 查表（ID 由前端编辑时生成并随表单提交，运行时不重新生成）
     for slot in &routes.slots {
-        if slot.route_id == requested {
+        if slot.route_id.trim() == requested {
             let target = load_provider(db, app_type, &slot.provider_id)?;
             return Ok((target, Some(slot.upstream_model.clone())));
         }
@@ -1489,7 +1511,11 @@ pub fn resolve_target(
         if prefix.is_empty() || !lowered.starts_with(&prefix) {
             continue;
         }
-        let Some(slot) = routes.slots.iter().find(|s| s.route_id == rule.slot_id) else {
+        let Some(slot) = routes
+            .slots
+            .iter()
+            .find(|s| s.route_id.trim() == rule.slot_id.trim())
+        else {
             if !rule.slot_id.is_empty() {
                 log::info!(
                     "[aggregate] alias rule '{prefix}' -> dangling slot '{}', skipped",
@@ -1508,7 +1534,7 @@ pub fn resolve_target(
         DefaultTarget::SlotId(slot_id) => routes
             .slots
             .iter()
-            .find(|slot| &slot.route_id == slot_id)
+            .find(|slot| slot.route_id.trim() == slot_id.trim())
             .map(|slot| slot.provider_id.clone())
             .ok_or_else(|| {
                 AppError::localized(

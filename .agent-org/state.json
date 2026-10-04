@@ -1,0 +1,408 @@
+{
+  "schema_version": 1,
+  "project_root": "D:\\Workspace\\Project\\cc-switch\\src",
+  "project_id": "cc-switch-aggregate-evaluation",
+  "org_root": "D:\\Workspace\\Project\\cc-switch\\src\\.agent-org\\org",
+  "l1": "D:\\Workspace\\Project\\cc-switch\\src\\.agent-org\\org\\providers.yaml",
+  "l3": "D:\\Workspace\\Project\\cc-switch\\src\\.agent-org\\org\\config\\org-routing.yaml",
+  "employee_id": "emp_project_owner",
+  "shared": false,
+  "current_task": "task_cfc43aae54a58adb",
+  "tasks": {
+    "task_d60aed633eec27de": {
+      "request": "Evaluate new aggregate model architecture, functional usage and UI/UX; propose an improvement plan",
+      "signature": "d60aed633eec27de43c9ffd8f6e5370a60c32969047b4484e08dfa7a9bec269c",
+      "stage": "delivered",
+      "baseline": {
+        "git": true,
+        "head": "9787b2f06d9942dbc637e7b89d4aad6980cce3dd",
+        "unborn": false,
+        "status": " M src-tauri/src/proxy/forwarder.rs\n?? docs/superpowers/plans/2026-10-03-aggregate-oauth-target.md\n?? docs/superpowers/specs/2026-10-03-aggregate-oauth-target-design.md",
+        "status_exit": 0,
+        "tracked_diff_sha256": "cfedcc134d503dd5c4fe34c58727475f020b4d78e6fd1dd1f14448317edcae73",
+        "tracked_diff_exit": 0
+      },
+      "review_baseline": null,
+      "review_target": {
+        "subject": {
+          "kind": "artifact",
+          "project_id": "cc-switch-aggregate-evaluation",
+          "path": ".agent-org/evidence/cc-switch-aggregate-evaluation-package.zip",
+          "sha256": "33ede2ca15598f9cbd4170ce9a7de7e56fe9a279ee0afbefc3f4a504ae39ea4d"
+        },
+        "version": "33ede2ca15598f9cbd4170ce9a7de7e56fe9a279ee0afbefc3f4a504ae39ea4d"
+      },
+      "review": {
+        "reviewed_revision": "33ede2ca15598f9cbd4170ce9a7de7e56fe9a279ee0afbefc3f4a504ae39ea4d",
+        "review_report": {
+          "project_id": "cc-switch-aggregate-evaluation",
+          "path": ".agent-org/evidence/aggregate-independent-review.md",
+          "sha256": "55afe4213b985147ce85f007c57cd7f016e433b58ac3cfef0a8ac7435a6cef3d"
+        },
+        "review_result": "passed",
+        "review_run": "/root/cc_switch_aggregate_review",
+        "execution_record": {
+          "actor_id": "cc-switch-aggregate-independent-reviewer",
+          "executor": "project-llm",
+          "kind": "llm",
+          "run_id": "/root/cc_switch_aggregate_review",
+          "model": "gpt-6.1-sol",
+          "provider": "codex-desktop",
+          "effort": "high",
+          "status": "succeeded",
+          "observation_source": {
+            "kind": "declared",
+            "reference": "Actual independent Codex spawn invocation canonical task_name=/root/cc_switch_aggregate_review; controller reports spawn only returned this identifier, not a session UUID. Identity and model/provider/effort are registered controller host-dispatch declarations, not provider authentication. Actual checks are documented in aggregate-independent-review.md; tool chunks c9b89a, b687be, 2b51a5, 9cbb5d, ea31a6, 83864f, 238d0a, 7a5308 and image inspection in this independent task."
+          }
+        },
+        "findings": []
+      },
+      "review_history": [
+        {
+          "subject": {
+            "kind": "artifact",
+            "project_id": "cc-switch-aggregate-evaluation",
+            "path": ".agent-org/evidence/cc-switch-aggregate-evaluation-package.zip",
+            "sha256": "33ede2ca15598f9cbd4170ce9a7de7e56fe9a279ee0afbefc3f4a504ae39ea4d"
+          },
+          "result": {
+            "reviewed_revision": "33ede2ca15598f9cbd4170ce9a7de7e56fe9a279ee0afbefc3f4a504ae39ea4d",
+            "review_report": {
+              "project_id": "cc-switch-aggregate-evaluation",
+              "path": ".agent-org/evidence/aggregate-independent-review.md",
+              "sha256": "55afe4213b985147ce85f007c57cd7f016e433b58ac3cfef0a8ac7435a6cef3d"
+            },
+            "review_result": "passed",
+            "review_run": "/root/cc_switch_aggregate_review",
+            "execution_record": {
+              "actor_id": "cc-switch-aggregate-independent-reviewer",
+              "executor": "project-llm",
+              "kind": "llm",
+              "run_id": "/root/cc_switch_aggregate_review",
+              "model": "gpt-6.1-sol",
+              "provider": "codex-desktop",
+              "effort": "high",
+              "status": "succeeded",
+              "observation_source": {
+                "kind": "declared",
+                "reference": "Actual independent Codex spawn invocation canonical task_name=/root/cc_switch_aggregate_review; controller reports spawn only returned this identifier, not a session UUID. Identity and model/provider/effort are registered controller host-dispatch declarations, not provider authentication. Actual checks are documented in aggregate-independent-review.md; tool chunks c9b89a, b687be, 2b51a5, 9cbb5d, ea31a6, 83864f, 238d0a, 7a5308 and image inspection in this independent task."
+              }
+            },
+            "findings": []
+          }
+        }
+      ]
+    },
+    "task_9b93b0f7421ed396": {
+      "request": "Implement cc-switch aggregate account/auth boundary fixes M03/M04 with isolated credential-safe regression coverage",
+      "signature": "9b93b0f7421ed396067661056107b6554a78e63c06e2826f146c2f79a871b6c7",
+      "stage": "delivered",
+      "baseline": {
+        "git": false,
+        "note": "Not a verified Git root; use registered artifact evidence"
+      },
+      "review_baseline": null,
+      "review_target": {
+        "subject": {
+          "kind": "artifact",
+          "project_id": "cc-switch-aggregate-evaluation",
+          "path": ".agent-org/evidence/aggregate-account-boundary-package.zip",
+          "sha256": "10274b3ed0af7b83051c43df991b5f7a78ed91e40b503812afa48b9302df1192"
+        },
+        "version": "10274b3ed0af7b83051c43df991b5f7a78ed91e40b503812afa48b9302df1192"
+      },
+      "review": {
+        "reviewed_revision": "10274b3ed0af7b83051c43df991b5f7a78ed91e40b503812afa48b9302df1192",
+        "review_report": {
+          "project_id": "cc-switch-aggregate-evaluation",
+          "path": ".agent-org/evidence/account-boundary-independent-review.md",
+          "sha256": "105261142221841900b3b6519f3c092d912f4d226047e59092c2cf3ce4b56a06"
+        },
+        "review_result": "passed",
+        "review_run": "20261004_185024_75109b",
+        "execution_record": {
+          "kind": "llm",
+          "executor": "project-llm",
+          "actor_id": "cc-switch-account-boundary-reviewer",
+          "model": "glm-4.7",
+          "provider": "hermes-cli",
+          "effort": "high",
+          "run_id": "20261004_185024_75109b",
+          "status": "succeeded",
+          "observation_source": {
+            "kind": "host-observed",
+            "reference": "Hermes actual init glm-4.7/session20261004_185024_75109b; initial exit1 retained, same-session finalization exit0; high requested by CLI; actual frozen reads and final verdict in controller evidence"
+          }
+        },
+        "findings": [
+          {
+            "id": "MIN-01",
+            "severity": "minor",
+            "summary": "聚合账号解析失败路径把底层原因完全吞掉（map_err(|_| hint)）且不再输出任何日志（旧实现有 log::warn 记录 Manager 路径失败原因）；不回显凭据的保密目标达成，但刷新/传输故障的现场诊断信息同时丢失，排障只能靠复现。建议在 log 层（非用户可见错误）保留脱敏后的原因。"
+          },
+          {
+            "id": "MIN-02",
+            "severity": "minor",
+            "summary": "RED 证据中的 panic 行号（106/87/96/180/78）与冻结测试文件的实际行号不一致（如空令牌断言在冻结文件约 137 行），说明 RED 捕获自测试文件的中间修订版；GREEN 证据中 8 个 aggregate_auth_* 测试名与冻结文件一一吻合，但 RED→GREEN 未用同一份冻结文本复现。报告声称的首轮两个导入错误记录也不在冻结证据内。"
+          },
+          {
+            "id": "MIN-03",
+            "severity": "minor",
+            "summary": "提供的 GREEN 证据仅覆盖转发层 96 项测试（2936 filtered）加 cargo check --offline --lib；全套约 3000+ 测试未在冻结证据中复跑。provider_router.rs 等其他模块同样读写 CC_SWITCH_TEST_HOME，serial 标注只在本次 96 项过滤运行内得到验证，跨模块环境变量/并发交互未被证据覆盖（报告对此做了如实的范围限定，未夸大）。"
+          },
+          {
+            "id": "MIN-04",
+            "severity": "minor",
+            "summary": "旧构建器 with_aggregate_override 仍为 pub 且保留『可空模型改写=聚合来源』的旧推导（is_aggregate_request = value.is_some()），仅靠 with_aggregate_route 覆写修正；冻结树内唯一生产调用点是 RequestContext::create_forwarder（handler_context.rs:305），对假想外部旧调用方语义与改动前等价（无回归），但该易混淆接口宜在后续收紧可见性，防止再被误用为认证策略开关。"
+          }
+        ]
+      },
+      "review_history": [
+        {
+          "subject": {
+            "kind": "artifact",
+            "project_id": "cc-switch-aggregate-evaluation",
+            "path": ".agent-org/evidence/aggregate-account-boundary-package.zip",
+            "sha256": "10274b3ed0af7b83051c43df991b5f7a78ed91e40b503812afa48b9302df1192"
+          },
+          "result": {
+            "reviewed_revision": "10274b3ed0af7b83051c43df991b5f7a78ed91e40b503812afa48b9302df1192",
+            "review_report": {
+              "project_id": "cc-switch-aggregate-evaluation",
+              "path": ".agent-org/evidence/account-boundary-independent-review.md",
+              "sha256": "105261142221841900b3b6519f3c092d912f4d226047e59092c2cf3ce4b56a06"
+            },
+            "review_result": "passed",
+            "review_run": "20261004_185024_75109b",
+            "execution_record": {
+              "kind": "llm",
+              "executor": "project-llm",
+              "actor_id": "cc-switch-account-boundary-reviewer",
+              "model": "glm-4.7",
+              "provider": "hermes-cli",
+              "effort": "high",
+              "run_id": "20261004_185024_75109b",
+              "status": "succeeded",
+              "observation_source": {
+                "kind": "host-observed",
+                "reference": "Hermes actual init glm-4.7/session20261004_185024_75109b; initial exit1 retained, same-session finalization exit0; high requested by CLI; actual frozen reads and final verdict in controller evidence"
+              }
+            },
+            "findings": [
+              {
+                "id": "MIN-01",
+                "severity": "minor",
+                "summary": "聚合账号解析失败路径把底层原因完全吞掉（map_err(|_| hint)）且不再输出任何日志（旧实现有 log::warn 记录 Manager 路径失败原因）；不回显凭据的保密目标达成，但刷新/传输故障的现场诊断信息同时丢失，排障只能靠复现。建议在 log 层（非用户可见错误）保留脱敏后的原因。"
+              },
+              {
+                "id": "MIN-02",
+                "severity": "minor",
+                "summary": "RED 证据中的 panic 行号（106/87/96/180/78）与冻结测试文件的实际行号不一致（如空令牌断言在冻结文件约 137 行），说明 RED 捕获自测试文件的中间修订版；GREEN 证据中 8 个 aggregate_auth_* 测试名与冻结文件一一吻合，但 RED→GREEN 未用同一份冻结文本复现。报告声称的首轮两个导入错误记录也不在冻结证据内。"
+              },
+              {
+                "id": "MIN-03",
+                "severity": "minor",
+                "summary": "提供的 GREEN 证据仅覆盖转发层 96 项测试（2936 filtered）加 cargo check --offline --lib；全套约 3000+ 测试未在冻结证据中复跑。provider_router.rs 等其他模块同样读写 CC_SWITCH_TEST_HOME，serial 标注只在本次 96 项过滤运行内得到验证，跨模块环境变量/并发交互未被证据覆盖（报告对此做了如实的范围限定，未夸大）。"
+              },
+              {
+                "id": "MIN-04",
+                "severity": "minor",
+                "summary": "旧构建器 with_aggregate_override 仍为 pub 且保留『可空模型改写=聚合来源』的旧推导（is_aggregate_request = value.is_some()），仅靠 with_aggregate_route 覆写修正；冻结树内唯一生产调用点是 RequestContext::create_forwarder（handler_context.rs:305），对假想外部旧调用方语义与改动前等价（无回归），但该易混淆接口宜在后续收紧可见性，防止再被误用为认证策略开关。"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "task_cfc43aae54a58adb": {
+      "request": "Implement cc-switch aggregate stable route identity and lossless same-provider/tier multi-model editing M01/M02",
+      "signature": "cfc43aae54a58adbc09f76768f6463e5d4f37ad32dd49e219e2fd4e4007da8bc",
+      "stage": "delivered",
+      "baseline": {
+        "git": false,
+        "note": "Not a verified Git root; use registered artifact evidence"
+      },
+      "review_baseline": null,
+      "review_target": {
+        "subject": {
+          "kind": "artifact",
+          "project_id": "cc-switch-aggregate-evaluation",
+          "path": ".agent-org/evidence/aggregate-route-compatibility-package-v2.zip",
+          "sha256": "63e2bb93efd8a52f3c481cfef139976e43231e65c82551811d1076e3de59747e"
+        },
+        "version": "63e2bb93efd8a52f3c481cfef139976e43231e65c82551811d1076e3de59747e"
+      },
+      "review_history": [
+        {
+          "subject": {
+            "kind": "artifact",
+            "project_id": "cc-switch-aggregate-evaluation",
+            "path": ".agent-org/evidence/aggregate-route-compatibility-package.zip",
+            "sha256": "3f02a6bbcc96aeaef56d8be76cb09019efbeff957335ba7b6a89f5af7cfa239f"
+          },
+          "result": {
+            "reviewed_revision": "3f02a6bbcc96aeaef56d8be76cb09019efbeff957335ba7b6a89f5af7cfa239f",
+            "review_report": {
+              "project_id": "cc-switch-aggregate-evaluation",
+              "path": ".agent-org/evidence/route-compatibility-independent-review-v1.md",
+              "sha256": "0d7820ff94deb88f167fdd67c38e84369ce2f681b1be212f9ce8026319cac615"
+            },
+            "review_result": "passed",
+            "review_run": "20261004_202748_7004d2",
+            "execution_record": {
+              "kind": "llm",
+              "executor": "project-llm",
+              "actor_id": "cc-switch-route-compatibility-reviewer",
+              "model": "glm-4.7",
+              "provider": "hermes-cli",
+              "effort": "high",
+              "run_id": "20261004_202748_7004d2",
+              "status": "succeeded",
+              "observation_source": {
+                "kind": "host-observed",
+                "reference": "Actual Hermes init glm-4.7/session20261004_202748_7004d2; CLIexit0; high requested; frozen source packet reviewed directly in independent prompt, no tools; provider identity not attested"
+              }
+            },
+            "findings": [
+              {
+                "id": "F1",
+                "severity": "minor",
+                "summary": "迁移预览文本仅逐槽显示 routeId 与 maxEffort 的变化，未展示 defaultTarget/defaultModel/aliasRules 的重映射结果；映射逻辑本身经测试验证无损且有备份兜底，但确认前透明度不足"
+              },
+              {
+                "id": "F2",
+                "severity": "minor",
+                "summary": "needsRouteIdMigration/migrateIncompatibleRouteIds 的重复 ID 判定为大小写敏感（seen 未做归一化），而退役检查、新 ID 分配 taken、后端保存重叠校验均为大小写不敏感；大小写变体的重复存量 ID 既不触发迁移提示也不被保存校验拒绝，与退役层的宽匹配不对称"
+              },
+              {
+                "id": "F3",
+                "severity": "minor",
+                "summary": "迁移横幅（提示、按钮、确认文案）为硬编码中文字符串，绕过同组件其余部分统一的 t()+defaultValue i18n 模式，英/日语言环境下不翻译"
+              },
+              {
+                "id": "F4",
+                "severity": "minor",
+                "summary": "迁移确认直接 onChange(preview) 而不经 commit，maxEffort 剥离仅覆盖 ID 发生变化的槽位：合法 ID 携带其阶梯不支持的越阶上限（如 claude-sonnet-4-6 + xhigh，后端白名单放行）会随迁移保留到下一次普通编辑才被归一化，期间 Desktop 端静默压档"
+              },
+              {
+                "id": "F5",
+                "severity": "minor",
+                "summary": "retiredRouteIds 只增不减，无任何查看/清理 UI，被删 ID 永久不可有意复用；属批准契约的取舍（防旧会话名称被复用），但缺可观测性，长期编辑会无限累积"
+              },
+              {
+                "id": "F6",
+                "severity": "minor",
+                "summary": "文档声称 tsc --noEmit 与 cargo check --offline --lib 通过，但冻结包内仅附 vitest 与 cargo test 日志，这两项无日志佐证（测试日志与源码逐项清点一致，属证据链小缺口而非矛盾）"
+              },
+              {
+                "id": "F7",
+                "severity": "minor",
+                "summary": "MaxEffortSelect 禁用态 tooltip 对 extended（仅思考开关）ID 也显示 none 态文案「溢出 ID：Claude Desktop 不认识」，解释不准确；既有问题，非本次改动引入"
+              }
+            ]
+          }
+        },
+        {
+          "subject": {
+            "kind": "artifact",
+            "project_id": "cc-switch-aggregate-evaluation",
+            "path": ".agent-org/evidence/aggregate-route-compatibility-package-v2.zip",
+            "sha256": "63e2bb93efd8a52f3c481cfef139976e43231e65c82551811d1076e3de59747e"
+          },
+          "result": {
+            "reviewed_revision": "63e2bb93efd8a52f3c481cfef139976e43231e65c82551811d1076e3de59747e",
+            "review_report": {
+              "project_id": "cc-switch-aggregate-evaluation",
+              "path": ".agent-org/evidence/route-compatibility-independent-review-final.md",
+              "sha256": "0eead60be7f5356972cf81ef9ce6de89341c16d3fc46a703e2039cb67cedfd7b"
+            },
+            "review_result": "passed",
+            "review_run": "20261004_202748_7004d2",
+            "execution_record": {
+              "kind": "llm",
+              "executor": "project-llm",
+              "actor_id": "cc-switch-route-compatibility-reviewer",
+              "model": "glm-4.7",
+              "provider": "hermes-cli",
+              "effort": "high",
+              "run_id": "20261004_202748_7004d2",
+              "status": "succeeded",
+              "observation_source": {
+                "kind": "host-observed",
+                "reference": "Actual Hermes GLM-4.7 session20261004_202748_7004d2 initial review and v2 delta review CLIexit0; high requested; no tools in source-packet review; all raw outputs/v1 decisions retained; identity not attested"
+              }
+            },
+            "findings": [
+              {
+                "id": "F5",
+                "severity": "minor",
+                "summary": "retiredRouteIds 仍只增不减，无查看/清理入口，被删 ID 永久不可有意复用；属批准契约取舍，缺可观测性。本次增量未涉及，维持 minor（任务方确认在实现范围外，保留准确）"
+              },
+              {
+                "id": "F7",
+                "severity": "minor",
+                "summary": "MaxEffortSelect 禁用态 tooltip 对 extended（仅思考开关）ID 仍显示 none 态文案「溢出 ID：Claude Desktop 不认识」，解释不准确；既有问题非本次引入，本次增量未涉及，维持 minor"
+              },
+              {
+                "id": "F8",
+                "severity": "minor",
+                "summary": "en/ja 迁移文案仅以数据块形式提供（DATA translations en/ja），冻结包内无 locale 文件 diff、也无英/日渲染证据；组件 t() 均带中文 defaultValue，若 locale 未实际接线，英/日界面会静默回落中文。属证据链缺口而非代码缺陷"
+              },
+              {
+                "id": "F9",
+                "severity": "minor",
+                "summary": "迁移预览新增的兜底目标/默认模型行打印原始 value 且不标注 kind：providerId 目标渲染为「x → x」（值本就不变）易被误读为重映射未生效；别名悬空/未设显示「—」。信息真实，纯展示语境问题"
+              }
+            ]
+          }
+        }
+      ],
+      "review": {
+        "reviewed_revision": "63e2bb93efd8a52f3c481cfef139976e43231e65c82551811d1076e3de59747e",
+        "review_report": {
+          "project_id": "cc-switch-aggregate-evaluation",
+          "path": ".agent-org/evidence/route-compatibility-independent-review-final.md",
+          "sha256": "0eead60be7f5356972cf81ef9ce6de89341c16d3fc46a703e2039cb67cedfd7b"
+        },
+        "review_result": "passed",
+        "review_run": "20261004_202748_7004d2",
+        "execution_record": {
+          "kind": "llm",
+          "executor": "project-llm",
+          "actor_id": "cc-switch-route-compatibility-reviewer",
+          "model": "glm-4.7",
+          "provider": "hermes-cli",
+          "effort": "high",
+          "run_id": "20261004_202748_7004d2",
+          "status": "succeeded",
+          "observation_source": {
+            "kind": "host-observed",
+            "reference": "Actual Hermes GLM-4.7 session20261004_202748_7004d2 initial review and v2 delta review CLIexit0; high requested; no tools in source-packet review; all raw outputs/v1 decisions retained; identity not attested"
+          }
+        },
+        "findings": [
+          {
+            "id": "F5",
+            "severity": "minor",
+            "summary": "retiredRouteIds 仍只增不减，无查看/清理入口，被删 ID 永久不可有意复用；属批准契约取舍，缺可观测性。本次增量未涉及，维持 minor（任务方确认在实现范围外，保留准确）"
+          },
+          {
+            "id": "F7",
+            "severity": "minor",
+            "summary": "MaxEffortSelect 禁用态 tooltip 对 extended（仅思考开关）ID 仍显示 none 态文案「溢出 ID：Claude Desktop 不认识」，解释不准确；既有问题非本次引入，本次增量未涉及，维持 minor"
+          },
+          {
+            "id": "F8",
+            "severity": "minor",
+            "summary": "en/ja 迁移文案仅以数据块形式提供（DATA translations en/ja），冻结包内无 locale 文件 diff、也无英/日渲染证据；组件 t() 均带中文 defaultValue，若 locale 未实际接线，英/日界面会静默回落中文。属证据链缺口而非代码缺陷"
+          },
+          {
+            "id": "F9",
+            "severity": "minor",
+            "summary": "迁移预览新增的兜底目标/默认模型行打印原始 value 且不标注 kind：providerId 目标渲染为「x → x」（值本就不变）易被误读为重映射未生效；别名悬空/未设显示「—」。信息真实，纯展示语境问题"
+          }
+        ]
+      }
+    }
+  }
+}

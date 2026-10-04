@@ -4,6 +4,7 @@ import type {
   AggregateTier,
   Provider,
 } from "@/types";
+import { effortLevelsFor } from "./claudeDesktopCapability";
 
 /**
  * 每个档位的 **Claude Desktop 认得**的真模型 ID 池，按优先级排列。
@@ -97,6 +98,78 @@ export function isAggregateProvider(provider: Pick<Provider, "meta">): boolean {
   return Boolean(provider.meta?.aggregateRoutes);
 }
 
+/** 对齐同版本后端的 Claude-safe ID 判定；保存校验仍以后端为权威。 */
+function isCompatibleRouteId(id: string): boolean {
+  const value = id.trim().toLowerCase();
+  const vendor =
+    /ark-code|astron|command-r|deepseek|doubao|gemini|gemma|glm|gpt|grok|hermes|hy3|kimi|lfm|\bling\b|llama|longcat|mimo|minimax|mistral|mixtral|moonshot|nemotron|openai|phi-|qianfan|qwen|tc-code|\bunic\b|yi-|stepfun|step-3|seed-|bytedance|hunyuan|granite|amazon\.nova|nova-|devstral|ministral|ernie|codex|arcee|trinity|abab|phi\d|\bk2\.|\bm2\.|jamba|arctic|solar|mercury|zamba|kat-coder|\bds-|dpsk/;
+  return (
+    !value.includes("[1m]") &&
+    !vendor.test(value) &&
+    /^(?:anthropic\/)?claude-(?:sonnet|opus|haiku|fable)-.+$/.test(value)
+  );
+}
+
+export function needsRouteIdMigration(routes: AggregateRoutes): boolean {
+  const seen = new Set<string>();
+  return routes.slots.some((slot) => {
+    const id = slot.routeId.trim().toLowerCase();
+    const invalid = !isCompatibleRouteId(id) || seen.has(id);
+    seen.add(id);
+    return invalid;
+  });
+}
+
+/** 仅供用户明确预览/确认迁移调用；普通编辑绝不自动转换旧 ID。 */
+export function migrateIncompatibleRouteIds(
+  routes: AggregateRoutes,
+): AggregateRoutes {
+  const counts = new Map<string, number>();
+  for (const slot of routes.slots) {
+    const id = slot.routeId.trim().toLowerCase();
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  const slots = routes.slots.map((slot) => {
+    const id = slot.routeId.trim().toLowerCase();
+    const replace = !isCompatibleRouteId(id) || (counts.get(id) ?? 0) > 1;
+    return replace ? { ...slot, routeId: "" } : slot;
+  });
+  const assigned = assignSlotIds({ ...routes, slots }, routes);
+  const remap = new Map<string, string>();
+  routes.slots.forEach((slot, i) => {
+    if (slot.routeId && !remap.has(slot.routeId))
+      remap.set(slot.routeId, assigned.slots[i].routeId);
+  });
+  return {
+    ...assigned,
+    slots: assigned.slots.map((slot) =>
+      slot.maxEffort && !effortLevelsFor(slot.routeId).includes(slot.maxEffort)
+        ? { ...slot, maxEffort: undefined }
+        : slot,
+    ),
+    defaultTarget:
+      routes.defaultTarget.kind === "slotId"
+        ? {
+            kind: "slotId",
+            value:
+              remap.get(routes.defaultTarget.value) ??
+              routes.defaultTarget.value,
+          }
+        : routes.defaultTarget,
+    defaultModel: routes.defaultModel
+      ? remap.get(routes.defaultModel)
+      : undefined,
+    ...(routes.aliasRules
+      ? {
+          aliasRules: routes.aliasRules.map((rule) => ({
+            ...rule,
+            slotId: remap.get(rule.slotId) ?? "",
+          })),
+        }
+      : {}),
+  };
+}
+
 /** 由槽位派生标签（选择器显示名）：显式填写优先，否则「供应商 · 上游模型」。
  *
  *  未填写时**必须**给出非空默认值——空值会让 profile 省略 `labelOverride`，
@@ -122,7 +195,13 @@ export function canSaveAggregateRoutes(
   routes: AggregateRoutes | undefined | null,
 ): boolean {
   return Boolean(
-    routes && routes.slots.length > 0 && routes.defaultTarget?.value.trim(),
+    routes &&
+      routes.slots.length > 0 &&
+      routes.defaultTarget?.value.trim() &&
+      (routes.defaultTarget.kind !== "slotId" ||
+        routes.slots.some(
+          (s) => s.routeId.trim() === routes.defaultTarget.value.trim(),
+        )),
   );
 }
 
@@ -140,13 +219,12 @@ export const TIER_ROW_ORDER: readonly AggregateTier[] = [
 /** 供应商卡的视图形状：一家供应商 + 各档位已映射的槽位（未映射的档位无键）。 */
 export interface ProviderTierRows {
   providerId: string;
-  rows: Partial<Record<AggregateTier, AggregateRouteSlot>>;
+  rows: Partial<Record<AggregateTier, AggregateRouteSlot[]>>;
 }
 
 /**
  * 扁平槽位按供应商分组（编辑器渲染用）。卡序 = 供应商在列表里的首次出现顺序。
- * 同供应商同档位的存量重复取首个——新的固定档位行 UI 造不出这种重复，此处仅
- * 归一旧数据，编辑后保存即消失。
+ * 同供应商同档位可以有多个模型，按原出现顺序完整保留。
  */
 export function groupSlotsByProvider(
   slots: AggregateRouteSlot[],
@@ -160,9 +238,7 @@ export function groupSlotsByProvider(
       byProvider.set(slot.providerId, card);
       cards.push(card);
     }
-    if (!card.rows[slot.tier]) {
-      card.rows[slot.tier] = slot;
-    }
+    (card.rows[slot.tier] ??= []).push(slot);
   }
   return cards;
 }
@@ -174,71 +250,55 @@ export function flattenProviderGroups(
   return cards.flatMap((card) => {
     const rows: AggregateRouteSlot[] = [];
     for (const tier of TIER_ROW_ORDER) {
-      const slot = card.rows[tier];
-      if (slot) rows.push(slot);
+      rows.push(...(card.rows[tier] ?? []));
     }
     return rows;
   });
 }
 
-/** 为所有槽位重新生成 routeId（按档位分别编号），并让默认目标、默认模型、别名规则按位置跟随。
- *
- *  在槽位增删、档位变更后调用，也可用于**迁移存量 ID**（旧方案含供应商名，
- *  会被 Claude Desktop 整组拒绝）。默认目标/默认模型若引用的是槽位 ID：以它在
- *  **本表内的位置**取新 ID；引用的槽位已被删除（旧 ID 不在本表里）时，默认目标
- *  保持原值（交由保存校验拦截，绝不静默改指到另一个槽位），默认模型置空
- *  （只影响启动默认、回落到排序首位，无需拦截），别名规则的 slotId 置空串
- *  （规则行保留，运行时按悬空跳过——别名是可选优化项，不是安全网）。 */
-export function assignSlotIds(routes: AggregateRoutes): AggregateRoutes {
-  const ordinalByTier = new Map<AggregateTier, number>();
-  const taken = new Set<string>();
-  const ids = routes.slots.map((slot) => {
-    const ordinal = (ordinalByTier.get(slot.tier) ?? 0) + 1;
-    ordinalByTier.set(slot.tier, ordinal);
-    const id = slotId(slot.tier, ordinal, taken);
-    taken.add(id);
-    return id;
+/** 只给新槽位分配 ID；既有身份不随编辑或排序改变。删除记录跨保存保留。 */
+export function assignSlotIds(
+  routes: AggregateRoutes,
+  previous?: AggregateRoutes,
+): AggregateRoutes {
+  const activeIds = new Set(routes.slots.map((s) => s.routeId).filter(Boolean));
+  const retired = new Set([
+    ...(previous?.retiredRouteIds ?? []),
+    ...(routes.retiredRouteIds ?? []),
+  ]);
+  for (const slot of previous?.slots ?? []) {
+    if (slot.routeId && !activeIds.has(slot.routeId)) retired.add(slot.routeId);
+  }
+  const canonical = (id: string) => id.trim().toLowerCase();
+  const taken = new Set([...activeIds, ...retired].map(canonical));
+  // 悬空引用也不得被一条新行悄悄认领；默认目标留给保存校验要求重新选择。
+  if (routes.defaultTarget.kind === "slotId" && routes.defaultTarget.value)
+    taken.add(canonical(routes.defaultTarget.value));
+  if (routes.defaultModel) taken.add(canonical(routes.defaultModel));
+  for (const rule of routes.aliasRules ?? [])
+    if (rule.slotId) taken.add(canonical(rule.slotId));
+  const slots = routes.slots.map((slot) => {
+    if (slot.routeId) return { ...slot };
+    let ordinal = 1;
+    let id = slotId(slot.tier, ordinal, taken);
+    while (taken.has(canonical(id))) id = slotId(slot.tier, ++ordinal, taken);
+    taken.add(canonical(id));
+    return { ...slot, routeId: id };
   });
-
-  const slots = routes.slots.map((slot, index) => ({
-    ...slot,
-    routeId: ids[index],
+  const live = new Set(slots.map((s) => s.routeId.trim()));
+  const defaultModel =
+    routes.defaultModel && live.has(routes.defaultModel.trim())
+      ? routes.defaultModel
+      : undefined;
+  const aliasRules = routes.aliasRules?.map((rule) => ({
+    ...rule,
+    slotId: rule.slotId && live.has(rule.slotId.trim()) ? rule.slotId : "",
   }));
-
-  let defaultTarget = routes.defaultTarget;
-  if (defaultTarget.kind === "slotId") {
-    const index = routes.slots.findIndex(
-      (slot) => slot.routeId === defaultTarget.value,
-    );
-    if (index >= 0) {
-      defaultTarget = { kind: "slotId", value: ids[index] };
-    }
-  }
-
-  let defaultModel = routes.defaultModel;
-  if (defaultModel) {
-    const index = routes.slots.findIndex(
-      (slot) => slot.routeId === defaultModel,
-    );
-    defaultModel = index >= 0 ? ids[index] : undefined;
-  }
-
-  const aliasRules = routes.aliasRules?.map((rule) => {
-    // 空 slotId = 用户尚未选定目标（或已被清空），不得被 addRow 造出的
-    // routeId:"" 新行认领 —— 否则半成品规则会静默绑到无关槽位。
-    const index = rule.slotId
-      ? routes.slots.findIndex((slot) => slot.routeId === rule.slotId)
-      : -1;
-    return index >= 0
-      ? { ...rule, slotId: ids[index] }
-      : { ...rule, slotId: "" };
-  });
-
   return {
     ...routes,
     slots,
-    defaultTarget,
     defaultModel,
     ...(aliasRules ? { aliasRules } : {}),
+    ...(retired.size ? { retiredRouteIds: [...retired] } : {}),
   };
 }

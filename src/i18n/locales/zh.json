@@ -3280,6 +3280,13 @@
     "refresh": "刷新"
   },
   "aggregate": {
+    "migrationHint": "存量路由 ID 不兼容或重复。普通编辑保留原 ID；转换前请备份，旧会话可能需要重新选择模型。",
+    "migrationPreview": "预览旧路由转换",
+    "migrationBackup": "下载路由备份",
+    "migrationConfirm": "确认转换路由 ID",
+    "migrationLimits": "上限",
+    "migrationUnlimited": "不限制",
+
     "enable": "启用聚合路由",
     "title": "聚合供应商",
     "hint": "自身不存端点与密钥，按模型把请求分流到其他供应商。启用后需重启 Claude Desktop 生效。",

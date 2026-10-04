@@ -98,7 +98,7 @@ describe("聚合编辑器上限下拉", () => {
     ]);
   });
 
-  it("提交归一化按重编号后的 ID 判定：变档成溢出的槽剥离 maxEffort", async () => {
+  it("普通提交保留每个既有模型的 ID 和有效强度上限", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     // 两张卡各一条 sonnet 行：重编号后 p1 取池内第 1 位（claude-sonnet-4-6，ladder），
@@ -143,11 +143,11 @@ describe("聚合编辑器上限下拉", () => {
     const next = onChange.mock.calls.at(-1)?.[0] as AggregateRoutes;
     expect(next.slots.map((s) => [s.routeId, s.maxEffort])).toEqual([
       ["claude-sonnet-4-6", "max"], // ladder：保留
-      ["claude-sonnet-4-5", undefined], // extended：剥离
+      ["claude-sonnet-5", "xhigh"], // ID 和能力均保留
     ]);
   });
 
-  it("重编号后阶梯收窄（sonnet-5→4-6）的槽剥离越阶残留 maxEffort", async () => {
+  it("删除其他模型不收窄剩余模型的 ID 或强度上限", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     // 存量数据：p1 槽存的是 sonnet-5 + xhigh（删槽轮换前的旧编号）。提交必先
@@ -192,7 +192,7 @@ describe("聚合编辑器上限下拉", () => {
 
     const next = onChange.mock.calls.at(-1)?.[0] as AggregateRoutes;
     expect(next.slots.map((s) => [s.routeId, s.maxEffort])).toEqual([
-      ["claude-sonnet-4-6", undefined],
+      ["claude-sonnet-5", "xhigh"],
     ]);
   });
 });

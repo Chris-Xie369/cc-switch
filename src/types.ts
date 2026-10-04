@@ -162,6 +162,8 @@ export interface AggregateRoutes {
   defaultModel?: string;
   /** 别名路由规则：槽位未命中时按前缀（小写化、按序先赢）转投。缺省 = 无规则。 */
   aliasRules?: AggregateAliasRule[];
+  /** 已删除的路由 ID：跨保存保留，避免旧会话的名称被新模型复用。 */
+  retiredRouteIds?: string[];
 }
 
 // Codex 聚合路由（与上面的 Claude 侧表平行、形状互不兼容：独立 meta 键

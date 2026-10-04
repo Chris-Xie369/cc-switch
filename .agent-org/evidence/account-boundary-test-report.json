@@ -1,0 +1,29 @@
+{
+  "task_id": "task_9b93b0f7421ed396",
+  "tested_revision": "10274b3ed0af7b83051c43df991b5f7a78ed91e40b503812afa48b9302df1192",
+  "test_result": "passed",
+  "red": {
+    "failed": 5,
+    "passed": 0,
+    "source": "red-stage/aggregate_auth_regression_tests.rs; earlier test-only scaffolding, saved before production edits"
+  },
+  "final_regression": {
+    "passed": 96,
+    "failed": 0,
+    "filtered": 2936
+  },
+  "production_check": "cargo check --offline --lib: exit0",
+  "commands": [
+    "cargo test --offline --lib proxy::forwarder -- --test-threads=1",
+    "cargo check --offline --lib"
+  ],
+  "scope": "Isolated temporary home/Manager accounts and loopback HTTP; requested refresh error injection; no real credentials/upstream",
+  "limits": [
+    "Not full ~3000 test suite",
+    "Not Tauri/native UI or actual upstream refresh",
+    "Review passed C0M0Minor4; original reviewer CLIexit1 retained then same-sessionexit0",
+    "Existing user OAuth source delta preserved relative to saved baseline"
+  ],
+  "shell": "PowerShell",
+  "cwd": "D:\\Workspace\\Project\\cc-switch\\src\\src-tauri"
+}

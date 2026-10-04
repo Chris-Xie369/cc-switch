@@ -85,10 +85,10 @@ describe("别名路由区块", () => {
     await user.type(input, "claude-opus");
     const calls = props.onChange.mock.calls;
     const last = calls[calls.length - 1][0] as AggregateRoutes;
-    // 槽位 ID 由 commit 内的 assignSlotIds 重编号（sonnet 首位取池内真 ID）
+    // 修改前缀不改变既有槽位身份。
     expect(last.aliasRules?.[0]).toEqual({
       prefix: "claude-opus",
-      slotId: "claude-sonnet-4-6",
+      slotId: "claude-sonnet-4",
     });
     // 第二条规则不受影响（patch 只改被编辑的行）
     expect(last.aliasRules?.[1]).toEqual({ prefix: "claude-", slotId: "" });

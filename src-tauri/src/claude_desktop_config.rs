@@ -2729,6 +2729,7 @@ mod tests {
             ],
             default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
             default_model: None,
+            retired_route_ids: vec![],
             alias_rules: vec![],
         });
 
@@ -2773,6 +2774,7 @@ mod tests {
                 }],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
                 default_model: None,
+                retired_route_ids: vec![],
                 alias_rules: vec![],
             }),
             ..Default::default()

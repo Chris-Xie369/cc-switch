@@ -1,0 +1,39 @@
+{
+  "task_id": "task_d60aed633eec27de",
+  "evaluated_revision": "33ede2ca15598f9cbd4170ce9a7de7e56fe9a279ee0afbefc3f4a504ae39ea4d",
+  "evaluation_acceptance": "passed",
+  "product_acceptance": "not passed; unfixed findings",
+  "checks": [
+    {
+      "name": "Frozen artifact and all manifest entries/current source/report match",
+      "passed": true
+    },
+    {
+      "name": "HEAD and pre-existing dirty source preserved; no additional tracked business edits",
+      "passed": true
+    },
+    {
+      "name": "Product RED/GREEN evidence agrees with counts and sensitive panic line is redacted",
+      "passed": true,
+      "product_acceptance": false,
+      "counts": {
+        "total": 110,
+        "passed": 107,
+        "failed": 3
+      },
+      "limits": "46 passed and typecheck exit 0 are controller-observed declarations, not raw archived stdout"
+    },
+    {
+      "name": "Real independent review completed for exact frozen artifact and report",
+      "passed": true
+    }
+  ],
+  "shell": "PowerShell",
+  "cwd": "D:\\Workspace\\Project\\cc-switch\\src",
+  "limitations": [
+    "Four checks are evaluation artifact acceptance; product has 107 passed and 3 failed tests and six Major findings, not product acceptance",
+    "No native app/upstream/model invoice/performance acceptance",
+    "46-test stdout not retained; controller observation is identified",
+    "Unisolated OAuth test incident preserved as redacted history; reproduction uses synthetic login only"
+  ]
+}

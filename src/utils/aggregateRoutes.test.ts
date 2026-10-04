@@ -212,7 +212,7 @@ describe("assignSlotIds", () => {
     ]);
   });
 
-  it("档位变化会改变 ID", () => {
+  it("编辑档位元数据不隐式改变已有 ID", () => {
     const next = assignSlotIds({
       ...base,
       slots: [
@@ -224,10 +224,10 @@ describe("assignSlotIds", () => {
         },
       ],
     });
-    expect(next.slots[0].routeId).toBe("claude-opus-4-8");
+    expect(next.slots[0].routeId).toBe("claude-sonnet-4-6");
   });
 
-  it("重算所有槽位，旧的 routeId 不会残留", () => {
+  it("重复存量 ID 不被隐式迁移，仍由后端保存校验拒绝", () => {
     const next = assignSlotIds({
       ...base,
       slots: [
@@ -246,12 +246,12 @@ describe("assignSlotIds", () => {
       ],
     });
     expect(next.slots.map((s) => s.routeId)).toEqual([
-      "claude-opus-4-8",
-      "claude-sonnet-4-6",
+      "claude-sonnet-stale",
+      "claude-sonnet-stale",
     ]);
   });
 
-  it("上一版序号方案（claude-opus-1）的存量 ID 会被迁移成池内 ID", () => {
+  it("上一版合法序号 ID 保留而不改变旧会话身份", () => {
     const next = assignSlotIds({
       ...base,
       slots: [
@@ -270,12 +270,12 @@ describe("assignSlotIds", () => {
       ],
     });
     expect(next.slots.map((s) => s.routeId)).toEqual([
-      "claude-opus-4-8",
-      "claude-opus-4-7",
+      "claude-opus-1",
+      "claude-opus-2",
     ]);
   });
 
-  it("旧方案（含供应商名）的存量 ID 会被迁移掉", () => {
+  it("不兼容存量 ID 不在普通编辑中静默迁移", () => {
     const next = assignSlotIds({
       ...base,
       slots: [
@@ -287,10 +287,10 @@ describe("assignSlotIds", () => {
         },
       ],
     });
-    expect(next.slots[0].routeId).toBe("claude-fable-1");
+    expect(next.slots[0].routeId).toBe("claude-fable-zhipu-glm");
   });
 
-  it("默认目标引用槽位 ID 时，按位置跟随重编号", () => {
+  it("默认目标继续引用原槽位身份", () => {
     const next = assignSlotIds({
       defaultTarget: { kind: "slotId", value: "claude-fable-zhipu-glm" },
       slots: [
@@ -310,7 +310,7 @@ describe("assignSlotIds", () => {
     });
     expect(next.defaultTarget).toEqual({
       kind: "slotId",
-      value: "claude-fable-1",
+      value: "claude-fable-zhipu-glm",
     });
   });
 
@@ -366,16 +366,16 @@ describe("groupSlotsByProvider / flattenProviderGroups", () => {
     ]);
     expect(cards.map((card) => card.providerId)).toEqual(["p-glm", "p-ds"]);
     expect(Object.keys(cards[0].rows)).toEqual(["fable", "opus"]);
-    expect(cards[1].rows.opus?.upstreamModel).toBe("deepseek-flash");
+    expect(cards[1].rows.opus?.[0].upstreamModel).toBe("deepseek-flash");
   });
 
-  it("同供应商同档位的存量重复取首个（新 UI 固定档位行造不出重复）", () => {
+  it("同供应商同档位所有存量模型都保留", () => {
     const cards = groupSlotsByProvider([
       slot("keep", "opus", "p-glm", "glm-5.3"),
       slot("drop", "opus", "p-glm", "glm-5.3-flash"),
     ]);
     expect(cards).toHaveLength(1);
-    expect(cards[0].rows.opus?.routeId).toBe("keep");
+    expect(cards[0].rows.opus?.map(s => s.routeId)).toEqual(["keep", "drop"]);
   });
 
   it("空列表得空卡片数组", () => {
@@ -384,12 +384,12 @@ describe("groupSlotsByProvider / flattenProviderGroups", () => {
 
   it("展平按卡序 × 档位固定顺序重建（fable→opus→sonnet→haiku）", () => {
     const flat = flattenProviderGroups([
-      { providerId: "p-ds", rows: { opus: slot("x", "opus", "p-ds", "d1") } },
+      { providerId: "p-ds", rows: { opus: [slot("x", "opus", "p-ds", "d1")] } },
       {
         providerId: "p-glm",
         rows: {
-          haiku: slot("h", "haiku", "p-glm", "g3"),
-          fable: slot("f", "fable", "p-glm", "g1"),
+          haiku: [slot("h", "haiku", "p-glm", "g3")],
+          fable: [slot("f", "fable", "p-glm", "g1")],
         },
       },
     ]);
@@ -404,7 +404,7 @@ describe("groupSlotsByProvider / flattenProviderGroups", () => {
     const flat = flattenProviderGroups([
       {
         providerId: "p-glm",
-        rows: { fable: slot("f", "fable", "p-glm", "g1") },
+        rows: { fable: [slot("f", "fable", "p-glm", "g1")] },
       },
     ]);
     expect(flat).toHaveLength(1);
@@ -420,7 +420,7 @@ describe("assignSlotIds · defaultModel 跟随", () => {
     defaultTarget: { kind: "providerId" as const, value: "p-glm" },
   };
 
-  it("引用的槽位重编号后按位置跟随", () => {
+  it("默认模型继续引用原槽位 ID", () => {
     const next = assignSlotIds({
       ...base,
       defaultModel: "claude-opus-deepseek",
@@ -439,7 +439,7 @@ describe("assignSlotIds · defaultModel 跟随", () => {
         },
       ],
     });
-    expect(next.defaultModel).toBe("claude-opus-4-8");
+    expect(next.defaultModel).toBe("claude-opus-deepseek");
   });
 
   it("引用的槽位被删时置空（回落到排序首位）", () => {
@@ -495,7 +495,7 @@ describe("assignSlotIds aliasRules 跟随", () => {
     defaultTarget: { kind: "providerId" as const, value: "p1" },
   };
 
-  it("引用的槽被重编号时规则跟随到新 ID", () => {
+  it("插入新槽时别名仍引用原槽位身份", () => {
     const aliasRules: AggregateAliasRule[] = [
       { prefix: "claude-haiku", slotId: "claude-haiku-3" },
     ];
@@ -515,10 +515,10 @@ describe("assignSlotIds aliasRules 跟随", () => {
       ],
     };
     const out = assignSlotIds(inserted);
-    expect(out.slots[2].routeId).toBe("claude-haiku-2");
+    expect(out.slots[2].routeId).toBe("claude-haiku-3");
     expect(out.aliasRules?.[0]).toEqual({
       prefix: "claude-haiku",
-      slotId: "claude-haiku-2",
+      slotId: "claude-haiku-3",
     });
   });
 

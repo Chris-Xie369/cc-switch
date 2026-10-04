@@ -1,4 +1,13 @@
 {
+  "aggregate": {
+    "migrationHint": "既存のルートIDに互換性の問題または重複があります。通常の編集ではIDを保持します。変換前にバックアップしてください。既存セッションでモデルの再選択が必要になる場合があります。",
+    "migrationPreview": "旧ルート変換のプレビュー",
+    "migrationBackup": "ルートのバックアップをダウンロード",
+    "migrationConfirm": "ルートIDの変換を確認",
+    "migrationLimits": "上限",
+    "migrationUnlimited": "制限なし"
+  },
+
   "app": {
     "title": "CC Switch",
     "description": "Claude Code・Codex・Gemini CLI のためのオールインワンアシスタント"

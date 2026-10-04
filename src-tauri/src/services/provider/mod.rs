@@ -1708,6 +1708,49 @@ GEMINI_TIMEOUT_MS=30000
     }
 
     #[test]
+    fn validate_aggregate_rejects_retired_active_overlap_and_empty_history_keys() {
+        for retired in ["claude-sonnet-4-5", "CLAUDE-SONNET-4-5", ""] {
+            let mut provider = Provider::with_id(
+                "synthetic-aggregate".into(),
+                "Synthetic".into(),
+                json!({}),
+                None,
+            );
+            provider.meta = Some(ProviderMeta {
+                aggregate_routes: Some(serde_json::from_value(json!({
+                    "slots":[{"routeId":"claude-sonnet-4-5","tier":"sonnet","providerId":"synthetic-target","upstreamModel":"synthetic-model"}],
+                    "defaultTarget":{"kind":"providerId","value":"synthetic-target"},
+                    "retiredRouteIds":[retired]
+                })).unwrap()),
+                ..Default::default()
+            });
+            assert!(ProviderService::validate_provider_settings(
+                &AppType::ClaudeDesktop,
+                &provider
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn validate_aggregate_rejects_case_variant_active_duplicate_keys() {
+        let mut provider = Provider::with_id(
+            "synthetic-aggregate".into(),
+            "Synthetic".into(),
+            json!({}),
+            None,
+        );
+        provider.meta=Some(ProviderMeta{aggregate_routes:Some(serde_json::from_value(json!({
+            "slots":[{"routeId":"claude-sonnet-4-6","tier":"sonnet","providerId":"a","upstreamModel":"model-a"},{"routeId":"CLAUDE-SONNET-4-6","tier":"sonnet","providerId":"a","upstreamModel":"model-b"}],
+            "defaultTarget":{"kind":"providerId","value":"a"}
+        })).unwrap()),..Default::default()});
+        assert!(
+            ProviderService::validate_provider_settings(&AppType::ClaudeDesktop, &provider)
+                .is_err()
+        );
+    }
+
+    #[test]
     fn validate_aggregate_rejects_empty_slots() {
         let provider = aggregate_provider(
             "agg",
@@ -1715,6 +1758,7 @@ GEMINI_TIMEOUT_MS=30000
                 slots: vec![],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("x".into()),
                 default_model: None,
+                retired_route_ids: vec![],
                 alias_rules: vec![],
             },
         );
@@ -1731,6 +1775,7 @@ GEMINI_TIMEOUT_MS=30000
                 slots: vec![slot("claude-sonnet-agg", "agg")], // 指向自己
                 default_target: crate::aggregate::DefaultTarget::ProviderId("agg".into()),
                 default_model: None,
+                retired_route_ids: vec![],
                 alias_rules: vec![],
             },
         );
@@ -1747,6 +1792,7 @@ GEMINI_TIMEOUT_MS=30000
                 slots: vec![slot("claude-sonnet-a", "p1"), slot("claude-sonnet-a", "p1")],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
                 default_model: None,
+                retired_route_ids: vec![],
                 alias_rules: vec![],
             },
         );
@@ -1765,6 +1811,7 @@ GEMINI_TIMEOUT_MS=30000
                 slots: vec![slot("glm-5.3", "p1")],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
                 default_model: None,
+                retired_route_ids: vec![],
                 alias_rules: vec![],
             },
         );
@@ -1787,6 +1834,7 @@ GEMINI_TIMEOUT_MS=30000
                 slots: vec![bad_target],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
                 default_model: None,
+                retired_route_ids: vec![],
                 alias_rules: vec![],
             },
         );
@@ -1802,6 +1850,7 @@ GEMINI_TIMEOUT_MS=30000
                 slots: vec![bad_model],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
                 default_model: None,
+                retired_route_ids: vec![],
                 alias_rules: vec![],
             },
         );
@@ -1818,6 +1867,7 @@ GEMINI_TIMEOUT_MS=30000
                 slots: vec![slot("claude-sonnet-1", "p1"), slot("claude-opus-1", "p1")],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("p1".into()),
                 default_model: None,
+                retired_route_ids: vec![],
                 alias_rules: vec![],
             },
         );
@@ -1834,6 +1884,7 @@ GEMINI_TIMEOUT_MS=30000
                 slots: vec![slot("claude-sonnet-1", "p1")],
                 default_target: crate::aggregate::DefaultTarget::ProviderId("   ".into()),
                 default_model: None,
+                retired_route_ids: vec![],
                 alias_rules: vec![],
             },
         );
@@ -1860,6 +1911,7 @@ GEMINI_TIMEOUT_MS=30000
                 slots: vec![slot("claude-sonnet-1", "p1")],
                 default_target: crate::aggregate::DefaultTarget::SlotId("claude-opus-gone".into()),
                 default_model: None,
+                retired_route_ids: vec![],
                 alias_rules: vec![],
             },
         );
@@ -1886,6 +1938,7 @@ GEMINI_TIMEOUT_MS=30000
                 slots: vec![slot("claude-sonnet-1", "p1")],
                 default_target: crate::aggregate::DefaultTarget::SlotId("claude-sonnet-1".into()),
                 default_model: None,
+                retired_route_ids: vec![],
                 alias_rules: vec![],
             },
         );
@@ -1917,6 +1970,7 @@ GEMINI_TIMEOUT_MS=30000
                     slots: vec![slot("claude-sonnet-1", "p-glm")],
                     default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
                     default_model: None,
+                    retired_route_ids: vec![],
                     alias_rules: vec![],
                 },
             );
@@ -1931,6 +1985,7 @@ GEMINI_TIMEOUT_MS=30000
                     slots: vec![slot("claude-sonnet-nested", "target-agg")],
                     default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
                     default_model: None,
+                    retired_route_ids: vec![],
                     alias_rules: vec![],
                 },
             );
@@ -1951,6 +2006,7 @@ GEMINI_TIMEOUT_MS=30000
                         "target-agg".into(),
                     ),
                     default_model: None,
+                    retired_route_ids: vec![],
                     alias_rules: vec![],
                 },
             );
@@ -1985,6 +2041,7 @@ GEMINI_TIMEOUT_MS=30000
                     slots: vec![slot("claude-sonnet-target", "target")],
                     default_target: crate::aggregate::DefaultTarget::ProviderId("target".into()),
                     default_model: None,
+                    retired_route_ids: vec![],
                     alias_rules: vec![],
                 },
             );
@@ -1998,6 +2055,7 @@ GEMINI_TIMEOUT_MS=30000
                     slots: vec![slot("claude-sonnet-other", "other")],
                     default_target: crate::aggregate::DefaultTarget::ProviderId("other".into()),
                     default_model: None,
+                    retired_route_ids: vec![],
                     alias_rules: vec![],
                 },
             );
@@ -2043,6 +2101,7 @@ GEMINI_TIMEOUT_MS=30000
                     slots: vec![slot("claude-sonnet-target", "target")],
                     default_target: crate::aggregate::DefaultTarget::ProviderId("target".into()),
                     default_model: None,
+                    retired_route_ids: vec![],
                     alias_rules: vec![],
                 },
             );
@@ -2079,6 +2138,7 @@ GEMINI_TIMEOUT_MS=30000
                     slots: vec![slot("claude-sonnet-target", "target")],
                     default_target: crate::aggregate::DefaultTarget::ProviderId("fallback".into()),
                     default_model: None,
+                    retired_route_ids: vec![],
                     alias_rules: vec![],
                 },
             );
@@ -2359,6 +2419,7 @@ GEMINI_TIMEOUT_MS=30000
                     slots: vec![slot("claude-sonnet-1", "p-glm")],
                     default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
                     default_model: None,
+                    retired_route_ids: vec![],
                     alias_rules: vec![],
                 }),
                 ..Default::default()
@@ -7977,7 +8038,7 @@ impl ProviderService {
                         "Invalid slot id (expected e.g. claude-sonnet-1); Claude Desktop would reject the whole group",
                     ));
                 }
-                if seen.iter().any(|s| s == route_id) {
+                if seen.iter().any(|s| s.eq_ignore_ascii_case(route_id)) {
                     return Err(AppError::localized(
                         "aggregate.duplicate_route_id",
                         "槽位 ID 重复",
@@ -7985,6 +8046,17 @@ impl ProviderService {
                     ));
                 }
                 seen.push(route_id.to_string());
+            }
+
+            for retired in &routes.retired_route_ids {
+                let id = retired.trim();
+                if id.is_empty() || seen.iter().any(|active| active.eq_ignore_ascii_case(id)) {
+                    return Err(AppError::localized(
+                        "aggregate.retired_route_invalid",
+                        "已删除的路由 ID 不得为空或与当前模型重复",
+                        "Retired route IDs must be non-empty and must not overlap active models",
+                    ));
+                }
             }
 
             // 默认目标必填且必须可用：未命中槽位的请求（Claude Desktop 的内部调用，

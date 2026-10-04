@@ -386,6 +386,8 @@ pub(crate) struct ManagedTokenBundle {
 
 /// Codex OAuth 认证管理器（多账号）
 pub struct CodexOAuthManager {
+    #[cfg(test)]
+    test_token_failure: RwLock<Option<CodexOAuthError>>,
     accounts: Arc<RwLock<HashMap<String, CodexAccountData>>>,
     default_account_id: Arc<RwLock<Option<String>>>,
     /// 内存缓存的 access_token（不持久化）
@@ -415,6 +417,8 @@ impl CodexOAuthManager {
         let storage_path = data_dir.join("codex_oauth_auth.json");
 
         let manager = Self {
+            #[cfg(test)]
+            test_token_failure: RwLock::new(None),
             accounts: Arc::new(RwLock::new(HashMap::new())),
             default_account_id: Arc::new(RwLock::new(None)),
             access_tokens: Arc::new(RwLock::new(HashMap::new())),
@@ -776,6 +780,10 @@ impl CodexOAuthManager {
         &self,
         account_id: &str,
     ) -> Result<String, CodexOAuthError> {
+        #[cfg(test)]
+        if let Some(error) = self.test_token_failure.write().await.take() {
+            return Err(error);
+        }
         let _lifecycle = self.lifecycle_lock.read().await;
         self.ensure_account_ready_for_use(account_id).await?;
         Ok(self.resolve_valid_cached_token(account_id).await?.token)
@@ -1551,6 +1559,11 @@ impl CodexOAuthManager {
             authenticated,
             username,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn fail_next_token_resolution_for_test(&self, error: CodexOAuthError) {
+        *self.test_token_failure.write().await = Some(error);
     }
 
     #[cfg(test)]

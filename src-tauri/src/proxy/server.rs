@@ -1361,6 +1361,7 @@ mod tests {
                     "default-target".to_string(),
                 ),
                 default_model: None,
+                retired_route_ids: vec![],
                 alias_rules: vec![],
             }),
             ..Default::default()

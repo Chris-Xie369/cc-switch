@@ -1,0 +1,22 @@
+schema_version: 1
+providers:
+  codex-desktop:
+    models:
+      gpt-6.1-sol:
+        family: openai
+  hermes-cli:
+    models:
+      glm-4.7:
+        family: glm
+model_families:
+  openai:
+  - gpt-6.1-sol
+  glm:
+  - glm-4.7
+catalog:
+  flash: {}
+  flagship:
+    codex-desktop:
+    - gpt-6.1-sol
+    hermes-cli:
+    - glm-4.7

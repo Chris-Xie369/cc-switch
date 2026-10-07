@@ -1,7 +1,7 @@
-import React, { useState } from "react";
+import React from "react";
 import { useTranslation } from "react-i18next";
 import { CodexAuthSection, CodexConfigSection } from "./CodexConfigSections";
-import { CodexCommonConfigModal } from "./CodexCommonConfigModal";
+import type { ProviderEditorInactiveField } from "@/lib/api/providers";
 
 interface CodexConfigEditorProps {
   authValue: string;
@@ -20,33 +20,12 @@ interface CodexConfigEditorProps {
 
   onAuthBlur?: () => void;
 
-  useCommonConfig: boolean;
-
-  onCommonConfigToggle: (checked: boolean) => void | Promise<void>;
-
-  commonConfigSnippet: string;
-
-  onCommonConfigSnippetChange: (value: string) => boolean | Promise<boolean>;
-
-  onCommonConfigErrorClear: () => void;
-
-  commonConfigError: string;
-
   authError: string;
 
   configError: string; // config.toml 错误提示
 
-  onExtract?: () => void;
-
-  isExtracting?: boolean;
-
-  /**
-   * Codex 聚合卡片：整块配置编辑器（auth JSON / config TOML / 通用配置开关）都不渲染。
-   * 聚合按设计无端点无凭据，写 live 时由后端 `apply_codex_aggregate_seed` 合成整份
-   * 配置顶替这里的输入——渲染出来只会让用户改一份看不到效果的东西。存量已开过
-   * 通用配置的卡片靠后端合成兜住，无需在这里提示或迁移。
-   */
-  hideForAggregate?: boolean;
+  /** 行里保存着、但不随切换生效的全局设置。 */
+  inactiveFields?: ProviderEditorInactiveField[];
 }
 
 const CodexConfigEditor: React.FC<CodexConfigEditorProps> = ({
@@ -58,25 +37,11 @@ const CodexConfigEditor: React.FC<CodexConfigEditorProps> = ({
   onAuthChange,
   onConfigChange,
   onAuthBlur,
-  useCommonConfig,
-  onCommonConfigToggle,
-  commonConfigSnippet,
-  onCommonConfigSnippetChange,
-  onCommonConfigErrorClear,
-  commonConfigError,
   authError,
   configError,
-  onExtract,
-  isExtracting,
-  hideForAggregate = false,
+  inactiveFields,
 }) => {
   const { t } = useTranslation();
-  const [isCommonConfigModalOpen, setIsCommonConfigModalOpen] = useState(false);
-
-  const handleCloseCommonConfigModal = () => {
-    onCommonConfigErrorClear();
-    setIsCommonConfigModalOpen(false);
-  };
 
   if (hideForAggregate) {
     return null;
@@ -85,8 +50,8 @@ const CodexConfigEditor: React.FC<CodexConfigEditorProps> = ({
   return (
     <div className="space-y-6">
       {isProxyTakeover && (
-        <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
-          <p className="text-xs text-amber-600 dark:text-amber-400">
+        <div className="p-3 bg-warning-soft border border-transparent rounded-lg">
+          <p className="text-xs text-warning-text">
             {t("codexConfig.proxyTakeoverStorageNotice")}
           </p>
         </div>
@@ -107,23 +72,9 @@ const CodexConfigEditor: React.FC<CodexConfigEditorProps> = ({
         onChange={onConfigChange}
         providerName={providerName}
         showRemoteCompaction={showRemoteCompaction}
-        useCommonConfig={useCommonConfig}
-        onCommonConfigToggle={onCommonConfigToggle}
-        onEditCommonConfig={() => setIsCommonConfigModalOpen(true)}
-        commonConfigError={commonConfigError}
         configError={configError}
         isProxyTakeover={isProxyTakeover}
-      />
-
-      {/* Common Config Modal */}
-      <CodexCommonConfigModal
-        isOpen={isCommonConfigModalOpen}
-        onClose={handleCloseCommonConfigModal}
-        value={commonConfigSnippet}
-        onSave={onCommonConfigSnippetChange}
-        error={commonConfigError}
-        onExtract={onExtract}
-        isExtracting={isExtracting}
+        inactiveFields={inactiveFields}
       />
     </div>
   );

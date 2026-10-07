@@ -1760,3 +1760,22 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   恰在 aggregate/nav 段边界），手工补括号 + prettier 收口。验证 tsc 0/prettier/23 测试过。
 - 两 worktree 已清；教训：**i18n 双侧保留不能纯拼接**——段边界处必须验证 JSON 合法性
   （json.load 即刻暴露）。
+
+## 2026-10-08 上游 v4.0.4 调查 + 迁移评估 + #7785 跟进
+
+- **上游 v4.0.4 发布**（10-07，落后 281 提交）。三大变化：①配置写入改关键字段替换
+  （live/ 引擎，适用 Claude Desktop）→ 补丁 A/F 可删（复验后）；②聚合模式正式发布
+  （Stack 改名演化，modelPicker 路线 9ec89fe8，只覆盖 Claude Code 2.1.243+/Codex）
+  → **Desktop 仍空白，补丁 E 不被取代**；③UI 全面重构（侧边栏/设置分组/整页编辑）。
+- 已排除：上游无 `aggregateRoutes` meta key（#5937 草案未进主线），聚合数据无撞名。
+- **本机实测**：settings 表有 common_config_claude(949B)/codex(4271B)/opencode(50B)
+  ——通用配置片段在用，v4.0 已删该功能，升级后需核对片段内容在客户端配置文件存活；
+  另有 `cli_model_picker_generated`(1498B)——另一会话 CLI 聚合已落数据层，与上游
+  v4.0 聚合撞车，建议自研退役跟随上游。
+- **迁移评估清单**：`doc/v4-migration-assessment.md`（外层工作区，不进 fork）。
+  核心结论：迁移可行，工作量大头 = 补丁 E 前端融合（整页编辑新 IA + 「聚合」术语
+  撞车需区分）；时序博弈 = #7785 若在 3.20.4 基线合并则 E 后端直接继承，否则编辑器
+  要在 v4.0 UI 上重写一遍 → **等定论再迁移**。
+- **#7785 跟进评论已发**（issuecomment-6041904073）：告知 v4.0.4 已核实、三连仍互补、
+  数据模型无冲突、定论后将 rebase 到 v4.0 新 UI。维护者 10-02 方向问题后至今未回。
+- PR 状态：#7773 已合并（10-06，六 PR 首个）；其余五 OPEN 全 MERGEABLE、CI 无失败。

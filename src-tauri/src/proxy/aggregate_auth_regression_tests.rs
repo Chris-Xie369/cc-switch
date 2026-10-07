@@ -196,7 +196,7 @@ fn proxy_state(db: Arc<Database>) -> ProxyState {
         gemini_shadow: Arc::new(GeminiShadowStore::default()),
         codex_chat_history: Arc::new(CodexChatHistoryStore::default()),
         app_handle: None,
-        failover_manager: Arc::new(FailoverSwitchManager::new(db)),
+        failover_manager: Arc::new(FailoverSwitchManager::new()),
     }
 }
 
@@ -308,7 +308,15 @@ async fn aggregate_auth_provider_fallback_and_slots_forward_selected_account() {
             http::HeaderValue::from_static("unrelated-workspace"),
         );
         let context =
-            RequestContext::new(&state, &body, &headers, AppType::Codex, "Codex", "codex")
+            RequestContext::new(
+                &state,
+                &body,
+                &headers,
+                AppType::Codex,
+                "Codex",
+                "codex",
+                None,
+            )
                 .await
                 .unwrap();
         let (sent_headers, sent_body) =
@@ -363,7 +371,15 @@ async fn aggregate_auth_normal_official_and_api_key_requests_keep_their_authenti
             http::HeaderValue::from_static("Bearer SYNTHETIC-CLIENT-TOKEN"),
         );
         let context =
-            RequestContext::new(&state, &body, &headers, AppType::Codex, "Codex", "codex")
+            RequestContext::new(
+                &state,
+                &body,
+                &headers,
+                AppType::Codex,
+                "Codex",
+                "codex",
+                None,
+            )
                 .await
                 .unwrap();
         let (sent_headers, sent_body) =

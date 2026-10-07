@@ -116,8 +116,20 @@ impl RequestContext {
         let optimizer_config = state.db.get_optimizer_config().unwrap_or_default();
         let copilot_optimizer_config = state.db.get_copilot_optimizer_config().unwrap_or_default();
 
+        // 提取 Session ID
+        let session_result = extract_session_id(headers, body, app_type_str);
+        let session_id = session_result.session_id.clone();
+
+        log::debug!(
+            "[{}] Session ID: {} (from {:?}, client_provided: {})",
+            tag,
+            session_id,
+            session_result.source,
+            session_result.client_provided
+        );
+
         let is_stack = stack.is_some();
-        let (provider, providers, current_provider_id, request_model) = match stack {
+        let (provider, providers, current_provider_id, request_model, aggregate_override, is_aggregate_request) = match stack {
             Some(target) => {
                 // Stack 模型：只发往 Stack 里的那一家，不读代理路由、不经熔断器选家。按「单家、
                 // 不转移」处理：换成有效副本，转发和读响应两个阶段都从这里取，超时和重试
@@ -136,6 +148,8 @@ impl RequestContext {
                     vec![target.provider.clone()],
                     target.provider.id,
                     target.original_model,
+                    None,
+                    false,
                 )
             }
             None => {
@@ -245,7 +259,7 @@ impl RequestContext {
                     providers.len(),
                     session_id
                 );
-                (provider, providers, current_provider_id, request_model)
+                (provider, providers, current_provider_id, request_model, aggregate_override, is_aggregate_request)
             }
         };
 

@@ -164,52 +164,6 @@ fn codex_bearer_access_token(headers: &http::HeaderMap) -> Option<&str> {
     Some(token)
 }
 
-/// 上游是否属于 OpenCode 网关（opencode.ai）。
-///
-/// 该网关（<https://opencode.ai/docs/go/>）对客户端有三条要求：发典型
-/// coding-agent 流量、**自带 User-Agent 标识自己**、以及**每个对话在
-/// `x-opencode-session` 里带稳定会话 ID**；缺会话头直接 400 `MissingSessionID`
-/// （本机实测 2026-09-24）。Claude Code / Codex 自带 Go 认得的原生会话头，
-/// Claude Desktop 没有，故由代理补上（见 `forward` 内的注入处）。
-fn is_opencode_upstream(upstream_host: Option<&str>) -> bool {
-    upstream_host
-        .map(|host| {
-            let host = host.rsplit_once(':').map_or(host, |(h, _)| h);
-            host.trim_matches(['[', ']']).to_ascii_lowercase()
-        })
-        .is_some_and(|host| host == "opencode.ai" || host.ends_with(".opencode.ai"))
-}
-
-/// 由请求体推导**同一对话内稳定**的会话指纹：摘要 system + 首条 user 消息。
-///
-/// OpenCode Go 的会话 ID 服务于上游路由与提示缓存，要求「每个对话一个稳定值」；
-/// 而 Claude Desktop 的请求在 CC Switch 里每个都会生成新 ID（不稳定）。用对话
-/// 前缀做指纹既满足稳定性，又不会把不同对话混成一个会话。
-fn conversation_fingerprint(body: &Value) -> Option<String> {
-    let mut hasher = Sha256::new();
-    let mut fed = false;
-    if let Some(system) = body.get("system") {
-        hasher.update(system.to_string().as_bytes());
-        fed = true;
-    }
-    if let Some(first_user) = body
-        .get("messages")
-        .and_then(Value::as_array)
-        .and_then(|messages| {
-            messages
-                .iter()
-                .find(|m| m.get("role").and_then(Value::as_str) == Some("user"))
-        })
-    {
-        hasher.update(first_user.to_string().as_bytes());
-        fed = true;
-    }
-    if !fed {
-        return None;
-    }
-    let digest = format!("{:x}", hasher.finalize());
-    Some(format!("ccsw-{}", &digest[..32]))
-}
 
 fn validate_codex_official_authorization(
     headers: &http::HeaderMap,
@@ -514,6 +468,7 @@ impl RequestForwarder {
             max_attempts,
             aggregate_override: None,
             is_aggregate_request: false,
+            stack_request: false,
             #[cfg(test)]
             test_codex_oauth_manager: None,
         }
@@ -552,8 +507,6 @@ impl RequestForwarder {
         })?;
         let codex_state = app_handle.state::<CodexOAuthState>();
         resolve_aggregate_codex_oauth_credentials_from(&codex_state.0, provider).await
-            stack_request: false,
-        }
     }
 
     /// 标记为 Stack 模型的请求。
@@ -6292,6 +6245,8 @@ mod tests {
             adapter.extract_auth(&provider).is_none(),
             "官方卡不存凭据：非聚合路径依赖客户端透传，聚合路径才由代理注入"
         );
+    }
+
     /// Codex Stack 请求的转发改写：身份头、模型名、托管 web_search。
     /// 在本机一个空闲端口上起假上游 `app`，返回它的地址。
     async fn serve_upstream(app: axum::Router) -> String {

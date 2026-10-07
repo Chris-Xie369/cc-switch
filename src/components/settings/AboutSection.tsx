@@ -53,7 +53,6 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
   const [isLoadingVersion, setIsLoadingVersion] = useState(
     () => appVersionCache === null,
   );
-  const [isDownloading, setIsDownloading] = useState(false);
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   const [starPromptDismissed, setStarPromptDismissed] = useState(
     readStarPromptDismissed,
@@ -63,8 +62,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     [version],
   );
 
-  const { hasUpdate, updateInfo, checkUpdate, resetDismiss, isChecking } =
-    useUpdate();
+  const { hasUpdate, updateInfo, checkUpdate, isChecking } = useUpdate();
 
   useEffect(() => {
     let active = true;
@@ -153,7 +151,13 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
         closeButton: true,
       });
     }
-  }, [checkUpdate, handleOpenReleaseNotes, hasUpdate, t, updateInfo?.availableVersion]);
+  }, [
+    checkUpdate,
+    handleOpenReleaseNotes,
+    hasUpdate,
+    t,
+    updateInfo?.availableVersion,
+  ]);
 
   const displayVersion = version ?? t("common.unknown");
 
@@ -185,14 +189,9 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           variant={hasUpdate ? "solid" : "neutral"}
           size="regular"
           onClick={handleCheckUpdate}
-          disabled={isChecking || isDownloading}
+          disabled={isChecking}
         >
-          {isDownloading ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {t("settings.updating")}
-            </>
-          ) : hasUpdate ? (
+          {hasUpdate ? (
             <>
               <Download className="h-3.5 w-3.5" />
               {t("settings.updateTo", {

@@ -52,7 +52,6 @@ pub(crate) use live::{
     provider_exists_in_live_config, sync_additive_app_to_live, write_live_for_state,
     LiveSyncOutcome,
 };
-pub(crate) use live::{merge_claude_settings_for_live, sanitize_claude_settings_for_live};
 
 // Internal re-exports
 use live::{
@@ -1831,35 +1830,6 @@ GEMINI_TIMEOUT_MS=30000
             Some("true")
         );
         assert_eq!(value.get("theme").and_then(|v| v.as_str()), Some("dark"));
-    }
-
-    #[test]
-    fn validate_provider_settings_rejects_negative_cost_multiplier() {
-        let mut provider = Provider::with_id(
-            "claude".into(),
-            "Claude".into(),
-            json!({
-                "env": {
-                    "ANTHROPIC_AUTH_TOKEN": "token",
-                    "ANTHROPIC_BASE_URL": "https://claude.example"
-                }
-            }),
-            None,
-        );
-        provider.meta = Some(ProviderMeta {
-            cost_multiplier: Some("-1".to_string()),
-            ..ProviderMeta::default()
-        });
-
-        let err = ProviderService::validate_provider_settings(&AppType::Claude, &provider)
-            .expect_err("negative multiplier should be rejected");
-        assert!(matches!(
-            err,
-            AppError::Localized {
-                key: "error.invalidMultiplier",
-                ..
-            }
-        ));
     }
 
     /// Claude Desktop 直连供应商的合法 settings（通过 `validate_direct_provider`）。
@@ -6100,7 +6070,6 @@ impl ProviderService {
         Self::normalize_provider_if_claude(&app_type, &mut provider);
         Self::validate_provider_settings(&app_type, &provider)?;
         Self::validate_aggregate_not_nested(state, &app_type, &provider)?;
-        normalize_provider_common_config_for_storage(state.db.as_ref(), &app_type, &mut provider)?;
         Self::normalize_usage_script_credential_overrides(&app_type, &mut provider);
         if app_type.is_additive_mode() {
             Self::set_provider_live_config_managed(&mut provider, add_to_live);
@@ -6632,7 +6601,6 @@ impl ProviderService {
         Self::normalize_provider_if_claude(&app_type, &mut provider);
         Self::validate_provider_settings(&app_type, &provider)?;
         Self::validate_aggregate_not_nested(state, &app_type, &provider)?;
-        normalize_provider_common_config_for_storage(state.db.as_ref(), &app_type, &mut provider)?;
         if matches!(app_type, AppType::Codex) && provider.category.as_deref() == Some("official") {
             crate::codex_config::strip_codex_unified_session_bucket_from_settings(
                 &mut provider.settings_config,

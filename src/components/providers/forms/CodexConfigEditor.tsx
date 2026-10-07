@@ -43,10 +43,6 @@ const CodexConfigEditor: React.FC<CodexConfigEditorProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  if (hideForAggregate) {
-    return null;
-  }
-
   return (
     <div className="space-y-6">
       {isProxyTakeover && (

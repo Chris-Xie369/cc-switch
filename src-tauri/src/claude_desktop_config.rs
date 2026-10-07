@@ -1094,6 +1094,70 @@ fn apply_provider_to_paths(
     Ok(cli_routes)
 }
 
+/// 切回官方：两个配置文件改回 `1p`，清掉旧版写进 `enterpriseConfig` 的网关设置，
+/// 把 CC Switch 的 profile 从 `_meta.json` 里摘掉。
+///
+/// profile 文件本身保留、只清关键字段：用户在 Desktop 里对这个 profile 改的设置
+/// （#4774 的 auto 模式）下次切回第三方时还在，Key 也从磁盘上清掉了。Desktop 只按
+/// `_meta.json` 的条目读 profile，摘掉条目后这个文件不会被列出。
+fn restore_official_at_paths(paths: &ClaudeDesktopPaths) -> Result<(), AppError> {
+    let normal = deployment_mode_patch("1p");
+    let mut threep = deployment_mode_patch("1p");
+    threep.remove = LEGACY_ENTERPRISE_GATEWAY_KEYS
+        .iter()
+        .map(|key| KeyPath::new(&["enterpriseConfig", key]))
+        .collect();
+    let threep = DropEmptyEnterpriseConfig(threep);
+    let profile = JsonPatch {
+        clear: vec![ClearScope {
+            parent: KeyPath::root(),
+            is_floor: floor::desktop_profile_floor,
+        }],
+        ..JsonPatch::default()
+    };
+    let meta = MetaPatch { applied: false };
+
+    let mut changes = vec![
+        FileChange {
+            file: LiveFile::shared(&paths.normal_config_path),
+            patch: &normal,
+        },
+        FileChange {
+            file: LiveFile::shared(&paths.threep_config_path),
+            patch: &threep,
+        },
+        FileChange {
+            file: LiveFile::shared(&paths.meta_path),
+            patch: &meta,
+        },
+    ];
+    if paths.profile_path.exists() {
+        changes.push(FileChange {
+            file: LiveFile::private(&paths.profile_path),
+            patch: &profile,
+        });
+    }
+    write_desktop_files(paths, &changes)
+}
+
+/// Desktop 的几个文件作为一次操作写入：任何一个解析失败都不写；写到一半失败或崩溃，
+/// 下次写入或启动时按写前意图补完。
+fn write_desktop_files(
+    paths: &ClaudeDesktopPaths,
+    changes: &[FileChange<'_>],
+) -> Result<(), AppError> {
+    let guard = lock_app(AppType::ClaudeDesktop.as_str());
+    operation::run(
+        &paths.device,
+        &guard,
+        state::op::APPLY,
+        changes,
+        PendingTarget::default(),
+        &|_| Ok(()),
+    )?;
+    Ok(())
+}
+
 fn deployment_mode_patch(mode: &str) -> JsonPatch {
     JsonPatch {
         set: vec![(KeyPath::new(&["deploymentMode"]), json!(mode))],

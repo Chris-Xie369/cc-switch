@@ -1,13 +1,15 @@
 # CC Switch（本地维护 fork）
 
-这是 `farion1231/cc-switch` 的本地 fork，在官方版之上携带两类自有改动：
+这是 `farion1231/cc-switch` 的本地 fork，基线 **v4.0.4**（2026-10-08 迁移）。
+上游 v4.0 的关键字段写入引擎已覆盖本 fork 原有的 profile / settings.json 合并
+补丁（A/F 退役），当前携带的自有改动：
 
-1. **Claude Desktop 3P profile 合并语义修复**——官方版每次应用供应商时整份覆盖
-   profile（丢弃不认识的字段），本 fork 改为「读旧值 → 叠自有键 → 写回」（对应
-   上游 PR farion1231/cc-switch#5417，长期未合并故本地自维护）。
-2. **聚合路由（MoA）**——把多家供应商的多个模型映射进 Claude Desktop 的
-   fable/opus/sonnet/haiku 四档，一次重启后选择器内自由切换；编辑器带
-   思考能力三态徽标与 maxEffort 上限（本 fork 专属功能）。
+1. **Claude Desktop 显示名可配置**（等 PR #7779 合并后退役）——接管左下角
+   `deploymentDisplayName` 等三键，GeneralSection 里开关。
+2. **Claude Desktop 聚合供应商**（等 PR #7785 方向定论）——多家供应商的模型
+   同列 Claude 模型选择器，按请求模型分流；与上游 v4.0 的聚合（只覆盖
+   Claude Code / Codex）分域互补，互不解读对方的 meta。
+3. **上游状态检查**——「关于」页检测 fork 落后与新 release 并提醒。
 
 > **仅限本机/知情者自用**：自构建版本会替换官方签名二进制，而 CC Switch 持有
 > 全部供应商密钥并代理其流量。不要分发给非知情者。

@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { HoverTip } from "@/components/ui/hover-tip";
 import { FormLabel } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
   Select,
@@ -56,7 +55,6 @@ import {
 import { CustomUserAgentField } from "./CustomUserAgentField";
 import { FetchedModelPicker } from "./FetchedModelPicker";
 import { LocalProxyRequestOverridesField } from "./LocalProxyRequestOverridesField";
-import { CodexAggregateFields } from "./CodexAggregateFields";
 import { cn } from "@/lib/utils";
 import { useCommittableRef } from "@/hooks/useLatestRef";
 import { useModelMetadataFill } from "@/hooks/useModelMetadataFill";
@@ -504,13 +502,6 @@ export function CodexFormFields({
   onPromptCacheRoutingChange,
   catalogModels = [],
   onCatalogModelsChange,
-  codexAggregateRoutes,
-  onCodexAggregateRoutesChange,
-  codexAggregateCandidates = [],
-  codexAggregateModelsByProvider,
-  onCodexAggregateFetchModels,
-  fetchingCodexAggregateProviderId = null,
-  isCodexAggregate = false,
   speedTestEndpoints,
   customUserAgent,
   onCustomUserAgentChange,
@@ -1376,51 +1367,6 @@ export function CodexFormFields({
 
   const oauthSections = (
     <>
-      {/* 聚合路由开关（Grok Build 与官方卡片不参与；未传受控回调时不渲染）。
-          放在表单最顶部——与 Claude Desktop 表单同款位置。 */}
-      {appId === "codex" &&
-        category !== "official" &&
-        onCodexAggregateRoutesChange && (
-          <>
-            <div className="flex items-center justify-between gap-4 rounded-lg border border-border-default p-3">
-              <Label htmlFor="codex-aggregate" className="text-sm font-medium">
-                {t("codexAggregate.enable", {
-                  defaultValue: "启用聚合路由",
-                })}
-              </Label>
-              <Switch
-                id="codex-aggregate"
-                checked={codexAggregateRoutes !== undefined}
-                onCheckedChange={(checked) =>
-                  onCodexAggregateRoutesChange(
-                    checked
-                      ? {
-                          slots: [],
-                          defaultTarget: { kind: "providerId", value: "" },
-                        }
-                      : undefined,
-                  )
-                }
-              />
-            </div>
-
-            {codexAggregateRoutes && (
-              <CodexAggregateFields
-                value={codexAggregateRoutes}
-                onChange={onCodexAggregateRoutesChange}
-                candidates={codexAggregateCandidates}
-                modelsForProvider={(providerId) =>
-                  codexAggregateModelsByProvider?.[providerId] ?? []
-                }
-                fetchingProviderId={fetchingCodexAggregateProviderId}
-                onFetchModels={(provider) =>
-                  onCodexAggregateFetchModels?.(provider)
-                }
-              />
-            )}
-          </>
-        )}
-
       {/* Codex OAuth 账号选择 */}
       {isCodexOauthPreset && (
         <CodexOAuthSection

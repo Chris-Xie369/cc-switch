@@ -5,7 +5,13 @@
 补丁（A/F 退役），当前携带的自有改动：
 
 1. **Claude Desktop 显示名可配置**（等 PR #7779 合并后退役）——接管左下角
-   `deploymentDisplayName` 等三键，GeneralSection 里开关。
+   `deploymentDisplayName` 等三键，GeneralSection 里开关。副标题跟随配置：
+   留空即清除面板残留。
+   > **MSIX 版身份行布局（2.31226+ 实测）**：行1 = principal（static bearer key
+   > 的 `principalIdentity()` 为空函数 → 恒为 Windows 用户名，不可配置）；
+   > 行2 = `deploymentDisplayName`·`deploymentDisplaySubtitle`。旧 Squirrel 版的
+   > 「显示名 / 副标题」两行布局已废；顶层键经 `flatKey` 兼容映射进 `appearance`
+   > 组，注入仍写顶层键即可。
 2. **Claude Desktop 聚合供应商**（等 PR #7785 方向定论）——多家供应商的模型
    同列 Claude 模型选择器，按请求模型分流；与上游 v4.0 的聚合（只覆盖
    Claude Code / Codex）分域互补，互不解读对方的 meta。

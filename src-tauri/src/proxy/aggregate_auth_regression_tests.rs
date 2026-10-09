@@ -235,6 +235,7 @@ async fn observed_forward(
             headers,
             &Extensions::new(),
             &adapter,
+            &mut None,
         )
         .await;
     server.abort();

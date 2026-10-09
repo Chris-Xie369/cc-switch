@@ -477,7 +477,7 @@
     "language": "界面语言",
     "languageHint": "切换后立即预览界面语言，保存后永久生效。",
     "claudeDesktopDisplay": "Claude Desktop 显示设置",
-    "claudeDesktopDisplayHint": "接管左下角显示名与归属开关（deploymentDisplayName 等三键）。关闭时不写入；显示名留空则整项都不接管，副标题留空则只不写该项——两种情况都保持 Claude Desktop 面板的现有值。",
+    "claudeDesktopDisplayHint": "接管左下角显示名与归属开关（deploymentDisplayName 等三键）。关闭时不写入；显示名留空则整项都不接管（保持面板现值）；副标题跟随配置——留空则清除面板副标题，只显示显示名。",
     "claudeDesktopDisplayEnable": "管理显示设置",
     "claudeDesktopDisplayName": "显示名",
     "claudeDesktopDisplaySubtitle": "副标题",
@@ -3969,7 +3969,6 @@
     "migrationConfirm": "确认转换路由 ID",
     "migrationLimits": "上限",
     "migrationUnlimited": "不限制",
-
     "enable": "启用聚合路由",
     "title": "聚合供应商",
     "hint": "自身不存端点与密钥，按模型把请求分流到其他供应商。启用后需重启 Claude Desktop 生效。",

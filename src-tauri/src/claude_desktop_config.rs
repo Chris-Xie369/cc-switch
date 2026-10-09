@@ -1290,7 +1290,12 @@ fn inject_display_settings(profile: &mut Value, display: Option<&ClaudeDesktopDi
             return;
         }
         profile["deploymentDisplayName"] = Value::String(display.name.clone());
-        if !display.subtitle.is_empty() {
+        // 副标题跟随配置：留空即清除面板残留，只显示显示名。
+        if display.subtitle.is_empty() {
+            if let Some(obj) = profile.as_object_mut() {
+                obj.remove("deploymentDisplaySubtitle");
+            }
+        } else {
             profile["deploymentDisplaySubtitle"] = Value::String(display.subtitle.clone());
         }
         profile["endUserAttribution"] = Value::Bool(display.attribution);
@@ -2796,8 +2801,12 @@ mod tests {
     }
 
     #[test]
-    fn inject_display_settings_omits_subtitle_when_empty() {
-        let mut profile = json!({ "inferenceProvider": "gateway" });
+    fn inject_display_settings_removes_subtitle_when_empty() {
+        // 副标题语义：跟随配置。留空 = 清除面板上的残留值，只显示显示名。
+        let mut profile = json!({
+            "inferenceProvider": "gateway",
+            "deploymentDisplaySubtitle": "Gateway"
+        });
         let display = ClaudeDesktopDisplaySettings {
             name: "Chris".into(),
             subtitle: "".into(),

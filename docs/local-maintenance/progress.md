@@ -1779,3 +1779,32 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - **#7785 跟进评论已发**（issuecomment-6041904073）：告知 v4.0.4 已核实、三连仍互补、
   数据模型无冲突、定论后将 rebase 到 v4.0 新 UI。维护者 10-02 方向问题后至今未回。
 - PR 状态：#7773 已合并（10-06，六 PR 首个）；其余五 OPEN 全 MERGEABLE、CI 无失败。
+
+## 2026-10-08/09 v4.0.4 → 4.0.5 迁移与部署
+
+- **迁移评估**：`doc/v4-migration-assessment.md`（外层工作区）。结论：A/F 删（上游
+  key-field engine）、B/E 保留融合、C/D 重放；Desktop 聚合数据模型无撞名（上游无
+  aggregateRoutes）；通用配置片段在用（claude 949B/codex 4271B/opencode 50B）。
+- **merge v4.0.4**（28ab8aae，23 文件 60+ 块冲突）→ **merge v4.0.5**（1f3bef7e，
+  5 文件）。冲突热点：claude_desktop_config（聚合 profile 改接 gateway_profile_patch
+  流程 + inject_display_settings 前置；with_rollback 退役——write_desktop_files
+  内置原子性）、handler_context（session 提取提前 + 聚合解析嵌进 stack match 的
+  None 分支、6 元组返回）、forwarder（16 块：聚合改写链与上游 stack_request/
+  keeps_resolved_model 钩子并存、catalog 守卫三条件）。
+- **自研 Codex 聚合退役**（上游聚合 UI 替代）：ProviderForm 状态机/CodexAggregate-
+  Fields 组件及其测试剥除；codex_native_responses_template.json 恢复上游（fork 曾
+  扩全推理阶梯，与 v4.0.5 的 per-model 声明方案冲突并被测试守卫）。
+- **验证**：cargo check/tsc 归零；cargo test 3522 过/4 环境性失败（symlink 权限×2、
+  hermes 本机配置泄漏、Desktop 端口占用——需退出应用复验）；vitest 2372+/4 超时
+  flaky（本机资源竞争，单跑全过）。
+- **React 双副本坑**：v4.0 引入 pnpm workspace（根 pnpm-workspace.yaml），src 下旧
+  junction 与根 node_modules 并存 → 901 个测试失败。摘 src/node_modules junction
+  后归零。**v4 起 worktree 不再需要 node_modules junction**（依赖提升到仓库根）。
+- **部署**（upgrade-to-v4.ps1）：★ PowerShell Start-Process 会给含空格的 NSIS
+  `/D=` 值加引号 → 安装器静默失败 exit 0 + 注册表残留带引号假条目。**部署 NSIS
+  必须 cmd 走 install-local.bat**（/D= 值不得有引号）。已清理注册表、bat 安装成功：
+  md5==构建产物、版本 4.0.4-local→4.0.5-local、前端嵌入、无官方公钥。
+- **数据验收（4.0.4 时）**：DB v3→v20（自动备份 db_backup_20261008_062451.db）、
+  profile 21 键 deploymentDisplayName=Chris 存活、settings.json 12 键 + modelPicker
+  就位、2 个聚合供应商路由保留、片段三键完好。
+- 分支：feat/v4-migration（推 origin）；待 GUI 冒烟后合回 fix/profile-merge。

@@ -1808,3 +1808,25 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   profile 21 键 deploymentDisplayName=Chris 存活、settings.json 12 键 + modelPicker
   就位、2 个聚合供应商路由保留、片段三键完好。
 - 分支：feat/v4-migration（推 origin）；待 GUI 冒烟后合回 fix/profile-merge。
+
+## 2026-10-09 部署验收与两处显示问题
+
+- **显示名回退**：根因 = v4.0 设置存储改文件（~/.cc-switch/settings.json），升级
+  窗口期切换发生在设置恢复前 → 注入空值跳过 → profile 残留 9 月旧值。非代码
+  bug，切一次供应商自愈。已验证注入链路（live.rs:421 → apply_provider_to_paths
+  → inject → gateway_profile_patch 全键 set）。
+- **MSIX 身份行布局（asar 逆向）**：用户 Desktop 已切 MSIX 商店版 2.31226。
+  行1 = principal（static bearer key 的 principalIdentity() 为空函数 → 恒
+  Windows 用户名，不可配置）；行2 = displayName·subtitle；顶层键经 flatKey
+  兼容映射进 appearance 组。旧「显示名/副标题」两行布局已废。已记入 README。
+- **副标题语义修改（用户裁决）**：从「留空不覆盖」改为「跟随配置：留空即清除
+  deploymentDisplaySubtitle」。TDD（先红后绿），4/4 测试过；i18n 双语更新；
+  重建部署（md5 校验过），profile 残留 Gateway 已清。
+- **haiku-5-5 400**：OpenCode Go 网关在切换探测时返回 "Model does not support
+  this protocol"（上游错误原文），真实请求正常（用户会话实际在用）。升级首启
+  状态未就绪/网关瞬态，重启 CC Switch 后自愈。若复现探测 400 而使用正常，值得
+  报上游。
+- **部署 SOP 更新**：NSIS /D= 含空格时 PowerShell Start-Process 必加引号导致
+  静默失败——一律 cmd 走 install-local.bat。v4 起 pnpm workspace 根管依赖，
+  worktree 不再需要 node_modules junction。
+- **收尾**：feat/v4-migration ff 合回 fix/profile-merge（d1e16672）并推 origin。

@@ -1761,16 +1761,75 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - 两 worktree 已清；教训：**i18n 双侧保留不能纯拼接**——段边界处必须验证 JSON 合法性
   （json.load 即刻暴露）。
 
-## 2026-10-04 外部 Codex 会话修复——验证入库部署
+## 2026-10-08 上游 v4.0.4 调查 + 迁移评估 + #7785 跟进
 
-- 外部 Codex/agent-org 会话（GPT-6.1 Sol 实现 + GLM-4.7 跨家族审查）交付两项修复：
-  ① 认证边界（M03/M04）：聚合认证与模型改写分离；账号绑定/默认账号失效→明确报错不静默换登录；空令牌/占位符出站前拦截
-  ② 路由兼容（M01/M02）：routeId 不再被普通编辑重编号；同档多模型完整保留（原只取第一个）；新增 retiredRouteIds（删除的 ID 退役、不被复用、后端拒绝旧请求）；不兼容 ID 走预览→备份→确认迁移
-- 控制器验证：aggregate 103/103、forwarder 96/96、proxy 1516/1516、前端 46/46、typecheck ✓、fmt 修后 ✓
-- 提交 eaecbe26（61 文件含交付文档与证据），已推送 fork
-- 构建 e3d099bb 部署（md5 双向一致、pubkey 0、retiredRouteIds 标记命中、新前端 index-CeOQjfuq.js）
-- 清理：仓库 15G → 5.6G（删 8.8G debug 树 + 14 review diff；release 产物保留）
-- 交付文档：docs/reviews/2026-10-04-aggregate-*.md（3 份）；证据在 .agent-org/
+- **上游 v4.0.4 发布**（10-07，落后 281 提交）。三大变化：①配置写入改关键字段替换
+  （live/ 引擎，适用 Claude Desktop）→ 补丁 A/F 可删（复验后）；②聚合模式正式发布
+  （Stack 改名演化，modelPicker 路线 9ec89fe8，只覆盖 Claude Code 2.1.243+/Codex）
+  → **Desktop 仍空白，补丁 E 不被取代**；③UI 全面重构（侧边栏/设置分组/整页编辑）。
+- 已排除：上游无 `aggregateRoutes` meta key（#5937 草案未进主线），聚合数据无撞名。
+- **本机实测**：settings 表有 common_config_claude(949B)/codex(4271B)/opencode(50B)
+  ——通用配置片段在用，v4.0 已删该功能，升级后需核对片段内容在客户端配置文件存活；
+  另有 `cli_model_picker_generated`(1498B)——另一会话 CLI 聚合已落数据层，与上游
+  v4.0 聚合撞车，建议自研退役跟随上游。
+- **迁移评估清单**：`doc/v4-migration-assessment.md`（外层工作区，不进 fork）。
+  核心结论：迁移可行，工作量大头 = 补丁 E 前端融合（整页编辑新 IA + 「聚合」术语
+  撞车需区分）；时序博弈 = #7785 若在 3.20.4 基线合并则 E 后端直接继承，否则编辑器
+  要在 v4.0 UI 上重写一遍 → **等定论再迁移**。
+- **#7785 跟进评论已发**（issuecomment-6041904073）：告知 v4.0.4 已核实、三连仍互补、
+  数据模型无冲突、定论后将 rebase 到 v4.0 新 UI。维护者 10-02 方向问题后至今未回。
+- PR 状态：#7773 已合并（10-06，六 PR 首个）；其余五 OPEN 全 MERGEABLE、CI 无失败。
+
+## 2026-10-08/09 v4.0.4 → 4.0.5 迁移与部署
+
+- **迁移评估**：`doc/v4-migration-assessment.md`（外层工作区）。结论：A/F 删（上游
+  key-field engine）、B/E 保留融合、C/D 重放；Desktop 聚合数据模型无撞名（上游无
+  aggregateRoutes）；通用配置片段在用（claude 949B/codex 4271B/opencode 50B）。
+- **merge v4.0.4**（28ab8aae，23 文件 60+ 块冲突）→ **merge v4.0.5**（1f3bef7e，
+  5 文件）。冲突热点：claude_desktop_config（聚合 profile 改接 gateway_profile_patch
+  流程 + inject_display_settings 前置；with_rollback 退役——write_desktop_files
+  内置原子性）、handler_context（session 提取提前 + 聚合解析嵌进 stack match 的
+  None 分支、6 元组返回）、forwarder（16 块：聚合改写链与上游 stack_request/
+  keeps_resolved_model 钩子并存、catalog 守卫三条件）。
+- **自研 Codex 聚合退役**（上游聚合 UI 替代）：ProviderForm 状态机/CodexAggregate-
+  Fields 组件及其测试剥除；codex_native_responses_template.json 恢复上游（fork 曾
+  扩全推理阶梯，与 v4.0.5 的 per-model 声明方案冲突并被测试守卫）。
+- **验证**：cargo check/tsc 归零；cargo test 3522 过/4 环境性失败（symlink 权限×2、
+  hermes 本机配置泄漏、Desktop 端口占用——需退出应用复验）；vitest 2372+/4 超时
+  flaky（本机资源竞争，单跑全过）。
+- **React 双副本坑**：v4.0 引入 pnpm workspace（根 pnpm-workspace.yaml），src 下旧
+  junction 与根 node_modules 并存 → 901 个测试失败。摘 src/node_modules junction
+  后归零。**v4 起 worktree 不再需要 node_modules junction**（依赖提升到仓库根）。
+- **部署**（upgrade-to-v4.ps1）：★ PowerShell Start-Process 会给含空格的 NSIS
+  `/D=` 值加引号 → 安装器静默失败 exit 0 + 注册表残留带引号假条目。**部署 NSIS
+  必须 cmd 走 install-local.bat**（/D= 值不得有引号）。已清理注册表、bat 安装成功：
+  md5==构建产物、版本 4.0.4-local→4.0.5-local、前端嵌入、无官方公钥。
+- **数据验收（4.0.4 时）**：DB v3→v20（自动备份 db_backup_20261008_062451.db）、
+  profile 21 键 deploymentDisplayName=Chris 存活、settings.json 12 键 + modelPicker
+  就位、2 个聚合供应商路由保留、片段三键完好。
+- 分支：feat/v4-migration（推 origin）；待 GUI 冒烟后合回 fix/profile-merge。
+
+## 2026-10-09 部署验收与两处显示问题
+
+- **显示名回退**：根因 = v4.0 设置存储改文件（~/.cc-switch/settings.json），升级
+  窗口期切换发生在设置恢复前 → 注入空值跳过 → profile 残留 9 月旧值。非代码
+  bug，切一次供应商自愈。已验证注入链路（live.rs:421 → apply_provider_to_paths
+  → inject → gateway_profile_patch 全键 set）。
+- **MSIX 身份行布局（asar 逆向）**：用户 Desktop 已切 MSIX 商店版 2.31226。
+  行1 = principal（static bearer key 的 principalIdentity() 为空函数 → 恒
+  Windows 用户名，不可配置）；行2 = displayName·subtitle；顶层键经 flatKey
+  兼容映射进 appearance 组。旧「显示名/副标题」两行布局已废。已记入 README。
+- **副标题语义修改（用户裁决）**：从「留空不覆盖」改为「跟随配置：留空即清除
+  deploymentDisplaySubtitle」。TDD（先红后绿），4/4 测试过；i18n 双语更新；
+  重建部署（md5 校验过），profile 残留 Gateway 已清。
+- **haiku-5-5 400**：OpenCode Go 网关在切换探测时返回 "Model does not support
+  this protocol"（上游错误原文），真实请求正常（用户会话实际在用）。升级首启
+  状态未就绪/网关瞬态，重启 CC Switch 后自愈。若复现探测 400 而使用正常，值得
+  报上游。
+- **部署 SOP 更新**：NSIS /D= 含空格时 PowerShell Start-Process 必加引号导致
+  静默失败——一律 cmd 走 install-local.bat。v4 起 pnpm workspace 根管依赖，
+  worktree 不再需要 node_modules junction。
+- **收尾**：feat/v4-migration ff 合回 fix/profile-merge（d1e16672）并推 origin。
 
 ## 2026-10-09 haiku 假条目：槽位显示名与目标脱节（数据手术）
 

@@ -1857,3 +1857,16 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   一致判定（本次三重全对）。
 - 收尾：feat/v4.0.6-merge ff 合回 fix/profile-merge（5df629fe）推 origin；
   worktree 已清。推送遇 SSL 握手抖动，env -u 代理重试成功。
+
+## 2026-10-10 身份行定案：endUserAttribution=false 去掉 OS 用户名
+
+- 用户确认：`endUserAttribution=false` + name=Chris + subtitle=Gateway →
+  Claude Desktop (MSIX 2.31226) 左下角**只显示 Chris·Gateway，Jason 消失**。
+- 修正此前结论："第一段恒为 OS 用户名不可配"只对 attribution=true 成立；
+  false 时 principal 层整个不渲染（asar: `workspace.endUserAttribution===false
+  → null`，注释 "no identity shown"）。README 黑盒知识已更新。
+- 设置卡「用户归属」开关即此键。UI 提示文案可补充"关闭可隐藏 OS 用户名"，
+  留待下次构建顺带。
+- 21:19 状态覆盖事故复盘：用户在设置卡改值+切直连，把我关掉的开关又打开——
+  双写（settings+profile）必须配合"提醒用户设置卡当前值"，否则实验状态会被
+  正常操作回灌。

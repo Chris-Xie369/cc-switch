@@ -1843,3 +1843,17 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   备份：tools/backup-haiku-fix/（外层）。
 - 遗留语义：modelPicker 仅在聚合供应商 apply（切换）时重生成；本次为绕开
   手动切换做的等价直写，与下次真实 apply 的产物一致。
+
+## 2026-10-10 跟进 v4.0.6（零代码冲突）
+
+- 上游 10-09 晚发布 v4.0.6（第二个修复版）：供应商搜索按钮/Skills 批量更新/额度
+  三色、Codex 聚合子 agent 经典工具开关、**Claude Code 经路由转 OpenAI Chat 最后
+  一段回复丢失修复**（forwarder）、Codex 聚合压缩 502/官方模型消失/Copilot 目录
+  模板、账号解绑。五 PR 仍 OPEN MERGEABLE，#7785 方向问题未回。
+- merge v4.0.6 仅 3 文件冲突且全为版本号——**零代码冲突**（4.0.5 融合与上游
+  修复无接触）。cargo check 0 / tsc 0 / 3549 过 / 5 失败=既有环境性同名单。
+- 依赖零变化（package.json 仅版本号）。构建部署 4.0.6-local；**校验判据更新**：
+  md5 会因 NSIS 重写 PE 时间戳而不同——改用「版本号+文件大小+前端资产名」三重
+  一致判定（本次三重全对）。
+- 收尾：feat/v4.0.6-merge ff 合回 fix/profile-merge（5df629fe）推 origin；
+  worktree 已清。推送遇 SSL 握手抖动，env -u 代理重试成功。

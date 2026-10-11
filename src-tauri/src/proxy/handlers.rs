@@ -404,25 +404,39 @@ fn validate_claude_desktop_gateway_auth(
 ) -> Result<(), ProxyError> {
     let expected = crate::claude_desktop_config::get_or_create_gateway_token(state.db.as_ref())
         .map_err(|e| ProxyError::AuthError(e.to_string()))?;
-    let Some(value) = headers.get(axum::http::header::AUTHORIZATION) else {
+    let Some(token) = gateway_token_from_headers(headers) else {
         return Err(ProxyError::AuthError(
-            "Claude Desktop gateway 缺少 Authorization 头".to_string(),
+            "Claude Desktop gateway 缺少 Authorization（或 x-api-key）头".to_string(),
         ));
     };
-    let value = value
-        .to_str()
-        .map_err(|_| ProxyError::AuthError("Authorization 头格式无效".to_string()))?;
-    let token = value
-        .strip_prefix("Bearer ")
-        .or_else(|| value.strip_prefix("bearer "))
-        .unwrap_or("")
-        .trim();
     if token != expected {
         return Err(ProxyError::AuthError(
             "Claude Desktop gateway token 无效".to_string(),
         ));
     }
     Ok(())
+}
+
+/// 从请求头提取网关 token：`Authorization: Bearer <t>` 优先，其次 Anthropic 惯例的
+/// `x-api-key: <t>`。网关仿真 Anthropic 端点，仅发 x-api-key 的标准客户端
+/// （如 pi-ai 的 anthropic-messages 适配器）应能直连。
+fn gateway_token_from_headers(headers: &axum::http::HeaderMap) -> Option<&str> {
+    let bearer = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| {
+            v.strip_prefix("Bearer ")
+                .or_else(|| v.strip_prefix("bearer "))
+        })
+        .map(str::trim)
+        .filter(|t| !t.is_empty());
+    bearer.or_else(|| {
+        headers
+            .get("x-api-key")
+            .and_then(|v| v.to_str().ok())
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+    })
 }
 
 /// Claude 格式转换处理（独有逻辑）
@@ -3240,6 +3254,26 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
+
+    #[test]
+    fn gateway_token_accepts_bearer_and_x_api_key() {
+        use axum::http::{header, HeaderMap, HeaderValue};
+        let mut h = HeaderMap::new();
+        assert_eq!(super::gateway_token_from_headers(&h), None);
+        h.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer tok-1"),
+        );
+        assert_eq!(super::gateway_token_from_headers(&h), Some("tok-1"));
+        let mut h2 = HeaderMap::new();
+        h2.insert("x-api-key", HeaderValue::from_static("tok-2"));
+        assert_eq!(super::gateway_token_from_headers(&h2), Some("tok-2"));
+        // Bearer 优先；空白值视为缺失
+        let mut h3 = HeaderMap::new();
+        h3.insert(header::AUTHORIZATION, HeaderValue::from_static("Bearer   "));
+        h3.insert("x-api-key", HeaderValue::from_static("tok-3"));
+        assert_eq!(super::gateway_token_from_headers(&h3), Some("tok-3"));
+    }
 
     /// 补发了压缩条目的 SSE 比上游声明的长：留着上游的 Content-Length，客户端读到那个
     /// 长度就停，补上的 compaction 条目和 response.completed 都收不到。

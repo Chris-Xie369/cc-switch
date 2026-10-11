@@ -504,6 +504,8 @@ export interface Settings {
   commonConfigConfirmed?: boolean;
   // 首选语言（可选，默认中文）
   language?: "en" | "zh" | "zh-TW" | "ja";
+  // 按档的额度百分比写剩余还是已用（默认剩余；余额、Credits 不受影响）
+  quotaDisplay?: "left" | "used";
 
   // Claude Desktop 3P 左下角显示设置（deploymentDisplayName / 副标题 / 归属开关）；null=关闭
   claudeDesktopDisplay?: ClaudeDesktopDisplay | null;

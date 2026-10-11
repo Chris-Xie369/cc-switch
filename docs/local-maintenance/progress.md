@@ -1883,3 +1883,26 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   修好了 build_tool_search_paths）。构建部署 4.0.8-local（版本+大小+前端资产
   index-BcD-FEgk.js 三重一致）。合回 e2ea5402 推 origin。
 - 五 PR 仍 OPEN MERGEABLE hold；#7785 维护者 8+ 天无回复。
+
+## 2026-10-11 R1：DeepSeek Harness 接入聚合（新需求第一阶段）
+
+- **需求单**（用户确认）：R1 快速接入 + R2 正式 AppType 两者都要。侦察结论：
+  harness v0.2.0-rc.2 内嵌 pi-ai（`@deepseek-ai/dsh-llm-pi-ai`），供应商配置在
+  `$DSH_HOME/settings.yaml` 的 `llm-pi-ai.providers`（api/baseURL/apiKeyEnv/models），
+  凭据在 `.credentials.yaml` 的 `refs:`，格式与 cc-switch 已支持的 Pi 同源。
+- **堵点与补丁**（078b0d9c）：Desktop 网关认证只收 Bearer，而 pi-ai 的
+  anthropic-messages 按 Anthropic 惯例发 x-api-key → 抽 `gateway_token_from_headers`
+  纯函数双头接受（Bearer 优先），含 4 断言单测。独立上游化候选。
+- **配置落地**：新建 `~/.dsh/settings.yaml`（provider cc-switch：anthropic-messages、
+  http://127.0.0.1:15721/claude-desktop、apiKeyEnv=CC_SWITCH_GATEWAY_TOKEN、11 槽位）；
+  `.credentials.yaml refs:` 增网关 token 引用。备份在 tools/backup-haiku-fix/。
+- **E2E 验证**：GET /v1/models (x-api-key) 200×11；POST /v1/messages (x-api-key)
+  200，claude-haiku-2→k3-256k 改写正确，标准 Anthropic 响应。
+- **坑**：v4 后首次在主仓库构建——workspace 依赖从未在主仓库装过（此前都在
+  worktree），`tailwindcss-animate` 缺失致 build:renderer 失败且 tauri build 整体
+  exit 0 假绿（bat 装回了旧包）。主仓库 pnpm install 后重建才真部署。
+- **R2（待立项）**：DSH AppType——供应商卡读写 settings.yaml、凭据写 refs、聚合
+  槽位自动同步；走 spec→plan 正式流程，上游化候选（Pi 先例）。
+- **已知边界**：槽位/标签变更不自动同步到 settings.yaml（R2 的职责）；harness
+  Models 页改 provider 配置会改写该文件，与手工维护并存（llm-pi-ai 每请求解析，
+  无需重启）。

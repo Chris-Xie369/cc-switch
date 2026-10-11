@@ -1870,3 +1870,16 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - 21:19 状态覆盖事故复盘：用户在设置卡改值+切直连，把我关掉的开关又打开——
   双写（settings+profile）必须配合"提醒用户设置卡当前值"，否则实验状态会被
   正常操作回灌。
+
+## 2026-10-11 跟进 v4.0.7+v4.0.8（低冲突）
+
+- 上游两日连发：4.0.7（额度 left/used 显示、Codex 会话压缩说明、Windows 批处理
+  非 ASCII 路径）+ 4.0.8（**Codex 桌面版内置 CLI 使聚合可用**、官方模型列表失败
+  原因细分、模型拉取带请求头、深色模式文字调暗、打开日志按钮）。约 28 提交，
+  均不在 B/E 补丁触达面。
+- merge 冲突仅 3 文件：版本号×2 + settings.rs 同位双加字段
+  （claude_desktop_display + quota_display，双侧保留）。
+- 验证：cargo check 0 / tsc 0 / 3604 过 / 4 失败=既有环境名单（少一个——上游
+  修好了 build_tool_search_paths）。构建部署 4.0.8-local（版本+大小+前端资产
+  index-BcD-FEgk.js 三重一致）。合回 e2ea5402 推 origin。
+- 五 PR 仍 OPEN MERGEABLE hold；#7785 维护者 8+ 天无回复。

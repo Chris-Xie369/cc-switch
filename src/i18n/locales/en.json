@@ -1054,7 +1054,8 @@
     "openclaw": "OpenClaw",
     "hermes": "Hermes",
     "pi": "Pi",
-    "mcode": "MiniMax Code"
+    "mcode": "MiniMax Code",
+    "deepseek-harness": "DeepSeek Harness"
   },
   "mcode": {
     "empty": {
@@ -4789,6 +4790,26 @@
       "loading": "Checking quota…",
       "refresh": "Refresh quota",
       "refreshAria": "Refresh quota for {{login}}"
+    }
+  },
+  "deepseek-harness": {
+    "empty": {
+      "title": "No providers yet",
+      "description": "Use the + button to add a provider, or sync your Claude Desktop aggregate slots with the button above."
+    },
+    "sync": {
+      "button": "Sync aggregate models",
+      "success": "Aggregate slots synced to DeepSeek Harness",
+      "failed": "Sync failed"
+    },
+    "form": {
+      "displayName": "Display name",
+      "displayNamePlaceholder": "Shown in the model picker (defaults to the card name)",
+      "api": "Protocol",
+      "apiKeyKeepPlaceholder": "Leave empty to keep the stored key",
+      "models": "Models",
+      "modelNamePlaceholder": "Display name (optional)",
+      "addModel": "Add model"
     }
   }
 }

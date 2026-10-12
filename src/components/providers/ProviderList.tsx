@@ -196,6 +196,10 @@ export function ProviderList({
       if (appId === "hermes") {
         return (await providersApi.importHermesFromLive()) > 0;
       }
+      if (appId === "deepseek-harness") {
+        await providersApi.syncDshAggregate();
+        return true;
+      }
       if (appId === "claude-desktop") {
         return (await providersApi.importClaudeDesktopFromClaude()) > 0;
       }

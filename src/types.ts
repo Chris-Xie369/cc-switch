@@ -383,6 +383,7 @@ export interface VisibleApps {
   hermes: boolean;
   pi: boolean;
   mcode: boolean;
+  "deepseek-harness": boolean;
 }
 
 // WebDAV 同步状态

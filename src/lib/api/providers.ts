@@ -256,6 +256,12 @@ export const providersApi = {
   async importHermesFromLive(): Promise<number> {
     return await invoke("import_hermes_providers_from_live");
   },
+  /**
+   * 把当前 Claude Desktop 聚合槽位同步到 DeepSeek Harness settings.yaml
+   */
+  async syncDshAggregate(): Promise<void> {
+    await invoke("sync_dsh_aggregate");
+  },
 };
 
 // ============================================================================

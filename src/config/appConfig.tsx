@@ -8,6 +8,7 @@ import {
   OpenClawIcon,
 } from "@/components/BrandIcons";
 import { ProviderIcon } from "@/components/ProviderIcon";
+import { Bot } from "lucide-react";
 
 export interface AppConfig {
   label: string;
@@ -27,6 +28,7 @@ export const APP_IDS: AppId[] = [
   "hermes",
   "pi",
   "mcode",
+  "deepseek-harness",
 ];
 
 export const DEFAULT_VISIBLE_APPS: VisibleApps = {
@@ -40,6 +42,7 @@ export const DEFAULT_VISIBLE_APPS: VisibleApps = {
   hermes: true,
   pi: true,
   mcode: true,
+  "deepseek-harness": true,
 };
 
 /** App IDs shown in Skills panels. */
@@ -82,7 +85,7 @@ export function isStackAppId(appId: string): appId is StackAppId {
 
 export type AdditiveAppId = Extract<
   AppId,
-  "opencode" | "openclaw" | "hermes" | "pi" | "mcode"
+  "opencode" | "openclaw" | "hermes" | "pi" | "mcode" | "deepseek-harness"
 >;
 
 export const ADDITIVE_APP_IDS: AdditiveAppId[] = [
@@ -91,6 +94,7 @@ export const ADDITIVE_APP_IDS: AdditiveAppId[] = [
   "openclaw",
   "hermes",
   "pi",
+  "deepseek-harness",
 ];
 
 export function isAdditiveAppId(appId: string): appId is AdditiveAppId {
@@ -113,7 +117,10 @@ export function usesEditorView(appId: AppId): boolean {
 }
 
 /** Claude Desktop、OpenClaw 不由 CC Switch 管理 MCP；Pi 1.0 起内置 MCP（`~/.pi/agent/mcp.json`） */
-export type McpAppId = Exclude<AppId, "claude-desktop" | "openclaw">;
+export type McpAppId = Exclude<
+  AppId,
+  "claude-desktop" | "openclaw" | "deepseek-harness"
+>;
 export const MCP_APP_IDS: McpAppId[] = [
   "claude",
   "codex",
@@ -221,6 +228,14 @@ export const APP_ICON_MAP: Record<AppId, AppConfig> = {
     activeClass: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
     badgeClass:
       "bg-orange-500/10 text-orange-700 dark:text-orange-300 border-0 gap-1.5",
+  },
+  "deepseek-harness": {
+    label: "DeepSeek Harness",
+    icon: <Bot size={14} />,
+    activeClass:
+      "bg-teal-500/10 ring-1 ring-teal-500/20 hover:bg-teal-500/20 text-teal-600 dark:text-teal-400",
+    badgeClass:
+      "bg-teal-500/10 text-teal-700 dark:text-teal-300 hover:bg-teal-500/20 border-0 gap-1.5",
   },
   pi: {
     label: "Pi",

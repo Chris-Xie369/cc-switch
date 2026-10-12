@@ -1054,7 +1054,8 @@
     "openclaw": "OpenClaw",
     "hermes": "Hermes",
     "pi": "Pi",
-    "mcode": "MiniMax Code"
+    "mcode": "MiniMax Code",
+    "deepseek-harness": "DeepSeek Harness"
   },
   "mcode": {
     "empty": {
@@ -4789,6 +4790,26 @@
       "loading": "正在查询额度…",
       "refresh": "刷新额度",
       "refreshAria": "刷新 {{login}} 的额度"
+    }
+  },
+  "deepseek-harness": {
+    "empty": {
+      "title": "还没有供应商",
+      "description": "用右上角的 + 添加供应商，或用上方按钮把 Claude Desktop 聚合槽位同步进来。"
+    },
+    "sync": {
+      "button": "同步聚合模型",
+      "success": "聚合槽位已同步到 DeepSeek Harness",
+      "failed": "同步失败"
+    },
+    "form": {
+      "displayName": "显示名",
+      "displayNamePlaceholder": "模型选择器里显示（留空跟随卡片名）",
+      "api": "协议",
+      "apiKeyKeepPlaceholder": "留空保持已存密钥不变",
+      "models": "模型列表",
+      "modelNamePlaceholder": "显示名（可选）",
+      "addModel": "添加模型"
     }
   }
 }

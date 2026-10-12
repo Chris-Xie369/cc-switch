@@ -1968,3 +1968,16 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   必须在 "Finished 1 bundle" 之后确认 setup mtime > 上次构建时间再装；本次
   17:12 旧包被装入（新 setup 17:52 未生成完）。以后部署前 node 校验 exe 内嵌
   bundle 名 === dist 当前 bundle 名。
+
+## 2026-10-12 DSH 模型元数据补全（二轮纠偏）
+
+- 用户对比 MiniMax：预设模型被砍成 id/name 两列，丢了 reasoning/modalities/
+  contextWindow/maxTokens 元数据（pi-ai 的 models 条目原生支持，zai patch
+  就是这么写的）。
+- 修复：dshProviderPresets 派生全量保留（presetModel()）；DshModelEntry 扩
+  serde-optional 字段（yaml camelCase）；表单 ModelRow 行间透传元数据
+  （UI 仍只编辑 id/name）；接上标准「获取模型列表」按钮
+  （fetchModelsForConfig + 点选采用 chips）。
+- **部署双坑再录**：①构建完成通知 ≠ setup 已生成（抢跑装旧包，重装才对）；
+  ②exe 内嵌资产 brotli 压缩，grep 明文判断新旧必然误判——判据只用
+  **资产文件名表**（新 hash 名在/旧名不在）。

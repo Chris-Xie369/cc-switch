@@ -44,7 +44,7 @@ pub struct VisibleApps {
         rename = "deepseek-harness",
         alias = "deepseekHarness",
         alias = "deepseek_harness",
-        default
+        default = "default_true"
     )]
     pub deepseek_harness: bool,
     #[serde(default = "default_true")]

@@ -85,16 +85,40 @@ pub fn get_dsh_dir() -> Result<PathBuf, AppError> {
     Ok(crate::config::get_home_dir().join(".dsh"))
 }
 
-/// desktop profile 的 patch 文件路径（本机实测唯一活跃 profile）。
-fn get_patch_path() -> Result<PathBuf, AppError> {
+/// 全部活跃 profile 的 patch 文件路径——凡 profiles/*/ 下有 cordis.yml 的目录
+/// 都是活跃 profile（desktop/tui/web/headless/用户自建），同步时全部写入，
+/// 任何 DSH 界面都能看到供应商。
+fn get_all_patch_paths() -> Result<Vec<PathBuf>, AppError> {
     #[cfg(test)]
     if let Some(path) = TEST_DSH_PATCH_PATH
         .lock()
         .expect("lock DSH test patch path")
         .clone()
     {
-        return Ok(path);
+        return Ok(vec![path]);
     }
+    let profiles_dir = get_dsh_dir()?.join(PROFILES_DIR);
+    if !profiles_dir.exists() {
+        return Ok(vec![profiles_dir.join("desktop").join(PATCH_FILE)]);
+    }
+    let mut paths = Vec::new();
+    let entries = std::fs::read_dir(&profiles_dir)
+        .map_err(|e| AppError::io(&profiles_dir, e))?;
+    for entry in entries.filter_map(|e| e.ok()) {
+        let dir = entry.path();
+        // 有 cordis.yml = 活跃 profile
+        if dir.join("cordis.yml").exists() && dir.is_dir() {
+            paths.push(dir.join(PATCH_FILE));
+        }
+    }
+    if paths.is_empty() {
+        paths.push(profiles_dir.join("desktop").join(PATCH_FILE));
+    }
+    Ok(paths)
+}
+
+/// 读取用：desktop profile 的 patch（规范化视图）。
+fn get_patch_path() -> Result<PathBuf, AppError> {
     Ok(get_dsh_dir()?
         .join(PROFILES_DIR)
         .join("desktop")
@@ -273,11 +297,17 @@ pub fn read_providers() -> Result<indexmap::IndexMap<String, Value>, AppError> {
 }
 
 pub fn upsert_provider(route: &str, spec: &DshProviderSpec) -> Result<(), AppError> {
-    upsert_provider_in_file(&get_patch_path()?, route, spec)
+    for path in get_all_patch_paths()? {
+        upsert_provider_in_file(&path, route, spec)?;
+    }
+    Ok(())
 }
 
 pub fn remove_provider(route: &str) -> Result<(), AppError> {
-    remove_provider_in_file(&get_patch_path()?, route)
+    for path in get_all_patch_paths()? {
+        remove_provider_in_file(&path, route)?;
+    }
+    Ok(())
 }
 
 /// 是否已配置过聚合 route（决定「用户未启用 DSH 接入」时 apply 不写文件）。
@@ -510,14 +540,15 @@ pub fn write_provider_card(
         serde_yaml::Value::Sequence(models_seq),
     );
 
-    // 写 patch
-    let path = get_patch_path()?;
-    let mut entries = read_patch_entries(&path)?;
-    providers_mut(&mut entries).insert(
-        serde_yaml::Value::from(route),
-        serde_yaml::Value::Mapping(provider),
-    );
-    write_yaml_value(&path, &serde_yaml::Value::Sequence(entries), "cordis.patch")?;
+    // 写 patch（全部活跃 profile）
+    for path in get_all_patch_paths()? {
+        let mut entries = read_patch_entries(&path)?;
+        providers_mut(&mut entries).insert(
+            serde_yaml::Value::from(route),
+            serde_yaml::Value::Mapping(provider.clone()),
+        );
+        write_yaml_value(&path, &serde_yaml::Value::Sequence(entries), "cordis.patch")?;
+    }
 
     if !api_key.is_empty() {
         upsert_credential_ref(&get_dsh_dir()?, &env_name, &api_key)?;

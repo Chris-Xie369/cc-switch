@@ -1944,3 +1944,13 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - 现场：R1 手写 settings.yaml 改名 .r1-superseded（防旧导入器吸收）；desktop
   patch 已种 cc-switch 条目（11 模型，PyYAML 保其余 4 条目）；E2E x-api-key
   200 ✓；重建部署 414decbb。
+
+## 2026-10-12 侧栏不显示 DSH：serde default 陷阱
+
+- 现象：新包侧栏无 DeepSeek Harness。根因：VisibleApps.deepseek_harness 的
+  `#[serde(default)]`（无函数）= **false**——用户任何设置保存都把它显式写
+  false，前端 DEFAULT_VISIBLE_APPS 的 true 被 settings 覆盖 → 侧栏过滤。
+- 修复：`default = "default_true"`（与其他应用一致，ec783f6b）+ 清除用户
+  settings.json 已写入的坏值。应用启动即规范化写回 11 键全 true。
+- 教训：**Rust serde 布尔字段永远不要用裸 default**——false 语义对"新加的
+  开关"是隐性破坏（旧 settings 无此键 → 读出 false → 保存即固化）。

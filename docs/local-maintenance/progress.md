@@ -1954,3 +1954,17 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   settings.json 已写入的坏值。应用启动即规范化写回 11 键全 true。
 - 教训：**Rust serde 布尔字段永远不要用裸 default**——false 语义对"新加的
   开关"是隐性破坏（旧 settings 无此键 → 读出 false → 保存即固化）。
+
+## 2026-10-12 DSH 预设对齐：从 Pi 派生（用户纠偏"不要造轮子"）
+
+- 用户对比 MiniMax 流程指出：DSH 不该手搓 4 个预设。**正确姿势 =
+  mcodeProviderPresets 模式：从 piProviderPresets 派生**（DSH 与 Pi 同为
+  pi-ai 下游，baseUrl/api/models 一一对应；60+ 家全量继承，按 DSH 三协议过滤）。
+- DshProviderForm 对齐 MiniMax 字段：**providerKey 供应商标识**（KEY_PATTERN +
+  useProvidersQuery 重复检查，add 模式显示）、预设选中回填 providerKey。
+- i18n 修复：json 段名 `deepseek-harness` → `deepseekHarness`（组件 t() 键是
+  驼峰，此前不一致导致界面显示原始键名）。
+- **流程教训（连续两次踩）**：tauri build 完成通知不能作为部署依据——部署脚本
+  必须在 "Finished 1 bundle" 之后确认 setup mtime > 上次构建时间再装；本次
+  17:12 旧包被装入（新 setup 17:52 未生成完）。以后部署前 node 校验 exe 内嵌
+  bundle 名 === dist 当前 bundle 名。

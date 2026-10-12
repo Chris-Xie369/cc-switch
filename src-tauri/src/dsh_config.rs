@@ -9,7 +9,8 @@ use crate::error::AppError;
 use indexmap::IndexMap;
 use serde_json::{json, Value};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DshModelEntry {
     pub id: String,
     pub name: String,
@@ -234,6 +235,89 @@ pub fn sync_aggregate_entry_at(
     upsert_credential_ref_at(dir, AGGREGATE_TOKEN_ENV, token)
 }
 
+
+/// 供应商卡 settings_config → settings.yaml 条目 + 凭据 ref。
+/// 卡形状：{displayName, api, baseURL, apiKey, models:[{id,name}]}。
+pub fn write_provider_card(
+    dir: &std::path::Path,
+    route: &str,
+    provider_name: &str,
+    settings_config: &Value,
+) -> Result<(), AppError> {
+    let str_field = |key: &str, fallback: &str| -> String {
+        settings_config
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| fallback.to_string())
+    };
+    let api = str_field("api", "openai-completions");
+    match api.as_str() {
+        "anthropic-messages" | "openai-responses" | "openai-completions" => {}
+        other => {
+            return Err(AppError::Config(format!(
+                "DeepSeek Harness api 不支持: {other}（可选 openai-completions / openai-responses / anthropic-messages）"
+            )))
+        }
+    }
+    let base_url = str_field("baseUrl", "");
+    if base_url.trim().is_empty() {
+        return Err(AppError::Config("DeepSeek Harness 供应商需要 baseURL".into()));
+    }
+    let models_value = settings_config.get("models").cloned().unwrap_or(json!([]));
+    let models: Vec<DshModelEntry> = serde_json::from_value(models_value)
+        .map_err(|e| AppError::Config(format!("DeepSeek Harness 模型列表格式无效: {e}")))?;
+    if models.is_empty() {
+        return Err(AppError::Config(
+            "DeepSeek Harness 供应商需要至少一个模型".into(),
+        ));
+    }
+    let env_name = credential_env_for_route(route);
+    let spec = DshProviderSpec {
+        display_name: str_field("displayName", provider_name),
+        api,
+        base_url,
+        api_key_env: env_name.clone(),
+        models,
+    };
+    upsert_provider_at(dir, route, &spec)?;
+    if let Some(key) = settings_config.get("apiKey").and_then(Value::as_str) {
+        if !key.trim().is_empty() {
+            upsert_credential_ref_at(dir, &env_name, key)?;
+        }
+    }
+    Ok(())
+}
+
+/// 移除供应商卡的 yaml 键与自有凭据 ref（CC_SWITCH_DSH_ 前缀命名空间，安全）。
+pub fn remove_provider_card(dir: &std::path::Path, route: &str) -> Result<(), AppError> {
+    remove_provider_at(dir, route)?;
+    remove_credential_ref_at(dir, &credential_env_for_route(route), None)
+}
+
+/// route → 凭据 env 名：小写连字符转大写下划线，前缀 CC_SWITCH_DSH_。
+pub fn credential_env_for_route(route: &str) -> String {
+    format!(
+        "CC_SWITCH_DSH_{}",
+        route.to_uppercase().replace('-', "_")
+    )
+}
+
+/// 供应商 id → 合法 route 名（pi-ai 要求小写连字符标识符）。
+pub fn sanitize_route(id: &str) -> String {
+    let cleaned: String = id
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let trimmed = cleaned.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        format!("provider-{}", &id.chars().take(8).collect::<String>())
+    } else {
+        trimmed
+    }
+}
+
 /// 是否已配置过聚合 route（决定「用户未启用 DSH 接入」时 apply 不写文件）。
 pub fn aggregate_entry_exists(dir: &std::path::Path) -> Result<bool, AppError> {
     Ok(read_providers_at(dir)?.contains_key(AGGREGATE_ROUTE))
@@ -333,6 +417,38 @@ mod tests {
         assert!(text.contains("OTHER: k1"));
         assert!(text.contains("records"));
         assert!(!text.contains("CC_SWITCH_DSH_FOO"));
+    }
+
+    #[test]
+    fn write_card_validates_and_writes_ref() {
+        let dir = TempDir::new().unwrap();
+        let cfg = json!({
+            "displayName": "MyGW",
+            "api": "openai-responses",
+            "baseUrl": "https://gw.example/v1",
+            "apiKey": "sk-9",
+            "models": [{"id": "g1", "name": "G1"}]
+        });
+        write_provider_card(dir.path(), "my-gw", "MyGW", &cfg).unwrap();
+        let providers = read_providers_at(dir.path()).unwrap();
+        assert_eq!(providers["my-gw"]["apiKeyEnv"], json!("CC_SWITCH_DSH_MY_GW"));
+        let t = std::fs::read_to_string(dir.path().join(CREDENTIALS_FILE)).unwrap();
+        assert!(t.contains("CC_SWITCH_DSH_MY_GW: sk-9"));
+        // 非法 api 拒绝
+        let bad = json!({"api": "bogus", "baseURL": "x", "models": [{"id": "m"}]});
+        assert!(write_provider_card(dir.path(), "bad", "B", &bad).is_err());
+        // 空 baseURL / 空模型拒绝
+        let no_url = json!({"baseUrl": " ", "models": [{"id": "m"}]});
+        assert!(write_provider_card(dir.path(), "n1", "N", &no_url).is_err());
+        let no_models = json!({"baseUrl": "https://x", "models": []});
+        assert!(write_provider_card(dir.path(), "n2", "N", &no_models).is_err());
+    }
+
+    #[test]
+    fn sanitize_route_normalizes_ids() {
+        assert_eq!(sanitize_route("My Provider_2"), "my-provider-2");
+        assert_eq!(sanitize_route("工具---x"), "x");
+        assert!(sanitize_route("---").starts_with("provider-"));
     }
 
     #[test]

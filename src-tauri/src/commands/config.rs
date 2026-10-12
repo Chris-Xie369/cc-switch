@@ -154,6 +154,16 @@ pub async fn get_config_status(
                 path,
             })
         }
+        AppType::DeepSeekHarness => {
+            let path = crate::dsh_config::get_dsh_dir()
+                .map_err(|e| e.to_string())?
+                .to_string_lossy()
+                .to_string();
+            Ok(ConfigStatus {
+                exists: std::path::Path::new(&path).join("settings.yaml").exists(),
+                path,
+            })
+        }
     }
 }
 
@@ -180,6 +190,9 @@ pub async fn get_config_dir(app: String) -> Result<String, String> {
             .parent()
             .unwrap()
             .to_path_buf(),
+        AppType::DeepSeekHarness => {
+            crate::dsh_config::get_dsh_dir().map_err(|e| e.to_string())?
+        }
     };
 
     Ok(dir.to_string_lossy().to_string())
@@ -203,6 +216,9 @@ pub async fn open_config_folder(handle: AppHandle, app: String) -> Result<bool, 
             .parent()
             .unwrap()
             .to_path_buf(),
+        AppType::DeepSeekHarness => {
+            crate::dsh_config::get_dsh_dir().map_err(|e| e.to_string())?
+        }
     };
 
     if !config_dir.exists() {

@@ -18,6 +18,13 @@ use crate::store::AppState;
 
 use super::normalize_claude_models_in_value;
 
+/// 删除 DSH 供应商卡的 yaml 键与自有凭据 ref（CC_SWITCH_DSH_ 命名空间）。
+pub(crate) fn remove_dsh_provider_from_live(provider_id: &str) -> Result<(), AppError> {
+    let dir = crate::dsh_config::get_dsh_dir()?;
+    let route = crate::dsh_config::sanitize_route(provider_id);
+    crate::dsh_config::remove_provider_card(&dir, &route)
+}
+
 pub(crate) fn provider_exists_in_live_config(
     app_type: &AppType,
     provider_id: &str,
@@ -32,6 +39,11 @@ pub(crate) fn provider_exists_in_live_config(
         AppType::Pi => crate::pi_config::pi_provider_exists(provider_id),
         AppType::Mcode => crate::mcode_config::get_providers()
             .map(|providers| providers.contains_key(provider_id)),
+        AppType::DeepSeekHarness => {
+            let dir = crate::dsh_config::get_dsh_dir()?;
+            crate::dsh_config::read_providers_at(&dir)
+                .map(|providers| providers.contains_key(&crate::dsh_config::sanitize_route(provider_id)))
+        }
         _ => Ok(false),
     }
 }
@@ -301,6 +313,7 @@ fn settings_contain_common_config(app_type: &AppType, settings: &Value, snippet:
         | AppType::Hermes
         | AppType::Pi
         | AppType::Mcode
+        | AppType::DeepSeekHarness
         | AppType::ClaudeDesktop => false,
     }
 }
@@ -377,6 +390,7 @@ pub(crate) fn remove_common_config_from_settings(
         | AppType::Hermes
         | AppType::Pi
         | AppType::Mcode
+        | AppType::DeepSeekHarness
         | AppType::ClaudeDesktop => Ok(settings.clone()),
     }
 }
@@ -389,6 +403,14 @@ pub(crate) fn write_live_for_state(
     provider: &Provider,
 ) -> Result<(), AppError> {
     let db = state.db.as_ref();
+    if matches!(app_type, AppType::DeepSeekHarness) {
+        // additive：卡的 settings_config 即 pi-ai provider 形状，直接落 settings.yaml + refs
+        let dir = crate::dsh_config::get_dsh_dir()?;
+        let route = crate::dsh_config::sanitize_route(&provider.id);
+        crate::dsh_config::write_provider_card(&dir, &route, &provider.name, &provider.settings_config)?;
+        log::debug!("DeepSeek Harness provider '{}' written to live config", route);
+        return Ok(());
+    }
     if matches!(app_type, AppType::Claude) {
         // Claude 不再整份写，也不合并片段：只替换关键字段和独有字段。live 当前对应的
         // 就是这个供应商（同步、退出代理写回），它带进来的独有字段按同一行比对。
@@ -530,6 +552,16 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
                 "Claude Code 配置只能经关键字段写入流程写入",
                 "Claude Code configuration must be written through the key-field write flow",
             ));
+        }
+        AppType::DeepSeekHarness => {
+            let dir = crate::dsh_config::get_dsh_dir()?;
+            let route = crate::dsh_config::sanitize_route(&provider.id);
+            crate::dsh_config::write_provider_card(
+                &dir,
+                &route,
+                &provider.name,
+                &provider.settings_config,
+            )?;
         }
         AppType::ClaudeDesktop => {
             return Err(AppError::localized(
@@ -985,6 +1017,9 @@ pub fn read_live_settings(app_type: AppType) -> Result<Value, AppError> {
         AppType::Pi => Err(AppError::InvalidInput(
             "Pi providers are read from Pi's native models file".to_string(),
         )),
+        AppType::DeepSeekHarness => Err(AppError::InvalidInput(
+            "DeepSeek Harness providers are read from settings.yaml".to_string(),
+        )),
     }
 }
 
@@ -1090,7 +1125,12 @@ pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<bool
             })
         }
         // OpenCode, OpenClaw and Hermes use additive mode and are handled by early return above
-        AppType::OpenCode | AppType::OpenClaw | AppType::Hermes | AppType::Pi | AppType::Mcode => {
+        AppType::OpenCode
+        | AppType::OpenClaw
+        | AppType::Hermes
+        | AppType::Pi
+        | AppType::Mcode
+        | AppType::DeepSeekHarness => {
             unreachable!("additive mode apps are handled by early return")
         }
     };

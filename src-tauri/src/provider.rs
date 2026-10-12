@@ -222,6 +222,12 @@ impl Provider {
                 str_at(settings.get("baseUrl")),
                 str_at(settings.get("apiKey")),
             ),
+            // DeepSeek Harness 卡用顶层 baseURL/apiKey 字段。
+            AppType::DeepSeekHarness => {
+                let base_url = str_at(settings.get("baseUrl"));
+                let api_key = str_at(settings.get("apiKey"));
+                (base_url, api_key)
+            }
             // Pi custom providers use the native models.json field names.
             AppType::Pi => (
                 crate::pi_config::provider_base_url(settings).unwrap_or_default(),

@@ -40,6 +40,13 @@ pub struct VisibleApps {
     pub gemini: bool,
     #[serde(default = "default_true")]
     pub grokbuild: bool,
+    #[serde(
+        rename = "deepseek-harness",
+        alias = "deepseekHarness",
+        alias = "deepseek_harness",
+        default
+    )]
+    pub deepseek_harness: bool,
     #[serde(default = "default_true")]
     pub opencode: bool,
     #[serde(default = "default_true")]
@@ -59,6 +66,7 @@ impl Default for VisibleApps {
             claude_desktop: true,
             codex: true,
             gemini: true,
+            deepseek_harness: true,
             grokbuild: true,
             opencode: true,
             openclaw: true,
@@ -82,6 +90,7 @@ impl VisibleApps {
             AppType::OpenClaw => self.openclaw,
             AppType::Hermes => self.hermes,
             AppType::Pi => self.pi,
+            AppType::DeepSeekHarness => self.deepseek_harness,
             AppType::Mcode => self.mcode,
         }
     }
@@ -1099,7 +1108,7 @@ pub fn get_current_provider(app_type: &AppType) -> Option<String> {
         AppType::OpenCode => settings.current_provider_opencode.clone(),
         AppType::OpenClaw => settings.current_provider_openclaw.clone(),
         AppType::Hermes => settings.current_provider_hermes.clone(),
-        AppType::Pi | AppType::Mcode => None,
+        AppType::Pi | AppType::Mcode | AppType::DeepSeekHarness => None,
     }
 }
 
@@ -1118,7 +1127,7 @@ pub fn set_current_provider(app_type: &AppType, id: Option<&str>) -> Result<(), 
         AppType::OpenCode => settings.current_provider_opencode = id_owned.clone(),
         AppType::OpenClaw => settings.current_provider_openclaw = id_owned.clone(),
         AppType::Hermes => settings.current_provider_hermes = id_owned.clone(),
-        AppType::Pi | AppType::Mcode => {}
+        AppType::Pi | AppType::Mcode | AppType::DeepSeekHarness => {}
     })
 }
 

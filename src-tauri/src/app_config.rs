@@ -38,6 +38,7 @@ impl McpApps {
             AppType::Hermes => self.hermes,
             AppType::Mcode => self.mcode,
             AppType::Pi => self.pi,
+            AppType::DeepSeekHarness => false, // MCP sync to DSH not implemented
             AppType::ClaudeDesktop => false,
         }
     }
@@ -53,7 +54,10 @@ impl McpApps {
             AppType::OpenClaw => {} // OpenClaw doesn't support MCP, ignore
             AppType::Hermes => self.hermes = enabled,
             AppType::Mcode => self.mcode = enabled,
+            // DeepSeek Harness: Skills 同步未实现，开关不落库
+            AppType::DeepSeekHarness => {}
             AppType::Pi => self.pi = enabled,
+            AppType::DeepSeekHarness => {} // no MCP support yet
             AppType::ClaudeDesktop => {} // Claude Desktop 3P provider config doesn't support MCP here
         }
     }
@@ -135,6 +139,7 @@ impl SkillApps {
             AppType::Pi => self.pi,
             AppType::Mcode => self.mcode,
             AppType::OpenClaw => false, // OpenClaw doesn't support Skills
+            AppType::DeepSeekHarness => false, // Skills sync to DSH not implemented
             AppType::ClaudeDesktop => false,
         }
     }
@@ -152,6 +157,7 @@ impl SkillApps {
             AppType::Mcode => self.mcode = enabled,
             AppType::OpenClaw => {} // OpenClaw doesn't support Skills, ignore
             AppType::ClaudeDesktop => {} // Claude Desktop 3P profiles don't use CC Switch skill sync
+            AppType::DeepSeekHarness => {} // no Skills sync to DSH
         }
     }
 
@@ -414,6 +420,8 @@ pub enum AppType {
     OpenClaw,
     Hermes,
     Pi,
+    #[serde(rename = "deepseek-harness", alias = "deepseek_harness", alias = "deepseekHarness")]
+    DeepSeekHarness,
     Mcode,
 }
 
@@ -430,6 +438,7 @@ impl AppType {
             AppType::Hermes => "hermes",
             AppType::Pi => "pi",
             AppType::Mcode => "mcode",
+            AppType::DeepSeekHarness => "deepseek-harness",
         }
     }
 
@@ -441,7 +450,12 @@ impl AppType {
     pub fn is_additive_mode(&self) -> bool {
         matches!(
             self,
-            AppType::OpenCode | AppType::OpenClaw | AppType::Hermes | AppType::Pi | AppType::Mcode
+            AppType::OpenCode
+                | AppType::OpenClaw
+                | AppType::Hermes
+                | AppType::Pi
+                | AppType::Mcode
+                | AppType::DeepSeekHarness
         )
     }
 
@@ -486,6 +500,7 @@ impl FromStr for AppType {
             "hermes" => Ok(AppType::Hermes),
             "pi" => Ok(AppType::Pi),
             "mcode" => Ok(AppType::Mcode),
+            "deepseek-harness" => Ok(AppType::DeepSeekHarness),
             other => Err(AppError::localized(
                 "unsupported_app",
                 format!("不支持的应用标识: '{other}'。可选值: claude, claude-desktop, codex, gemini, grokbuild, opencode, openclaw, hermes, pi。"),
@@ -529,7 +544,7 @@ impl CommonConfigSnippets {
             AppType::OpenCode => self.opencode.as_ref(),
             AppType::OpenClaw => self.openclaw.as_ref(),
             AppType::Hermes => self.hermes.as_ref(),
-            AppType::Pi | AppType::Mcode => None,
+            AppType::Pi | AppType::Mcode | AppType::DeepSeekHarness => None,
         }
     }
 
@@ -544,7 +559,7 @@ impl CommonConfigSnippets {
             AppType::OpenCode => self.opencode = snippet,
             AppType::OpenClaw => self.openclaw = snippet,
             AppType::Hermes => self.hermes = snippet,
-            AppType::Pi | AppType::Mcode => {}
+            AppType::Pi | AppType::Mcode | AppType::DeepSeekHarness => {}
         }
     }
 }
@@ -870,7 +885,7 @@ impl MultiAppConfig {
             AppType::Hermes => &mut config.prompts.hermes.prompts,
             // Pi was added after prompts moved to SQLite. Keeping it out of
             // this legacy config avoids a second, unused prompt state.
-            AppType::Pi | AppType::Mcode => return Ok(false),
+            AppType::Pi | AppType::Mcode | AppType::DeepSeekHarness => return Ok(false),
         };
 
         prompts.insert(id, prompt);
@@ -908,6 +923,7 @@ impl MultiAppConfig {
             let old_servers = match app {
                 AppType::Claude => &self.mcp.claude.servers,
                 AppType::ClaudeDesktop => continue, // Claude Desktop 3P profiles don't use MCP here
+                AppType::DeepSeekHarness => continue, // no MCP sync
                 AppType::Codex => &self.mcp.codex.servers,
                 AppType::Gemini => &self.mcp.gemini.servers,
                 AppType::GrokBuild => continue,

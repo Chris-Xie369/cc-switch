@@ -15,6 +15,7 @@ import type { ProviderFormProps, ProviderFormValues } from "./ProviderForm";
 import { ProviderPresetSelector } from "./ProviderPresetSelector";
 import { dshProviderPresets } from "@/config/dshProviderPresets";
 import { extractErrorMessage } from "@/utils/errorUtils";
+import { useProvidersQuery } from "@/lib/query/queries";
 
 /** DeepSeek Harness 供应商卡：settings_config 即 pi-ai provider 形状
  *  {displayName, api, baseUrl, apiKey, models:[{id,name}]}，
@@ -24,6 +25,8 @@ interface ModelRow {
   id: string;
   name: string;
 }
+
+const DSH_KEY_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 const API_OPTIONS = [
   { value: "anthropic-messages", label: "Anthropic Messages" },
@@ -68,6 +71,7 @@ export function DshProviderForm({
     setSelectedPresetId(id);
     if (id === "custom") {
       setName("");
+      setProviderKey("");
       setDisplayName("");
       setApi("anthropic-messages");
       setBaseUrl("");
@@ -78,6 +82,7 @@ export function DshProviderForm({
     if (!entry) return;
     const cfg = entry.settingsConfig;
     setName(entry.name);
+    setProviderKey(entry.providerKey);
     setDisplayName(cfg.displayName ?? entry.name);
     setApi(cfg.api);
     setBaseUrl(cfg.baseUrl);
@@ -109,12 +114,23 @@ export function DshProviderForm({
     }
     return [{ id: "", name: "" }];
   });
+  const [providerKey, setProviderKey] = useState(providerId ?? "");
+  const { data: existing } = useProvidersQuery("deepseek-harness");
+  const keyTaken =
+    !isEdit &&
+    Object.prototype.hasOwnProperty.call(
+      existing?.providers ?? {},
+      providerKey,
+    );
+  const keyInvalid =
+    !isEdit && providerKey !== "" && !DSH_KEY_PATTERN.test(providerKey);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const ready = useMemo(
     () =>
       name.trim().length > 0 &&
+      (isEdit || (providerKey.trim().length > 0 && !keyInvalid && !keyTaken)) &&
       baseUrl.trim().length > 0 &&
       models.some((m) => m.id.trim().length > 0),
     [name, baseUrl, models],
@@ -188,6 +204,31 @@ export function DshProviderForm({
           onPresetChange={selectPreset}
           category="custom"
         />
+      )}
+      {!isEdit && (
+        <div className="grid gap-2">
+          <Label htmlFor="dsh-provider-key">{t("opencode.providerKey")}</Label>
+          <Input
+            id="dsh-provider-key"
+            value={providerKey}
+            onChange={(e) => setProviderKey(e.target.value)}
+            placeholder={t("opencode.providerKeyPlaceholder")}
+            className={
+              keyTaken || keyInvalid ? "border-destructive" : undefined
+            }
+          />
+          {keyTaken ? (
+            <p className="text-sm text-destructive">
+              {t("opencode.providerKeyDuplicate")}
+            </p>
+          ) : keyInvalid ? (
+            <p className="text-sm text-destructive">
+              {t("opencode.providerKeyInvalid")}
+            </p>
+          ) : (
+            <p className="text-xs text-fg-3">{t("opencode.providerKeyHint")}</p>
+          )}
+        </div>
       )}
       <div className="grid gap-2">
         <Label htmlFor="dsh-name">{t("providerForm.name")}</Label>

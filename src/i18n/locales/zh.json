@@ -4792,7 +4792,7 @@
       "refreshAria": "刷新 {{login}} 的额度"
     }
   },
-  "deepseek-harness": {
+  "deepseekHarness": {
     "empty": {
       "title": "还没有供应商",
       "description": "用右上角的 + 添加供应商，或用上方按钮把 Claude Desktop 聚合槽位同步进来。"

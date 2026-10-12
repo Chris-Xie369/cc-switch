@@ -4792,7 +4792,7 @@
       "refreshAria": "Refresh quota for {{login}}"
     }
   },
-  "deepseek-harness": {
+  "deepseekHarness": {
     "empty": {
       "title": "No providers yet",
       "description": "Use the + button to add a provider, or sync your Claude Desktop aggregate slots with the button above."

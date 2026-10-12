@@ -4810,7 +4810,12 @@
       "models": "Models",
       "modelNamePlaceholder": "Display name (optional)",
       "addModel": "Add model",
-      "fetchModels": "Fetch model list"
+      "fetchModels": "Fetch model list",
+      "modelMeta": "Model capabilities",
+      "contextWindow": "Context window",
+      "maxTokens": "Max output tokens",
+      "reasoning": "Reasoning",
+      "inputModalities": "Input modalities"
     }
   }
 }

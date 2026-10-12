@@ -4810,7 +4810,12 @@
       "models": "模型列表",
       "modelNamePlaceholder": "显示名（可选）",
       "addModel": "添加模型",
-      "fetchModels": "获取模型列表"
+      "fetchModels": "获取模型列表",
+      "modelMeta": "模型能力",
+      "contextWindow": "上下文窗口",
+      "maxTokens": "最大输出",
+      "reasoning": "推理",
+      "inputModalities": "输入模态"
     }
   }
 }

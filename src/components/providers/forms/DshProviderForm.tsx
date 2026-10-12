@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -143,6 +144,14 @@ export function DshProviderForm({
     );
   const keyInvalid =
     !isEdit && providerKey !== "" && !DSH_KEY_PATTERN.test(providerKey);
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  const toggleRow = (index: number) =>
+    setExpandedRows((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -393,33 +402,121 @@ export function DshProviderForm({
           </div>
         ) : null}
         {models.map((row, index) => (
-          <div key={index} className="flex items-center gap-2">
-            <Input
-              value={row.id}
-              onChange={(e) => setRow(index, { id: e.target.value })}
-              placeholder="model-id"
-              className="flex-1"
-            />
-            <Input
-              value={row.name}
-              onChange={(e) => setRow(index, { name: e.target.value })}
-              placeholder={t("deepseekHarness.form.modelNamePlaceholder")}
-              className="flex-1"
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() =>
-                setModels((rows) =>
-                  rows.length > 1
-                    ? rows.filter((_, i) => i !== index)
-                    : [{ id: "", name: "" }],
-                )
-              }
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+          <div key={index} className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("deepseekHarness.form.modelMeta")}
+                onClick={() => toggleRow(index)}
+                className="shrink-0"
+              >
+                {expandedRows.has(index) ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" />
+                )}
+              </Button>
+              <Input
+                value={row.id}
+                onChange={(e) => setRow(index, { id: e.target.value })}
+                placeholder="model-id"
+                className="flex-1"
+              />
+              <Input
+                value={row.name}
+                onChange={(e) => setRow(index, { name: e.target.value })}
+                placeholder={t("deepseekHarness.form.modelNamePlaceholder")}
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  setModels((rows) =>
+                    rows.length > 1
+                      ? rows.filter((_, i) => i !== index)
+                      : [{ id: "", name: "" }],
+                  );
+                  setExpandedRows((current) => {
+                    const next = new Set(current);
+                    next.delete(index);
+                    return next;
+                  });
+                }}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+            {expandedRows.has(index) && (
+              <div className="grid grid-cols-2 gap-2 rounded-lg border border-border p-3">
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">
+                    {t("deepseekHarness.form.contextWindow")}
+                  </Label>
+                  <Input
+                    type="number"
+                    value={row.contextWindow ?? ""}
+                    onChange={(e) =>
+                      setRow(index, {
+                        contextWindow: e.target.value
+                          ? Number(e.target.value)
+                          : undefined,
+                      })
+                    }
+                    placeholder="1000000"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">
+                    {t("deepseekHarness.form.maxTokens")}
+                  </Label>
+                  <Input
+                    type="number"
+                    value={row.maxTokens ?? ""}
+                    onChange={(e) =>
+                      setRow(index, {
+                        maxTokens: e.target.value
+                          ? Number(e.target.value)
+                          : undefined,
+                      })
+                    }
+                    placeholder="384000"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id={`dsh-reasoning-${index}`}
+                    checked={row.reasoning ?? false}
+                    onCheckedChange={(checked) =>
+                      setRow(index, { reasoning: checked })
+                    }
+                  />
+                  <Label htmlFor={`dsh-reasoning-${index}`} className="text-xs">
+                    {t("deepseekHarness.form.reasoning")}
+                  </Label>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">
+                    {t("deepseekHarness.form.inputModalities")}
+                  </Label>
+                  <Input
+                    value={(row.input ?? []).join(",")}
+                    onChange={(e) =>
+                      setRow(index, {
+                        input: e.target.value
+                          .split(",")
+                          .map((s) => s.trim())
+                          .filter(Boolean),
+                      })
+                    }
+                    placeholder="text, image"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         ))}
         <Button

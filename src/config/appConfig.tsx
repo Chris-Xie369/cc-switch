@@ -18,6 +18,7 @@ export interface AppConfig {
 }
 
 export const APP_IDS: AppId[] = [
+  "deepseek-harness",
   "claude",
   "claude-desktop",
   "codex",
@@ -28,7 +29,6 @@ export const APP_IDS: AppId[] = [
   "hermes",
   "pi",
   "mcode",
-  "deepseek-harness",
 ];
 
 export const DEFAULT_VISIBLE_APPS: VisibleApps = {
@@ -230,7 +230,7 @@ export const APP_ICON_MAP: Record<AppId, AppConfig> = {
       "bg-orange-500/10 text-orange-700 dark:text-orange-300 border-0 gap-1.5",
   },
   "deepseek-harness": {
-    label: "DeepSeek Harness",
+    label: "DeepSeek Harness ✚",
     icon: <Bot size={14} />,
     activeClass:
       "bg-teal-500/10 ring-1 ring-teal-500/20 hover:bg-teal-500/20 text-teal-600 dark:text-teal-400",

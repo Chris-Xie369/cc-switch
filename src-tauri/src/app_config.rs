@@ -55,7 +55,6 @@ impl McpApps {
             AppType::Hermes => self.hermes = enabled,
             AppType::Mcode => self.mcode = enabled,
             // DeepSeek Harness: Skills 同步未实现，开关不落库
-            AppType::DeepSeekHarness => {}
             AppType::Pi => self.pi = enabled,
             AppType::DeepSeekHarness => {} // no MCP support yet
             AppType::ClaudeDesktop => {} // Claude Desktop 3P provider config doesn't support MCP here

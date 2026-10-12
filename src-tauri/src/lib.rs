@@ -1710,6 +1710,7 @@ pub fn run() {
             commands::set_openclaw_tools,
             // Hermes specific
             commands::import_hermes_providers_from_live,
+            commands::sync_dsh_aggregate,
             commands::get_hermes_live_provider_ids,
             commands::get_hermes_live_provider,
             commands::get_hermes_model_config,

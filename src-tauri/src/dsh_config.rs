@@ -318,6 +318,42 @@ pub fn sanitize_route(id: &str) -> String {
     }
 }
 
+
+/// 聚合同步入口：routes=Some（聚合切换）直接写；None（手动/其他切换）时，
+/// 仅当用户已配置过 cc-switch route 才刷新（未启用 DSH 接入就不动文件）。
+pub fn sync_dsh_aggregate_now(
+    db: &crate::database::Database,
+    routes: Option<&[crate::claude_desktop_config::ResolvedModelRoute]>,
+) -> Result<(), AppError> {
+    let dir = get_dsh_dir()?;
+    let routes = match routes {
+        Some(routes) => routes,
+        None => {
+            if !aggregate_entry_exists(&dir)? {
+                return Ok(());
+            }
+            // 读当前 claude-desktop 聚合槽位
+            let current = crate::mode::current::provider_in_use(db, &crate::app_config::AppType::ClaudeDesktop)?;
+            let Some(provider) = current else { return Ok(()) };
+            if !provider.meta.as_ref().is_some_and(|m| m.aggregate_routes.is_some()) {
+                return Ok(());
+            }
+            &resolve_routes_for_sync(db, &provider)
+        }
+    };
+    let token = crate::claude_desktop_config::get_or_create_gateway_token(db)?;
+    sync_aggregate_entry_at(&dir, &token, routes)
+}
+
+/// provider → ResolvedModelRoute 列表（复用 claude_desktop_config 的路由解析）。
+fn resolve_routes_for_sync(
+    db: &crate::database::Database,
+    provider: &crate::provider::Provider,
+) -> Vec<crate::claude_desktop_config::ResolvedModelRoute> {
+    let _ = db;
+    crate::claude_desktop_config::proxy_model_routes(provider).unwrap_or_default()
+}
+
 /// 是否已配置过聚合 route（决定「用户未启用 DSH 接入」时 apply 不写文件）。
 pub fn aggregate_entry_exists(dir: &std::path::Path) -> Result<bool, AppError> {
     Ok(read_providers_at(dir)?.contains_key(AGGREGATE_ROUTE))

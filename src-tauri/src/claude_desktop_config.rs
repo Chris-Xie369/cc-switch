@@ -143,6 +143,9 @@ pub fn apply_provider(db: &Database, provider: &Provider) -> Result<(), AppError
     if let Err(err) = crate::model_picker::sync_cli_model_picker(db, routes.as_deref()) {
         log::warn!("modelPicker 同步失败（下次 apply 自愈）: {err}");
     }
+    if let Err(err) = crate::dsh_config::sync_dsh_aggregate_now(db, routes.as_deref()) {
+        log::warn!("DeepSeek Harness 聚合同步失败（下次 apply 自愈）: {err}");
+    }
     Ok(())
 }
 

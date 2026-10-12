@@ -18,7 +18,6 @@ export interface AppConfig {
 }
 
 export const APP_IDS: AppId[] = [
-  "deepseek-harness",
   "claude",
   "claude-desktop",
   "codex",
@@ -29,6 +28,7 @@ export const APP_IDS: AppId[] = [
   "hermes",
   "pi",
   "mcode",
+  "deepseek-harness",
 ];
 
 export const DEFAULT_VISIBLE_APPS: VisibleApps = {

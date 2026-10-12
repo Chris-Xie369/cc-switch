@@ -12,6 +12,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { ProviderFormProps, ProviderFormValues } from "./ProviderForm";
+import { ProviderPresetSelector } from "./ProviderPresetSelector";
+import { dshProviderPresets } from "@/config/dshProviderPresets";
 import { extractErrorMessage } from "@/utils/errorUtils";
 
 /** DeepSeek Harness 供应商卡：settings_config 即 pi-ai provider 形状
@@ -39,6 +41,48 @@ export function DshProviderForm({
   onSubmitReadyChange,
 }: ProviderFormProps) {
   const { t } = useTranslation();
+  const isEdit = Boolean(initialData);
+  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(
+    isEdit ? null : "custom",
+  );
+  const presetEntries = useMemo(
+    () =>
+      dshProviderPresets.map((preset, index) => ({
+        id: `dsh-${index}`,
+        preset,
+      })),
+    [],
+  );
+  const presetCategoryLabels = useMemo(
+    () => ({
+      aggregator: t("providerForm.categoryAggregation", {
+        defaultValue: "聚合服务",
+      }),
+      third_party: t("providerForm.categoryThirdParty", {
+        defaultValue: "第三方",
+      }),
+    }),
+    [t],
+  );
+  const selectPreset = useCallback((id: string) => {
+    setSelectedPresetId(id);
+    if (id === "custom") {
+      setName("");
+      setDisplayName("");
+      setApi("anthropic-messages");
+      setBaseUrl("");
+      setModels([{ id: "", name: "" }]);
+      return;
+    }
+    const entry = dshProviderPresets[Number(id.replace("dsh-", ""))];
+    if (!entry) return;
+    const cfg = entry.settingsConfig;
+    setName(entry.name);
+    setDisplayName(cfg.displayName ?? entry.name);
+    setApi(cfg.api);
+    setBaseUrl(cfg.baseUrl);
+    setModels(cfg.models.map((m) => ({ ...m })));
+  }, []);
   const [name, setName] = useState(initialData?.name ?? "");
   const [displayName, setDisplayName] = useState(
     (initialData?.settingsConfig?.displayName as string | undefined) ??
@@ -136,6 +180,15 @@ export function DshProviderForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      {!isEdit && (
+        <ProviderPresetSelector
+          selectedPresetId={selectedPresetId}
+          presetEntries={presetEntries}
+          presetCategoryLabels={presetCategoryLabels}
+          onPresetChange={selectPreset}
+          category="custom"
+        />
+      )}
       <div className="grid gap-2">
         <Label htmlFor="dsh-name">{t("providerForm.name")}</Label>
         <Input

@@ -72,6 +72,7 @@ export function AddProviderDialog({
     appId !== "mcode" &&
     appId !== "grokbuild" &&
     appId !== "claude-desktop";
+  // DeepSeek Harness supports universal presets
   // 两步：先选预设，再填写（每次打开都从第 1 步开始）
   const [step, setStep] = useState<"pick" | "form">("pick");
   const [pickerHost, setPickerHost] = useState<HTMLDivElement | null>(null);

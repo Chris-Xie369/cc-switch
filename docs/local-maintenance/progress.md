@@ -1906,3 +1906,28 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - **已知边界**：槽位/标签变更不自动同步到 settings.yaml（R2 的职责）；harness
   Models 页改 provider 配置会改写该文件，与手工维护并存（llm-pi-ai 每请求解析，
   无需重启）。
+
+## 2026-10-12 R2：DeepSeek Harness AppType 交付
+
+- SDD：spec `2026-10-12-dsh-apptype-design.md`（用户拍板 D1=B/D2=丢注释/D3=en-zh）
+  + plan `2026-10-12-dsh-apptype.md`，内联执行（worktree feat/dsh-apptype）。
+- **Task1 dsh_config.rs**：路径参数化 YAML 适配器（providers 增删读、凭据 ref
+  带值守护删除、聚合同步条目、sanitize_route/env 命名），8 单测。
+- **Task2 AppType 接线**：枚举/as_str/from_str/additive/可见性默认 true/
+  skills-mcp-prompts-deeplink 空操作/tray/配置目录与状态命令/双写路径
+  write_provider_card/remove 流/校验（JSON 对象；api·baseUrl·models 写时校验）。
+  **教训：Rust 枚举穷尽性 = 新 AppType 要补 ~20 处 match**（settings.rs、tray、
+  mcp dao、proxy providers、commands/config、prompt_files、provider.rs、
+  services/{mcp,skill,provider} 等），逐个 cargo check 暴露。
+- **字段名定案**：卡 JSON 用 `baseUrl`（cc-switch 惯例，extract_credentials 组
+  兼容），落 yaml 映射为 `baseURL`（pi-ai 惯例）。
+- **Task3 同步**：apply_provider 挂钩（warn-only 自愈）+ sync_dsh_aggregate 命令
+  （未配置过 route 时 no-op）。**Task4/5 前端**：AppId/注册/Bot 图标/DshProviderForm
+  （apiKey 编辑留空=保持）/空态动作=聚合同步/i18n。
+- **回归修复**：NewLayoutDialog 测试硬编码 10 应用 → 动态 APP_IDS.length。
+  （测试按应用数数 spy 是隐性耦合，新 AppType 必踩。）
+- 验证：cargo 3612 过/5=既有环境名单；vitest 2495 过/6=已知 flaky×5+该回归已修；
+  tsc 0。构建部署（三重校验+DSH 标记）。
+- **v1 已知边界**：聚合 cc-switch route 是 yaml 无头管理（不显示为 DB 卡片）；
+  空态同步按钮是唯一手动入口（非空态靠 apply 自动）；settings.yaml 注释会丢
+  （D2）。上游化：独立 PR（含 078b0d9c x-api-key 补丁可并入）。

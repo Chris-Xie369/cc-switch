@@ -305,7 +305,7 @@ export function DshProviderForm({
         </div>
       )}
       <div className="grid gap-2">
-        <Label htmlFor="dsh-name">{t("providerForm.name")}</Label>
+        <Label htmlFor="dsh-name">{t("providerForm.supplierName")}</Label>
         <Input
           id="dsh-name"
           value={name}
@@ -529,6 +529,31 @@ export function DshProviderForm({
           <Plus className="h-4 w-4" />
           {t("deepseekHarness.form.addModel")}
         </Button>
+      </div>
+      <div className="grid gap-2">
+        <Label>{t("deepseekHarness.form.configPreview")}</Label>
+        <pre className="max-h-64 overflow-auto rounded-lg border border-border bg-muted/30 p-3 text-xs leading-relaxed">
+          {JSON.stringify(
+            {
+              displayName: displayName.trim() || name.trim(),
+              api,
+              baseUrl: baseUrl.trim(),
+              apiKey: apiKey.trim() ? "***" : "",
+              models: models
+                .filter((m) => m.id.trim().length > 0)
+                .map((m) => ({
+                  id: m.id.trim(),
+                  name: (m.name || m.id).trim(),
+                  ...(m.reasoning !== undefined ? { reasoning: m.reasoning } : {}),
+                  ...(m.input?.length ? { input: m.input } : {}),
+                  ...(m.contextWindow !== undefined ? { contextWindow: m.contextWindow } : {}),
+                  ...(m.maxTokens !== undefined ? { maxTokens: m.maxTokens } : {}),
+                })),
+            },
+            null,
+            2,
+          )}
+        </pre>
       </div>
       {submitError ? (
         <p className="text-sm text-red-500">{submitError}</p>

@@ -4815,7 +4815,8 @@
       "contextWindow": "上下文窗口",
       "maxTokens": "最大输出",
       "reasoning": "推理",
-      "inputModalities": "输入模态"
+      "inputModalities": "输入模态",
+      "configPreview": "配置预览"
     }
   }
 }

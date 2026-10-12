@@ -4815,7 +4815,8 @@
       "contextWindow": "Context window",
       "maxTokens": "Max output tokens",
       "reasoning": "Reasoning",
-      "inputModalities": "Input modalities"
+      "inputModalities": "Input modalities",
+      "configPreview": "Configuration preview"
     }
   }
 }

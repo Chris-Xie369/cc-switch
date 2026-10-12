@@ -21,11 +21,27 @@ pub struct DshModelEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modalities: Option<DshModelModalities>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<DshModelLimit>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DshModelModalities {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub context_window: Option<i64>,
+    pub output: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DshModelLimit {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_tokens: Option<i64>,
+    pub context: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -351,15 +367,20 @@ pub fn write_provider_card(
     provider_name: &str,
     settings_config: &Value,
 ) -> Result<(), AppError> {
-    let str_field = |key: &str, fallback: &str| -> String {
-        settings_config
-            .get(key)
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .unwrap_or_else(|| fallback.to_string())
-    };
-    let api = str_field("api", "openai-completions");
-    match api.as_str() {
+    // Mcode 同构卡：settingsConfig = { name, kind, enabled, api,
+    //   options: { baseURL, apiKey, headers? },
+    //   models: { "<id>": { name, reasoning, modalities, limit } } }
+    // 写入 cordis.patch.yml 时转为 pi-ai 条目。
+    let options = settings_config
+        .get("options")
+        .and_then(Value::as_object)
+        .ok_or_else(|| AppError::Config("DeepSeek Harness 卡缺少 options 字段".into()))?;
+
+    let api = settings_config
+        .get("api")
+        .and_then(Value::as_str)
+        .unwrap_or("openai-completions");
+    match api {
         "anthropic-messages" | "openai-responses" | "openai-completions" => {}
         other => {
             return Err(AppError::Config(format!(
@@ -367,36 +388,143 @@ pub fn write_provider_card(
             )))
         }
     }
-    let base_url = str_field("baseUrl", "");
-    if base_url.trim().is_empty() {
-        return Err(AppError::Config("DeepSeek Harness 供应商需要 baseUrl".into()));
+
+    let base_url = options
+        .get("baseURL")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if base_url.is_empty() {
+        return Err(AppError::Config(
+            "DeepSeek Harness 供应商需要 options.baseURL".into(),
+        ));
     }
-    let models_value = settings_config.get("models").cloned().unwrap_or(json!([]));
-    let models: Vec<DshModelEntry> = serde_json::from_value(models_value)
-        .map_err(|e| AppError::Config(format!("DeepSeek Harness 模型列表格式无效: {e}")))?;
-    if models.is_empty() {
+
+    let api_key = options
+        .get("apiKey")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+
+    // models: Record<id, { name?, reasoning?, modalities?, limit? }> → pi-ai 数组
+    let models_map = settings_config
+        .get("models")
+        .and_then(Value::as_object)
+        .ok_or_else(|| AppError::Config("DeepSeek Harness 卡缺少 models 字段".into()))?;
+    if models_map.is_empty() {
         return Err(AppError::Config(
             "DeepSeek Harness 供应商需要至少一个模型".into(),
         ));
     }
+
     let env_name = credential_env_for_route(route);
-    let spec = DshProviderSpec {
-        display_name: str_field("displayName", provider_name),
-        api,
-        base_url,
-        api_key_env: env_name.clone(),
-        models,
-    };
-    upsert_provider(route, &spec)?;
-    if let Some(key) = settings_config.get("apiKey").and_then(Value::as_str) {
-        if !key.trim().is_empty() {
-            upsert_credential_ref(&get_dsh_dir()?, &env_name, key)?;
+    let mut yaml_models = serde_yaml::Mapping::new();
+    for (model_id, model_val) in models_map {
+        let Some(model) = model_val.as_object() else { continue };
+        let mut entry = serde_yaml::Mapping::new();
+        entry.insert(
+            serde_yaml::Value::from("id"),
+            serde_yaml::Value::from(model_id.as_str()),
+        );
+        if let Some(name) = model.get("name").and_then(Value::as_str) {
+            entry.insert(
+                serde_yaml::Value::from("name"),
+                serde_yaml::Value::from(name),
+            );
         }
+        if let Some(reasoning) = model.get("reasoning").and_then(Value::as_bool) {
+            entry.insert(
+                serde_yaml::Value::from("reasoning"),
+                serde_yaml::Value::from(reasoning),
+            );
+        }
+        // modalities.input → input（pi-ai 扁平）
+        if let Some(input) = model
+            .get("modalities")
+            .and_then(|m| m.get("input"))
+            .and_then(Value::as_array)
+        {
+            let list: Vec<serde_yaml::Value> = input
+                .iter()
+                .filter_map(|v| v.as_str().map(serde_yaml::Value::from))
+                .collect();
+            if !list.is_empty() {
+                entry.insert(
+                    serde_yaml::Value::from("input"),
+                    serde_yaml::Value::Sequence(list),
+                );
+            }
+        }
+        // limit.context → contextWindow / limit.output → maxTokens
+        if let Some(limit) = model.get("limit").and_then(Value::as_object) {
+            if let Some(context) = limit.get("context").and_then(Value::as_i64) {
+                entry.insert(
+                    serde_yaml::Value::from("contextWindow"),
+                    serde_yaml::Value::from(context),
+                );
+            }
+            if let Some(output) = limit.get("output").and_then(Value::as_i64) {
+                entry.insert(
+                    serde_yaml::Value::from("maxTokens"),
+                    serde_yaml::Value::from(output),
+                );
+            }
+        }
+        yaml_models.insert(
+            serde_yaml::Value::from("placeholder"), // 会被数组化
+            serde_yaml::Value::Mapping(entry),
+        );
+    }
+
+    // 构造 pi-ai provider 条目
+    let display_name = settings_config
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or(provider_name);
+    let mut provider = serde_yaml::Mapping::new();
+    provider.insert(
+        serde_yaml::Value::from("api"),
+        serde_yaml::Value::from(api),
+    );
+    provider.insert(
+        serde_yaml::Value::from("baseURL"),
+        serde_yaml::Value::from(base_url),
+    );
+    provider.insert(
+        serde_yaml::Value::from("apiKeyEnv"),
+        serde_yaml::Value::from(env_name.as_str()),
+    );
+    provider.insert(
+        serde_yaml::Value::from("displayName"),
+        serde_yaml::Value::from(display_name),
+    );
+    // models 转数组
+    let models_seq: serde_yaml::Sequence = yaml_models
+        .into_iter()
+        .map(|(_, v)| v)
+        .collect();
+    provider.insert(
+        serde_yaml::Value::from("models"),
+        serde_yaml::Value::Sequence(models_seq),
+    );
+
+    // 写 patch
+    let path = get_patch_path()?;
+    let mut entries = read_patch_entries(&path)?;
+    providers_mut(&mut entries).insert(
+        serde_yaml::Value::from(route),
+        serde_yaml::Value::Mapping(provider),
+    );
+    write_yaml_value(&path, &serde_yaml::Value::Sequence(entries), "cordis.patch")?;
+
+    if !api_key.is_empty() {
+        upsert_credential_ref(&get_dsh_dir()?, &env_name, &api_key)?;
     }
     Ok(())
 }
 
-/// 移除供应商卡的 patch 键与自有凭据 ref（CC_SWITCH_DSH_ 前缀命名空间，安全）。
 pub fn remove_provider_card(route: &str) -> Result<(), AppError> {
     remove_provider(route)?;
     remove_credential_ref(&get_dsh_dir()?, &credential_env_for_route(route), None)
@@ -431,9 +559,8 @@ impl DshModelEntry {
             id: String::new(),
             name: String::new(),
             reasoning: None,
-            input: None,
-            context_window: None,
-            max_tokens: None,
+            modalities: None,
+            limit: None,
         }
     }
 }
@@ -499,6 +626,7 @@ mod tests {
             models: vec![DshModelEntry {
                 id: "m1".into(),
                 name: "M One".into(),
+                ..DshModelEntry::metadata_none()
             }],
         }
     }
@@ -616,6 +744,7 @@ mod tests {
                 .map(|r| DshModelEntry {
                     id: r.route_id.clone(),
                     name: r.label_override.clone().unwrap(),
+                    ..DshModelEntry::metadata_none()
                 })
                 .collect(),
         };
@@ -653,7 +782,11 @@ mod tests {
             api: "openai-responses".into(),
             base_url: "https://gw.example/v1".into(),
             api_key_env: credential_env_for_route("my-gw"),
-            models: vec![DshModelEntry { id: "g1".into(), name: "G1".into() }],
+            models: vec![DshModelEntry {
+                id: "g1".into(),
+                name: "G1".into(),
+                ..DshModelEntry::metadata_none()
+            }],
         };
         upsert_provider("my-gw", &spec).unwrap();
         let providers = read_providers().unwrap();

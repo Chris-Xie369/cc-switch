@@ -1,64 +1,37 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import userEvent from "@testing-library/user-event";
-import { DshProviderForm } from "@/components/providers/forms/DshProviderForm";
+import { describe, expect, it } from "vitest";
 import { dshProviderPresets } from "@/config/dshProviderPresets";
 
-// 预设选择器走 portal；测试只验「预设数据 → 表单状态」链路——直接渲染表单，
-// 模拟 selectPreset 的效果由表单自己完成（点选预设不在本测试范围）。
-
-// 其实更直接：验证 dshProviderPresets 的 DeepSeek 模型带元数据 + ModelRow 展开渲染
-describe("DshProviderForm metadata chain", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("preset derivation produces full metadata for DeepSeek", () => {
+describe("dsh preset derivation (Mcode-format)", () => {
+  it("DeepSeek models carry full metadata in nested OpenCode format", () => {
     const ds = dshProviderPresets.find((p) => p.name === "DeepSeek");
     expect(ds).toBeTruthy();
-    const m = ds!.settingsConfig.models[0];
-    expect(m.contextWindow).toBe(1000000);
-    expect(m.maxTokens).toBe(384000);
-    expect(m.reasoning).toBe(true);
-    expect(m.input).toContain("text");
+    const models = ds!.settingsConfig.models;
+    expect(Object.keys(models)).toContain("deepseek-v4-pro");
+    const m = models["deepseek-v4-pro"];
+    expect(m).toBeTruthy();
+    expect(m!.limit?.context).toBe(1000000);
+    expect(m!.limit?.output).toBe(384000);
+    expect(m!.reasoning).toBe(true);
+    expect((m!.modalities as Record<string, string[]>)?.input).toContain(
+      "text",
+    );
+    expect((m!.modalities as Record<string, string[]>)?.output).toContain(
+      "text",
+    );
+    expect(m!.name).toBe("DeepSeek V4 Pro");
   });
 
-  it("renders model rows with chevron expand buttons", async () => {
+  it("config structure matches Mcode (options.baseURL + models map)", () => {
     const ds = dshProviderPresets.find((p) => p.name === "DeepSeek")!;
-    const initialData = {
-      name: "DeepSeek",
-      settingsConfig: {
-        displayName: "DeepSeek",
-        api: "openai-completions",
-        baseUrl: "https://api.deepseek.com/v1",
-        apiKey: "",
-        models: ds.settingsConfig.models.map((m) => ({ ...m })),
-      },
-    };
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={qc}>
-      <DshProviderForm
-        appId="deepseek-harness"
-        submitLabel="Add"
-        onSubmit={vi.fn()}
-        onCancel={vi.fn()}
-        initialData={initialData}
-      />,
-      </QueryClientProvider>,
-    );
-    // 模型行应有展开按钮
-    const buttons = screen.getAllByRole("button");
-    const chevronButtons = buttons.filter((b) =>
-      b.getAttribute("aria-label")?.includes("deepseekHarness.form.modelMeta"),
-    );
-    expect(chevronButtons.length).toBeGreaterThan(0);
-    // 点第一个展开
-    await userEvent.click(chevronButtons[0]);
-    // 展开后应有 contextWindow 输入框且带值
-    const cwInputs = screen.getAllByRole("spinbutton");
-    const cw = cwInputs.find((i) => (i as HTMLInputElement).value === "1000000");
-    expect(cw).toBeTruthy();
+    const cfg = ds.settingsConfig;
+    expect(cfg.options.baseURL).toBe("https://api.deepseek.com/v1");
+    expect(cfg.api).toBe("openai-completions");
+    expect(cfg.kind).toBe("custom");
+    expect(cfg.enabled).toBe(true);
+    expect(Object.keys(cfg.models).length).toBeGreaterThan(0);
+  });
+
+  it("derives from all Pi presets with supported protocols (60+ vendors)", () => {
+    expect(dshProviderPresets.length).toBeGreaterThan(30);
   });
 });

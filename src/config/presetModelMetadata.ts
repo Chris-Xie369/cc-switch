@@ -11,6 +11,7 @@ import { extractCodexBaseUrl } from "@/utils/providerConfigUtils";
 import type { OpenCodeModel } from "@/types";
 import { codexProviderPresets } from "./codexProviderPresets";
 import { hermesProviderPresets } from "./hermesProviderPresets";
+import { dshProviderPresets } from "./dshProviderPresets";
 import { mcodeProviderPresets } from "./mcodeProviderPresets";
 import { openclawProviderPresets } from "./openclawProviderPresets";
 import { opencodeProviderPresets } from "./opencodeProviderPresets";
@@ -120,6 +121,16 @@ export const opencodePresetModelSources = lazy(() =>
 
 export const mcodePresetModelSources = lazy(() =>
   mcodeProviderPresets.flatMap((preset) =>
+    buildSources(
+      [preset.settingsConfig.options.baseURL],
+      Object.entries(preset.settingsConfig.models ?? {}),
+      openCodeModelMetadata,
+    ),
+  ),
+);
+
+export const dshPresetModelSources = lazy(() =>
+  dshProviderPresets.flatMap((preset) =>
     buildSources(
       [preset.settingsConfig.options.baseURL],
       Object.entries(preset.settingsConfig.models ?? {}),

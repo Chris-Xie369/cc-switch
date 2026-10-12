@@ -18,6 +18,14 @@ use std::sync::{LazyLock, Mutex};
 pub struct DshModelEntry {
     pub id: String,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -328,6 +336,7 @@ pub fn sync_aggregate_entry(token: &str, routes: &[crate::claude_desktop_config:
                     .label_override
                     .clone()
                     .unwrap_or_else(|| r.upstream_model.clone()),
+                ..DshModelEntry::metadata_none()
             })
             .collect(),
     };
@@ -415,6 +424,20 @@ pub fn sanitize_route(id: &str) -> String {
 
 /// 聚合同步入口：routes=Some（聚合切换）直接写；None（手动/其他切换）时，
 /// 仅当用户已配置过 cc-switch route 才刷新（未启用 DSH 接入就不动文件）。
+impl DshModelEntry {
+    /// 聚合条目不带容量元数据（路由表没有这些信息）。
+    fn metadata_none() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            reasoning: None,
+            input: None,
+            context_window: None,
+            max_tokens: None,
+        }
+    }
+}
+
 pub fn sync_dsh_aggregate_now(
     db: &crate::database::Database,
     routes: Option<&[crate::claude_desktop_config::ResolvedModelRoute]>,

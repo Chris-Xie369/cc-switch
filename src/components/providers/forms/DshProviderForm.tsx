@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,11 @@ import { ProviderPresetSelector } from "./ProviderPresetSelector";
 import { dshProviderPresets } from "@/config/dshProviderPresets";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { useProvidersQuery } from "@/lib/query/queries";
+import {
+  fetchModelsForConfig,
+  showFetchModelsError,
+  type FetchedModel,
+} from "@/lib/api/model-fetch";
 
 /** DeepSeek Harness 供应商卡：settings_config 即 pi-ai provider 形状
  *  {displayName, api, baseUrl, apiKey, models:[{id,name}]}，
@@ -24,6 +30,10 @@ import { useProvidersQuery } from "@/lib/query/queries";
 interface ModelRow {
   id: string;
   name: string;
+  reasoning?: boolean;
+  input?: string[];
+  contextWindow?: number;
+  maxTokens?: number;
 }
 
 const DSH_KEY_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -69,6 +79,7 @@ export function DshProviderForm({
   );
   const selectPreset = useCallback((id: string) => {
     setSelectedPresetId(id);
+    setFetchedModels(null);
     if (id === "custom") {
       setName("");
       setProviderKey("");
@@ -107,10 +118,18 @@ export function DshProviderForm({
   const [models, setModels] = useState<ModelRow[]>(() => {
     const rows = initialData?.settingsConfig?.models;
     if (Array.isArray(rows)) {
-      return rows.map((row) => ({
-        id: String((row as Record<string, unknown>).id ?? ""),
-        name: String((row as Record<string, unknown>).name ?? ""),
-      }));
+      return rows.map((row) => {
+        const r = row as Record<string, unknown>;
+        return {
+          id: String(r.id ?? ""),
+          name: String(r.name ?? ""),
+          reasoning: typeof r.reasoning === "boolean" ? r.reasoning : undefined,
+          input: Array.isArray(r.input) ? (r.input as string[]) : undefined,
+          contextWindow:
+            typeof r.contextWindow === "number" ? r.contextWindow : undefined,
+          maxTokens: typeof r.maxTokens === "number" ? r.maxTokens : undefined,
+        };
+      });
     }
     return [{ id: "", name: "" }];
   });
@@ -126,6 +145,38 @@ export function DshProviderForm({
     !isEdit && providerKey !== "" && !DSH_KEY_PATTERN.test(providerKey);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const [fetchedModels, setFetchedModels] = useState<FetchedModel[] | null>(
+    null,
+  );
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const handleFetchModels = async () => {
+    if (!baseUrl.trim() || !apiKey.trim()) {
+      showFetchModelsError(null, t, {
+        hasBaseUrl: Boolean(baseUrl.trim()),
+        hasApiKey: Boolean(apiKey.trim()),
+      });
+      return;
+    }
+    setFetchingModels(true);
+    try {
+      const models = await fetchModelsForConfig(baseUrl.trim(), apiKey.trim());
+      setFetchedModels(models);
+      toast.success(
+        t("providerForm.fetchModelsSuccess", {
+          count: models.length,
+          defaultValue: `已获取 ${models.length} 个模型`,
+        }),
+      );
+    } catch (error) {
+      showFetchModelsError(error, t, {
+        hasBaseUrl: Boolean(baseUrl.trim()),
+        hasApiKey: Boolean(apiKey.trim()),
+      });
+    } finally {
+      setFetchingModels(false);
+    }
+  };
 
   const ready = useMemo(
     () =>
@@ -156,7 +207,21 @@ export function DshProviderForm({
       try {
         const cleaned = models
           .filter((m) => m.id.trim().length > 0)
-          .map((m) => ({ id: m.id.trim(), name: (m.name || m.id).trim() }));
+          .map((m) => {
+            const base = {
+              id: m.id.trim(),
+              name: (m.name || m.id).trim(),
+            };
+            return {
+              ...base,
+              ...(m.reasoning !== undefined ? { reasoning: m.reasoning } : {}),
+              ...(m.input ? { input: m.input } : {}),
+              ...(m.contextWindow !== undefined
+                ? { contextWindow: m.contextWindow }
+                : {}),
+              ...(m.maxTokens !== undefined ? { maxTokens: m.maxTokens } : {}),
+            };
+          });
         const values: ProviderFormValues = {
           name: name.trim(),
           websiteUrl: "",
@@ -289,7 +354,44 @@ export function DshProviderForm({
         />
       </div>
       <div className="grid gap-2">
-        <Label>{t("deepseekHarness.form.models")}</Label>
+        <div className="flex items-center justify-between">
+          <Label>{t("deepseekHarness.form.models")}</Label>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleFetchModels}
+            disabled={fetchingModels}
+          >
+            {fetchingModels
+              ? t("providerForm.fetchingModels")
+              : t("deepseekHarness.form.fetchModels")}
+          </Button>
+        </div>
+        {fetchedModels && fetchedModels.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {fetchedModels.map((model) => (
+              <Button
+                key={model.id}
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setModels((rows) =>
+                    rows.some((r) => r.id === model.id)
+                      ? rows
+                      : [
+                          ...rows.filter((r) => r.id.trim().length > 0),
+                          { id: model.id, name: model.id },
+                        ],
+                  )
+                }
+              >
+                + {model.id}
+              </Button>
+            ))}
+          </div>
+        ) : null}
         {models.map((row, index) => (
           <div key={index} className="flex items-center gap-2">
             <Input

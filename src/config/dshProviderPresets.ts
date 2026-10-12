@@ -2,7 +2,7 @@
 //! pi-ai 下游，baseUrl/api/models 元数据一一对应），与 mcodeProviderPresets 的
 //! 派生模式相同：复用 Pi 的端点/模型元数据，仅按 DSH 支持的协议过滤。
 
-import { piProviderPresets } from "./piProviderPresets";
+import { piProviderPresets, type PiPresetModel } from "./piProviderPresets";
 import type { PresetFamilyFields } from "./presetFamilies";
 import type { ProviderCategory } from "@/types";
 
@@ -22,7 +22,7 @@ export interface DshProviderPreset extends PresetFamilyFields {
     displayName?: string;
     api: DshApiFormat;
     baseUrl: string;
-    models: Array<{ id: string; name: string }>;
+    models: DshPresetModel[];
   };
   category?: ProviderCategory;
   icon?: string;
@@ -31,6 +31,27 @@ export interface DshProviderPreset extends PresetFamilyFields {
   isPartner?: boolean;
   partnerPromotionKey?: string;
   theme?: { icon?: string };
+}
+
+/** pi-ai 的 models 条目原生支持这些容量字段（cordis.patch.yml 直读），全量保留。 */
+export interface DshPresetModel {
+  id: string;
+  name: string;
+  reasoning?: boolean;
+  input?: string[];
+  contextWindow?: number;
+  maxTokens?: number;
+}
+
+function presetModel(model: PiPresetModel): DshPresetModel {
+  return {
+    id: model.id,
+    name: model.name,
+    reasoning: model.reasoning,
+    input: model.input,
+    contextWindow: model.contextWindow,
+    maxTokens: model.maxTokens,
+  };
 }
 
 const DSH_API_FORMATS: readonly DshApiFormat[] = [
@@ -51,10 +72,7 @@ export const dshProviderPresets: DshProviderPreset[] =
           displayName: config.name,
           api,
           baseUrl: config.baseUrl,
-          models: config.models.map((model) => ({
-            id: model.id,
-            name: model.name,
-          })),
+          models: config.models.map(presetModel),
         },
       },
     ];

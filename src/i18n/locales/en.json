@@ -4809,7 +4809,8 @@
       "apiKeyKeepPlaceholder": "Leave empty to keep the stored key",
       "models": "Models",
       "modelNamePlaceholder": "Display name (optional)",
-      "addModel": "Add model"
+      "addModel": "Add model",
+      "fetchModels": "Fetch model list"
     }
   }
 }

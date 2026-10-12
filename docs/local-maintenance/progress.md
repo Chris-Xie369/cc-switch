@@ -1931,3 +1931,16 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - **v1 已知边界**：聚合 cc-switch route 是 yaml 无头管理（不显示为 DB 卡片）；
   空态同步按钮是唯一手动入口（非空态靠 apply 自动）；settings.yaml 注释会丢
   （D2）。上游化：独立 PR（含 078b0d9c x-api-key 补丁可并入）。
+
+## 2026-10-12 R2 返工：配置目标纠错（settings.yaml → cordis.patch.yml）
+
+- 用户反馈 DSH Models 页看不到 CC Switch Aggregate。根因（asar 57561331 区）：
+  **settings.yaml 是旧版一次性导入源**（导入后改名 .imported）；现行配置是每
+  profile 的 **cordis.patch.yml**（loader patch 数组，llm-pi-ai 供应商住在
+  id:llm-pi-ai 条目的 config.providers）。R1/R2 写错了文件；本机唯一活跃 profile
+  = desktop（其余 profile 9 月起未动）。
+- dsh_config.rs 重写：纯文件路径函数 + 全局包装 + 测试路径覆盖（全局静态须
+  **#[serial]**——并行测试共享静态互相清场，曾致 6/8 假红）。
+- 现场：R1 手写 settings.yaml 改名 .r1-superseded（防旧导入器吸收）；desktop
+  patch 已种 cc-switch 条目（11 模型，PyYAML 保其余 4 条目）；E2E x-api-key
+  200 ✓；重建部署 414decbb。

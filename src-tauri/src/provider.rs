@@ -222,10 +222,11 @@ impl Provider {
                 str_at(settings.get("baseUrl")),
                 str_at(settings.get("apiKey")),
             ),
-            // DeepSeek Harness 卡用顶层 baseURL/apiKey 字段。
+            // DeepSeek Harness 卡用 Mcode 同构（options.baseURL/apiKey）。
             AppType::DeepSeekHarness => {
-                let base_url = str_at(settings.get("baseUrl"));
-                let api_key = str_at(settings.get("apiKey"));
+                let options = settings.get("options");
+                let base_url = str_at(options.and_then(|o| o.get("baseURL")));
+                let api_key = str_at(options.and_then(|o| o.get("apiKey")));
                 (base_url, api_key)
             }
             // Pi custom providers use the native models.json field names.

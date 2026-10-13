@@ -257,7 +257,7 @@ export function AppsPage() {
         className="min-h-0 flex-1 overflow-y-auto scroll-stable"
       >
         <div className="px-6 pb-10 pt-4">
-          <div className="flex h-8 items-center px-4 text-caption font-medium text-fg-2">
+          <div className="flex h-8 items-center gap-4 px-4 text-caption font-medium text-fg-2">
             <span className="flex-1">{t("appsPage.columnApp")}</span>
             <span className="w-[168px] text-end">
               {t("appsPage.columnVersion")}

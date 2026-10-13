@@ -1981,3 +1981,14 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - **部署双坑再录**：①构建完成通知 ≠ setup 已生成（抢跑装旧包，重装才对）；
   ②exe 内嵌资产 brotli 压缩，grep 明文判断新旧必然误判——判据只用
   **资产文件名表**（新 hash 名在/旧名不在）。
+
+## 2026-10-13 跟进 v4.0.9+v4.0.10
+
+- 上游两日连发 4.0.9（未知内容）+ 4.0.10（一键导入链接大改：Pi 供应商/apiFormat/
+  iconUrl/我的图标库/首字时间/Codex 会话迁移）。merge 冲突 6 文件：
+  deeplink DSH 拒绝并入上游新 Pi/Mcode arm、prepare_new_provider+聚合校验、
+  settings 双侧 struct、版本号。cargo check 0 / tsc 0 / 3699 过（10 败 =
+  5 已知环境 + dsh_config 多 profile 测试适配 + Codex 迁移相关）。
+- 构建 4.0.10-local 部署（index-D4x84DV7.js），分支 d6018d63 推 origin。
+- 前端 vitest 2638/2652（14 败全为已知超时 flaky + 上游新 IconPicker 测试）。
+- 同时处理了三个 hold PR 的 CI 冲突修复（#7786/#7789/#7779 均已推送）。

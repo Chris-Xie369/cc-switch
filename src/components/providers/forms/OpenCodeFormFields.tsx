@@ -230,6 +230,8 @@ export function OpenCodeFormFields({
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const modelFetchGeneration = useRef(0);
 
+  // headers 是每次渲染可能新建的 ?? {} 回退——用 JSON key 做依赖，内容不变不触发。
+  const headersKey = JSON.stringify(headers ?? {});
   useEffect(() => {
     setFetchedModels((prev) => (prev.length === 0 ? prev : []));
     setIsFetchingModels(false);
@@ -237,7 +239,8 @@ export function OpenCodeFormFields({
       // Ignore responses for a previous endpoint/key or an unmounted form.
       modelFetchGeneration.current += 1;
     };
-  }, [baseUrl, apiKey, headers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseUrl, apiKey, headersKey]);
 
   const handleFetchModels = useCallback(() => {
     const requestHeaders = normalizeRequestHeaders(headers);

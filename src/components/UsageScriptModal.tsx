@@ -334,6 +334,13 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
             apiKey: root.apiKey,
             baseUrl: firstModel?.baseUrl || root.baseUrl,
           };
+        } else if (appId === "deepseek-harness") {
+          // DSH (Mcode 同构): { options: { baseURL, apiKey }, ... }
+          const options = (config as any).options || {};
+          return {
+            apiKey: options.apiKey,
+            baseUrl: options.baseURL,
+          };
         } else if (appId === "openclaw") {
           // OpenClaw: settingsConfig 顶层扁平（camelCase，对应 openclaw.json）
           return {

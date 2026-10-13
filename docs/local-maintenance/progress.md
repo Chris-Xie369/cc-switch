@@ -1992,3 +1992,12 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - 构建 4.0.10-local 部署（index-D4x84DV7.js），分支 d6018d63 推 origin。
 - 前端 vitest 2638/2652（14 败全为已知超时 flaky + 上游新 IconPicker 测试）。
 - 同时处理了三个 hold PR 的 CI 冲突修复（#7786/#7789/#7779 均已推送）。
+
+## 2026-10-13 DSH 双修复验证通过
+
+- **模型选择器闪退**（上游 bug，MiniMax Code 同受影响）：OpenCodeFormFields 的
+  useEffect 依赖 headers（`?? {}` 每次渲染新引用）→ 刚拉到的模型列表被立刻
+  清空。修：JSON.stringify 做内容比较 key（f8bc4c1e）。
+- **额度查询**：UsageScriptModal.getProviderCredentials 加 DSH 分支
+  （读 options.baseURL/apiKey），四家供应商额度全显示（余额/百分比/倒计时）。
+- 用户确认两修复均生效（截图验证）。

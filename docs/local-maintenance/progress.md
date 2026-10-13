@@ -2001,3 +2001,13 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - **额度查询**：UsageScriptModal.getProviderCredentials 加 DSH 分支
   （读 options.baseURL/apiKey），四家供应商额度全显示（余额/百分比/倒计时）。
 - 用户确认两修复均生效（截图验证）。
+
+## 2026-10-13 应用页完善 + 列头对齐修复
+
+- DSH 加入「应用」页：桌面应用行（同 Claude Desktop 模式，"已接入"状态 +
+  侧栏开关），位置在 MiniMax Code 之后（ea5d0d88）。
+- **列头对齐修复**（上游 bug）：数据行 flex 有 `gap-4`，列头行没有——版本
+  列头比值偏右 32px。修：列头加同款 `gap-4`（f12b1f91）。用户确认对齐。
+- TUI 侧定位结论：DSH TUI 模型选择器不枚举 pi-ai 自定义供应商（只显示
+  deepseek-official/deepseek-account 内置适配器）；CC Switch 数据已正确
+  写入 tui profile 的 cordis.patch.yml，问题在 DSH TUI UI 层。

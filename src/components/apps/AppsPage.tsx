@@ -75,11 +75,15 @@ const SOURCE_LABEL: Record<string, string> = {
   pip: "pip",
 };
 
-type Row = { kind: "tool"; tool: ToolName } | { kind: "desktop" };
+type Row =
+  | { kind: "tool"; tool: ToolName }
+  | { kind: "desktop" }
+  | { kind: "dsh" };
 
 const ROWS: Row[] = [
   { kind: "tool", tool: "claude" },
   { kind: "desktop" },
+  { kind: "dsh" },
   ...TOOL_NAMES.filter((tool) => tool !== "claude").map(
     (tool): Row => ({ kind: "tool", tool }),
   ),
@@ -291,6 +295,22 @@ export function AppsPage() {
                     </span>
                   }
                   visibility={visibilitySwitch("claude-desktop")}
+                />
+              ) : row.kind === "dsh" ? (
+                <AppRow
+                  key="dsh-row"
+                  app="deepseek-harness"
+                  name={
+                    <span className="flex items-center gap-1">
+                      {APP_DISPLAY_NAME["deepseek-harness"]}
+                    </span>
+                  }
+                  version={
+                    <span className="text-caption text-fg-2">
+                      {t("appsPage.dshConnected")}
+                    </span>
+                  }
+                  visibility={visibilitySwitch("deepseek-harness")}
                 />
               ) : (
                 <ToolRow

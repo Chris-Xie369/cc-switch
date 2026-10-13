@@ -83,10 +83,10 @@ type Row =
 const ROWS: Row[] = [
   { kind: "tool", tool: "claude" },
   { kind: "desktop" },
-  { kind: "dsh" },
   ...TOOL_NAMES.filter((tool) => tool !== "claude").map(
     (tool): Row => ({ kind: "tool", tool }),
   ),
+  { kind: "dsh" },
 ];
 
 function formatCheckedAt(timestamp: number, locale: string): string {

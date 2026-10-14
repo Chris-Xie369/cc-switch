@@ -2016,5 +2016,37 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 
 - 应用页卸载功能、套餐额度全应用默认开启、Codex 用量修复、新预设
   （StreamLake/AIComing/SoruxGPT/GrooRoute）。merge 仅版本号冲突。
-- cargo check 0 / tsc 0 / 3737 过（10 败 = 既有环境名单）。
+- cargo check 0 / tsc 0 / 3737 过（10 败 = 既有环境名单，
+  后经 4.0.12 会话查实其中含 dsh×5，见下条）。
 - 构建 4.0.11-local 部署（index-BCakWYoZ.js），abbf4623 推 origin。
+
+## 2026-10-14 跟进 v4.0.12（列对齐上游化 + dsh 测试隔离修复）
+
+- 应用页工具管理（多安装可选卸载、升级前 Node 版本检查、卸载入行尾
+  菜单）、预设大扩充（14+ 云厂商 + Ollama/LM Studio/llama.cpp/vLLM
+  本地推理「Local」分组；piProviderPresets +476 行 → DSH 派生零改动
+  自动扩展）、用量页定时扫描会话日志、土耳其语。**上游 #8293 列对齐
+  体系（APP_ROW_GRID 表头行共用列宽 + 不可见量宽探针 + ResizeObserver）
+  取代本地列头 gap-4 补丁（f12b1f91 退役）**。
+- merge 3 文件冲突：版本号×2 + AppsPage.tsx（采上游列头方案，保留
+  DSH 行 `kind:"dsh"` 与尾部排序）。stream_check/settings/forwarder/
+  i18n/types 全部干净合并，事后逐点复验 DSH 直取分支、补丁 B 显示名、
+  补丁 E/C/D 未受触碰。
+- 验证：tsc 0 / vitest 223 文件过 4 败（App/AppsPage/IconPicker/
+  PiProviderForm 复跑全过 = 慢机并发抖动）/ cargo check 0 / cargo
+  test --release 3771 过 10 败。
+- **dsh×5 定案（非迁移回归）**：dsh_config 测试读路径 `get_patch_path`
+  自 R2 起无测试短路、`read_providers()` 读真实 `~/.dsh`（写路径有
+  TEST_DSH_PATCH_PATH 短路而读没有）——用户此后大量使用 DSH（12 个
+  profile、新增 zai/kimi/opencode-go 等供应商）使断言失败。wt-4011
+  worktree 挂 abbf4623（4.0.11 合并态）对照实验同样 5 败。修复：
+  读路径同样走 TEST_DSH_PATCH_PATH（fd6a5f5e），8/8 全过。余 5 败 =
+  真既有名单（symlink×2、hermes、端口 10048、misc；model_pricing×5
+  本次通过）。
+- 教训×2：①**测试隔离必须读写同源**——只堵写路径的隔离是假隔离，
+  成败取决于用户环境快照；②NSIS 静默失败后会把旧版进程拉起，且并发
+  cargo（test 与 tauri build 抢 target/release/cc-switch.exe）会致
+  NSIS 打包 os error 5——构建期间不得并发其他 cargo。
+- 构建 4.0.12-local 部署（index-SrHit2KC.js、大小 43807232 三重一致；
+  首次安装静默失败为旧进程复活占用，直接重跑 setup 成功），
+  1e1730e7 + fd6a5f5e 推 origin。

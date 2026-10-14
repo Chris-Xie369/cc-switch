@@ -2011,3 +2011,10 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - TUI 侧定位结论：DSH TUI 模型选择器不枚举 pi-ai 自定义供应商（只显示
   deepseek-official/deepseek-account 内置适配器）；CC Switch 数据已正确
   写入 tui profile 的 cordis.patch.yml，问题在 DSH TUI UI 层。
+
+## 2026-10-14 跟进 v4.0.11（零代码冲突）
+
+- 应用页卸载功能、套餐额度全应用默认开启、Codex 用量修复、新预设
+  （StreamLake/AIComing/SoruxGPT/GrooRoute）。merge 仅版本号冲突。
+- cargo check 0 / tsc 0 / 3737 过（10 败 = 既有环境名单）。
+- 构建 4.0.11-local 部署（index-BCakWYoZ.js），abbf4623 推 origin。

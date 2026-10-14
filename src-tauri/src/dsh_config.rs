@@ -119,6 +119,16 @@ fn get_all_patch_paths() -> Result<Vec<PathBuf>, AppError> {
 
 /// 读取用：desktop profile 的 patch（规范化视图）。
 fn get_patch_path() -> Result<PathBuf, AppError> {
+    // 测试态与 get_all_patch_paths 同源：读也走 TEST_DSH_PATCH_PATH，
+    // 否则 read_providers 会读真实 ~/.dsh（用户环境决定成败）。
+    #[cfg(test)]
+    if let Some(path) = TEST_DSH_PATCH_PATH
+        .lock()
+        .expect("lock DSH test patch path")
+        .clone()
+    {
+        return Ok(path);
+    }
     Ok(get_dsh_dir()?
         .join(PROFILES_DIR)
         .join("desktop")

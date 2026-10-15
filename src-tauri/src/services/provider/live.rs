@@ -20,8 +20,7 @@ use super::normalize_claude_models_in_value;
 
 /// 删除 DSH 供应商卡的 yaml 键与自有凭据 ref（CC_SWITCH_DSH_ 命名空间）。
 pub(crate) fn remove_dsh_provider_from_live(provider_id: &str) -> Result<(), AppError> {
-    let route = crate::dsh_config::sanitize_route(provider_id);
-    crate::dsh_config::remove_provider_card(&route)
+    crate::dsh_config::remove_managed_provider_card(provider_id)
 }
 
 pub(crate) fn provider_exists_in_live_config(
@@ -38,8 +37,7 @@ pub(crate) fn provider_exists_in_live_config(
         AppType::Pi => crate::pi_config::pi_provider_exists(provider_id),
         AppType::Mcode => crate::mcode_config::get_providers()
             .map(|providers| providers.contains_key(provider_id)),
-        AppType::DeepSeekHarness => crate::dsh_config::read_providers()
-            .map(|providers| providers.contains_key(&crate::dsh_config::sanitize_route(provider_id))),
+        AppType::DeepSeekHarness => crate::dsh_config::managed_provider_exists(provider_id),
         _ => Ok(false),
     }
 }
@@ -401,14 +399,8 @@ pub(crate) fn write_live_for_state(
     let db = state.db.as_ref();
     if matches!(app_type, AppType::DeepSeekHarness) {
         // additive：卡的 settings_config 即 pi-ai provider 形状，直接落 cordis.patch + refs
-        let route = crate::dsh_config::sanitize_route(
-                &provider
-                    .settings_config
-                    .get("name")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or(&provider.name),
-            );
-        crate::dsh_config::write_provider_card(&route, &provider.name, &provider.settings_config)?;
+        let route = crate::dsh_config::sanitize_route(&provider.id);
+        crate::dsh_config::write_managed_provider_card(&provider.id, &provider.name, &provider.settings_config)?;
         log::debug!("DeepSeek Harness provider '{}' written to live config", route);
         return Ok(());
     }
@@ -555,14 +547,7 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
             ));
         }
         AppType::DeepSeekHarness => {
-            let route = crate::dsh_config::sanitize_route(
-                &provider
-                    .settings_config
-                    .get("name")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or(&provider.name),
-            );
-            crate::dsh_config::write_provider_card(&route, &provider.name, &provider.settings_config)?;
+            crate::dsh_config::write_managed_provider_card(&provider.id, &provider.name, &provider.settings_config)?;
         }
         AppType::ClaudeDesktop => {
             return Err(AppError::localized(

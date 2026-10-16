@@ -308,18 +308,17 @@ async fn aggregate_auth_provider_fallback_and_slots_forward_selected_account() {
             "chatgpt-account-id",
             http::HeaderValue::from_static("unrelated-workspace"),
         );
-        let context =
-            RequestContext::new(
-                &state,
-                &body,
-                &headers,
-                AppType::Codex,
-                "Codex",
-                "codex",
-                None,
-            )
-                .await
-                .unwrap();
+        let context = RequestContext::new(
+            &state,
+            &body,
+            &headers,
+            AppType::Codex,
+            "Codex",
+            "codex",
+            None,
+        )
+        .await
+        .unwrap();
         let (sent_headers, sent_body) =
             observed_forward(&context, &state, &body, &headers, Some(manager.clone())).await;
         assert_eq!(
@@ -371,18 +370,17 @@ async fn aggregate_auth_normal_official_and_api_key_requests_keep_their_authenti
             http::header::AUTHORIZATION,
             http::HeaderValue::from_static("Bearer SYNTHETIC-CLIENT-TOKEN"),
         );
-        let context =
-            RequestContext::new(
-                &state,
-                &body,
-                &headers,
-                AppType::Codex,
-                "Codex",
-                "codex",
-                None,
-            )
-                .await
-                .unwrap();
+        let context = RequestContext::new(
+            &state,
+            &body,
+            &headers,
+            AppType::Codex,
+            "Codex",
+            "codex",
+            None,
+        )
+        .await
+        .unwrap();
         let (sent_headers, sent_body) =
             observed_forward(&context, &state, &body, &headers, Some(manager.clone())).await;
         assert_eq!(sent_headers[http::header::AUTHORIZATION], expected);

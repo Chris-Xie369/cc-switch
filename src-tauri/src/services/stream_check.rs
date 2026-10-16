@@ -191,9 +191,7 @@ impl StreamCheckService {
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_string)
                 .ok_or_else(|| {
-                    AppError::InvalidInput(
-                        "DeepSeek Harness 供应商卡缺少 options.baseURL".into(),
-                    )
+                    AppError::InvalidInput("DeepSeek Harness 供应商卡缺少 options.baseURL".into())
                 }),
             AppType::ClaudeDesktop => ClaudeAdapter::new()
                 .extract_base_url(provider)

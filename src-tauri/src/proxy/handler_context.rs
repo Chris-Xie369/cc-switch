@@ -129,7 +129,14 @@ impl RequestContext {
         );
 
         let is_stack = stack.is_some();
-        let (provider, providers, current_provider_id, request_model, aggregate_override, is_aggregate_request) = match stack {
+        let (
+            provider,
+            providers,
+            current_provider_id,
+            request_model,
+            aggregate_override,
+            is_aggregate_request,
+        ) = match stack {
             Some(target) => {
                 // Stack 模型：只发往 Stack 里的那一家，不读代理路由、不经熔断器选家。按「单家、
                 // 不转移」处理：换成有效副本，转发和读响应两个阶段都从这里取，超时和重试
@@ -211,7 +218,9 @@ impl RequestContext {
                     _ => false,
                 };
                 let aggregate_override = match &app_type {
-                    AppType::ClaudeDesktop if crate::aggregate::is_aggregate_provider(&provider) => {
+                    AppType::ClaudeDesktop
+                        if crate::aggregate::is_aggregate_provider(&provider) =>
+                    {
                         let (target, upstream) = crate::aggregate::resolve_target(
                             &state.db,
                             app_type_str,
@@ -250,7 +259,6 @@ impl RequestContext {
                     _ => None,
                 };
 
-
                 log::debug!(
                     "[{}] Provider: {}, model: {}, failover chain: {} providers, session: {}",
                     tag,
@@ -259,7 +267,14 @@ impl RequestContext {
                     providers.len(),
                     session_id
                 );
-                (provider, providers, current_provider_id, request_model, aggregate_override, is_aggregate_request)
+                (
+                    provider,
+                    providers,
+                    current_provider_id,
+                    request_model,
+                    aggregate_override,
+                    is_aggregate_request,
+                )
             }
         };
 

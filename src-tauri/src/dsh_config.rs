@@ -441,28 +441,58 @@ pub fn sync_aggregate_entry(
 /// 卡形状：{displayName, api, baseUrl, apiKey, models:[{id,name}]}。
 /// Exact endpoint/model contracts, audited against vendor docs and pi-ai 0.87.1.
 /// A reasoning boolean alone deliberately offers no fabricated effort levels.
-fn model_capability(base_url: &str, api: &str, id: &str, model: &serde_json::Map<String, Value>) -> Result<Value, AppError> {
+fn model_capability(
+    base_url: &str,
+    api: &str,
+    id: &str,
+    model: &serde_json::Map<String, Value>,
+) -> Result<Value, AppError> {
     let url = base_url.trim_end_matches('/');
     let mut result = json!({});
     let tiers = json!({"low":"low", "high":"high", "max":"max"});
     if api == "openai-completions" {
-        if matches!(url, "https://api.deepseek.com" | "https://api.deepseek.com/v1" | "https://opencode.ai/zen/go/v1")
-            && matches!(id, "deepseek-flash" | "deepseek-v4-pro") {
+        if matches!(
+            url,
+            "https://api.deepseek.com"
+                | "https://api.deepseek.com/v1"
+                | "https://opencode.ai/zen/go/v1"
+        ) && matches!(id, "deepseek-flash" | "deepseek-v4-pro")
+        {
             result = json!({"reasoningEfforts":{"off":null,"high":"high","max":"max"},"compat":{"thinkingFormat":"deepseek","supportsReasoningEffort":true,"maxTokensField":"max_tokens","requiresReasoningContentOnAssistantMessages":true}});
-            if id == "deepseek-flash" { result["reasoningEfforts"]["low"] = json!("low"); }
-        } else if matches!(url, "https://open.bigmodel.cn/api/coding/paas/v4" | "https://open.bigmodel.cn/api/paas/v4")
-            && matches!(id, "glm-5.3" | "glm-5.3-flash") {
+            if id == "deepseek-flash" {
+                result["reasoningEfforts"]["low"] = json!("low");
+            }
+        } else if matches!(
+            url,
+            "https://open.bigmodel.cn/api/coding/paas/v4" | "https://open.bigmodel.cn/api/paas/v4"
+        ) && matches!(id, "glm-5.3" | "glm-5.3-flash")
+        {
             result = json!({"reasoningEfforts":tiers,"compat":{"thinkingFormat":"zai","supportsReasoningEffort":true,"maxTokensField":"max_tokens"}});
-        } else if url == "https://opencode.ai/zen/go/v1" && matches!(id, "glm-5.3" | "glm-5.3-flash") {
+        } else if url == "https://opencode.ai/zen/go/v1"
+            && matches!(id, "glm-5.3" | "glm-5.3-flash")
+        {
             result = json!({"reasoningEfforts":tiers,"compat":{"supportsReasoningEffort":true,"maxTokensField":"max_tokens"}});
         }
-    } else if api == "openai-responses" && matches!(url, "https://api.deepseek.com" | "https://api.deepseek.com/v1")
-        && matches!(id, "deepseek-flash" | "deepseek-v4-pro") {
+    } else if api == "openai-responses"
+        && matches!(
+            url,
+            "https://api.deepseek.com" | "https://api.deepseek.com/v1"
+        )
+        && matches!(id, "deepseek-flash" | "deepseek-v4-pro")
+    {
         result = json!({"reasoningEfforts":{"off":"none","low":"low","high":"high","max":"max"}});
-    } else if api == "anthropic-messages" && matches!(url,"https://api.kimi.com/coding" | "https://api.kimi.ai/coding")
-        && matches!(id, "k3" | "k3-256k" | "kimi-for-coding") {
+    } else if api == "anthropic-messages"
+        && matches!(
+            url,
+            "https://api.kimi.com/coding" | "https://api.kimi.ai/coding"
+        )
+        && matches!(id, "k3" | "k3-256k" | "kimi-for-coding")
+    {
         result = json!({"reasoningEfforts":tiers,"compat":{"forceAdaptiveThinking":true,"allowEmptySignature":true}});
-    } else if api == "anthropic-messages" && url == "https://opencode.ai/zen/go/v1" && id == "claude-haiku-5-5" {
+    } else if api == "anthropic-messages"
+        && url == "https://opencode.ai/zen/go/v1"
+        && id == "claude-haiku-5-5"
+    {
         result = json!({"reasoningEfforts":{"off":null,"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"},"compat":{"forceAdaptiveThinking":true}});
     }
     if model.get("reasoning") == Some(&json!(false)) {
@@ -470,17 +500,35 @@ fn model_capability(base_url: &str, api: &str, id: &str, model: &serde_json::Map
     }
     if let Some(efforts) = model.get("reasoningEfforts") {
         if efforts != &json!(false) {
-            let map = efforts.as_object().ok_or_else(|| AppError::Config(format!("{id}: reasoningEfforts must be false or an effort mapping")))?;
-            if !map.iter().any(|(k,v)| k != "off" && v.as_str().is_some_and(|s| !s.is_empty()))
-                || map.iter().any(|(k,v)| !["off","minimal","low","medium","high","xhigh","max"].contains(&k.as_str()) || !(v.as_str().is_some_and(|s| !s.is_empty()) || (k == "off" && v.is_null()))) {
-                return Err(AppError::Config(format!("{id}: invalid reasoningEfforts mapping")));
+            let map = efforts.as_object().ok_or_else(|| {
+                AppError::Config(format!(
+                    "{id}: reasoningEfforts must be false or an effort mapping"
+                ))
+            })?;
+            if !map
+                .iter()
+                .any(|(k, v)| k != "off" && v.as_str().is_some_and(|s| !s.is_empty()))
+                || map.iter().any(|(k, v)| {
+                    !["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+                        .contains(&k.as_str())
+                        || !(v.as_str().is_some_and(|s| !s.is_empty())
+                            || (k == "off" && v.is_null()))
+                })
+            {
+                return Err(AppError::Config(format!(
+                    "{id}: invalid reasoningEfforts mapping"
+                )));
             }
         }
         result["reasoningEfforts"] = efforts.clone();
     }
     if let Some(compat) = model.get("compat") {
-        let fields = compat.as_object().ok_or_else(|| AppError::Config(format!("{id}: compat must be an object")))?;
-        if result.get("compat").is_none() { result["compat"] = json!({}); }
+        let fields = compat
+            .as_object()
+            .ok_or_else(|| AppError::Config(format!("{id}: compat must be an object")))?;
+        if result.get("compat").is_none() {
+            result["compat"] = json!({});
+        }
         for (key, value) in fields {
             validate_model_compat(api, key, value)?;
             result["compat"][key] = value.clone();
@@ -490,26 +538,99 @@ fn model_capability(base_url: &str, api: &str, id: &str, model: &serde_json::Map
 }
 
 fn validate_model_compat(api: &str, key: &str, value: &Value) -> Result<(), AppError> {
-    let completions = ["supportsStore","supportsDeveloperRole","supportsReasoningEffort","supportsUsageInStreaming","supportsFinishReason","maxTokensField","requiresToolResultName","requiresAssistantAfterToolResult","requiresThinkingAsText","requiresReasoningContentOnAssistantMessages","thinkingFormat","chatTemplateKwargs","chatTemplateArgs","supportsThinkingTokenBudget","thinkingTokenBudgetField","vllmPriority","supportsStrictMode","cacheControlFormat","supportsLongCacheRetention"];
-    let responses = ["supportsDeveloperRole","supportsMaxOutputTokens","supportsStrictMode","supportsLongCacheRetention"];
-    let messages = ["supportsEagerToolInputStreaming","supportsLongCacheRetention","supportsCacheControlOnTools","supportsTemperature","forceAdaptiveThinking","allowEmptySignature","supportsStrictTools"];
-    let offered = match api { "openai-completions" => completions.contains(&key), "openai-responses" => responses.contains(&key), "anthropic-messages" => messages.contains(&key), _ => false };
+    let completions = [
+        "supportsStore",
+        "supportsDeveloperRole",
+        "supportsReasoningEffort",
+        "supportsUsageInStreaming",
+        "supportsFinishReason",
+        "maxTokensField",
+        "requiresToolResultName",
+        "requiresAssistantAfterToolResult",
+        "requiresThinkingAsText",
+        "requiresReasoningContentOnAssistantMessages",
+        "thinkingFormat",
+        "chatTemplateKwargs",
+        "chatTemplateArgs",
+        "supportsThinkingTokenBudget",
+        "thinkingTokenBudgetField",
+        "vllmPriority",
+        "supportsStrictMode",
+        "cacheControlFormat",
+        "supportsLongCacheRetention",
+    ];
+    let responses = [
+        "supportsDeveloperRole",
+        "supportsMaxOutputTokens",
+        "supportsStrictMode",
+        "supportsLongCacheRetention",
+    ];
+    let messages = [
+        "supportsEagerToolInputStreaming",
+        "supportsLongCacheRetention",
+        "supportsCacheControlOnTools",
+        "supportsTemperature",
+        "forceAdaptiveThinking",
+        "allowEmptySignature",
+        "supportsStrictTools",
+    ];
+    let offered = match api {
+        "openai-completions" => completions.contains(&key),
+        "openai-responses" => responses.contains(&key),
+        "anthropic-messages" => messages.contains(&key),
+        _ => false,
+    };
     let valid = match key {
-        "thinkingFormat" => value.as_str().is_some_and(|s| ["openai","deepseek","openrouter","together","baseten","zai","qwen","chat-template","qwen-chat-template","string-thinking","ant-ling"].contains(&s)),
-        "maxTokensField" => value.as_str().is_some_and(|s| ["max_tokens","max_completion_tokens"].contains(&s)),
-        "thinkingTokenBudgetField" => value.as_str().is_some_and(|s| ["thinking_token_budget","thinking_budget","thinking_budget_tokens"].contains(&s)),
+        "thinkingFormat" => value.as_str().is_some_and(|s| {
+            [
+                "openai",
+                "deepseek",
+                "openrouter",
+                "together",
+                "baseten",
+                "zai",
+                "qwen",
+                "chat-template",
+                "qwen-chat-template",
+                "string-thinking",
+                "ant-ling",
+            ]
+            .contains(&s)
+        }),
+        "maxTokensField" => value
+            .as_str()
+            .is_some_and(|s| ["max_tokens", "max_completion_tokens"].contains(&s)),
+        "thinkingTokenBudgetField" => value.as_str().is_some_and(|s| {
+            [
+                "thinking_token_budget",
+                "thinking_budget",
+                "thinking_budget_tokens",
+            ]
+            .contains(&s)
+        }),
         "cacheControlFormat" => value.as_str() == Some("anthropic"),
         "vllmPriority" => value.is_i64(),
-        "chatTemplateKwargs" | "chatTemplateArgs" => value.as_object().is_some_and(|map| map.values().all(|v| {
-            v.is_null() || v.is_boolean() || v.is_number() || v.is_string() || v.as_object().is_some_and(|m| {
-                m.get("$var").and_then(Value::as_str).is_some_and(|s| ["thinking.enabled","thinking.effort","thinking.budget"].contains(&s))
-                    && m.get("omitWhenOff").is_none_or(Value::is_boolean)
-                    && m.keys().all(|k| k == "$var" || k == "omitWhenOff")
+        "chatTemplateKwargs" | "chatTemplateArgs" => value.as_object().is_some_and(|map| {
+            map.values().all(|v| {
+                v.is_null()
+                    || v.is_boolean()
+                    || v.is_number()
+                    || v.is_string()
+                    || v.as_object().is_some_and(|m| {
+                        m.get("$var").and_then(Value::as_str).is_some_and(|s| {
+                            ["thinking.enabled", "thinking.effort", "thinking.budget"].contains(&s)
+                        }) && m.get("omitWhenOff").is_none_or(Value::is_boolean)
+                            && m.keys().all(|k| k == "$var" || k == "omitWhenOff")
+                    })
             })
-        })),
+        }),
         _ => value.is_boolean(),
     };
-    if !offered || !valid { return Err(AppError::Config(format!("Invalid {api} model compat.{key}; no profiles were changed"))); }
+    if !offered || !valid {
+        return Err(AppError::Config(format!(
+            "Invalid {api} model compat.{key}; no profiles were changed"
+        )));
+    }
     Ok(())
 }
 
@@ -598,7 +719,12 @@ pub fn write_provider_card(
             );
         }
         let model_api = if base_url.trim_end_matches('/') == "https://opencode.ai/zen/go/v1"
-            && model_id.starts_with("claude-") { "anthropic-messages" } else { api };
+            && model_id.starts_with("claude-")
+        {
+            "anthropic-messages"
+        } else {
+            api
+        };
         let capability = model_capability(&base_url, model_api, model_id, model)?;
         for (key, value) in capability.as_object().expect("capability object") {
             entry.insert(serde_yaml::Value::from(key.as_str()), json_to_yaml(value));
@@ -662,7 +788,11 @@ pub fn write_provider_card(
         serde_yaml::Value::from("displayName"),
         serde_yaml::Value::from(display_name),
     );
-    if grouped_models.is_empty() { return Err(AppError::Config("DeepSeek Harness 供应商没有有效模型".into())); }
+    if grouped_models.is_empty() {
+        return Err(AppError::Config(
+            "DeepSeek Harness 供应商没有有效模型".into(),
+        ));
+    }
     // Existing primary protocol is a durable route binding, independent of selections.
     let mut bound_api: Option<String> = None;
     for path in get_all_patch_paths()? {
@@ -687,8 +817,14 @@ pub fn write_provider_card(
         let mut entries = read_patch_entries(&path)?;
         let providers = providers_mut(&mut entries);
         if let Some(existing) = providers.get(serde_yaml::Value::from(route)) {
-            if existing.get("apiKeyEnv").and_then(serde_yaml::Value::as_str) != Some(env_name.as_str()) {
-                return Err(AppError::Config(format!("DeepSeek Harness 通道 {route} 与非托管供应商冲突")));
+            if existing
+                .get("apiKeyEnv")
+                .and_then(serde_yaml::Value::as_str)
+                != Some(env_name.as_str())
+            {
+                return Err(AppError::Config(format!(
+                    "DeepSeek Harness 通道 {route} 与非托管供应商冲突"
+                )));
             }
         }
         for model_api in grouped_models
@@ -772,10 +908,14 @@ fn ownership_path() -> Result<PathBuf, AppError> {
 
 fn read_ownership() -> Result<Value, AppError> {
     let path = ownership_path()?;
-    if !path.exists() { return Ok(json!({"version":1,"providers":{}})); }
+    if !path.exists() {
+        return Ok(json!({"version":1,"providers":{}}));
+    }
     let value: Value = crate::config::read_json_file(&path)?;
     if value["version"] != json!(1) || !value["providers"].is_object() {
-        return Err(AppError::Config("Invalid CC-Switch DSH ownership index; repair it before syncing".into()));
+        return Err(AppError::Config(
+            "Invalid CC-Switch DSH ownership index; repair it before syncing".into(),
+        ));
     }
     Ok(value)
 }
@@ -786,12 +926,18 @@ pub fn write_managed_provider_card(id: &str, name: &str, config: &Value) -> Resu
     let mut ownership = read_ownership()?;
     write_provider_card(&route, name, config)?;
     let mut providers = indexmap::IndexMap::new();
-    for path in get_all_patch_paths()? { providers.extend(read_providers_from_file(&path)?); }
+    for path in get_all_patch_paths()? {
+        providers.extend(read_providers_from_file(&path)?);
+    }
     let env = credential_env_for_route(&route);
-    let routes: Vec<_> = providers.iter().filter(|(key,value)| {
-        (key.as_str() == route || key.starts_with(&format!("{route}--")))
-            && value["apiKeyEnv"].as_str() == Some(env.as_str())
-    }).map(|(key,_)| key.clone()).collect();
+    let routes: Vec<_> = providers
+        .iter()
+        .filter(|(key, value)| {
+            (key.as_str() == route || key.starts_with(&format!("{route}--")))
+                && value["apiKeyEnv"].as_str() == Some(env.as_str())
+        })
+        .map(|(key, _)| key.clone())
+        .collect();
     ownership["providers"][id] = json!({"route":route,"routes":routes,"displayName":name});
     crate::config::write_json_file(&ownership_path()?, &ownership)
 }
@@ -804,16 +950,33 @@ pub fn remove_managed_provider_card(id: &str) -> Result<(), AppError> {
     let paths = get_all_patch_paths()?;
     for path in &paths {
         for (key, value) in read_providers_from_file(path)? {
-            if (key == route || key.starts_with(&format!("{route}--"))) && value["apiKeyEnv"].as_str() != Some(env.as_str()) {
-                return Err(AppError::Config(format!("DeepSeek Harness {key} is not owned by this card; deletion refused")));
+            if (key == route || key.starts_with(&format!("{route}--")))
+                && value["apiKeyEnv"].as_str() != Some(env.as_str())
+            {
+                return Err(AppError::Config(format!(
+                    "DeepSeek Harness {key} is not owned by this card; deletion refused"
+                )));
             }
         }
     }
     remove_provider(&route)?;
-    let referenced = paths.iter().map(|path| read_providers_from_file(path)).collect::<Result<Vec<_>,_>>()?
-        .iter().any(|providers| providers.values().any(|value| value["apiKeyEnv"].as_str() == Some(env.as_str())));
-    if !referenced { remove_credential_ref(&get_dsh_dir()?, &env, None)?; }
-    ownership["providers"].as_object_mut().expect("validated").remove(id);
+    let referenced = paths
+        .iter()
+        .map(|path| read_providers_from_file(path))
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|providers| {
+            providers
+                .values()
+                .any(|value| value["apiKeyEnv"].as_str() == Some(env.as_str()))
+        });
+    if !referenced {
+        remove_credential_ref(&get_dsh_dir()?, &env, None)?;
+    }
+    ownership["providers"]
+        .as_object_mut()
+        .expect("validated")
+        .remove(id);
     crate::config::write_json_file(&ownership_path()?, &ownership)
 }
 
@@ -821,7 +984,12 @@ pub fn managed_provider_exists(id: &str) -> Result<bool, AppError> {
     let route = sanitize_route(id);
     let env = credential_env_for_route(&route);
     for path in get_all_patch_paths()? {
-        if read_providers_from_file(&path)?.get(&route).is_some_and(|p| p["apiKeyEnv"].as_str() == Some(env.as_str())) { return Ok(true); }
+        if read_providers_from_file(&path)?
+            .get(&route)
+            .is_some_and(|p| p["apiKeyEnv"].as_str() == Some(env.as_str()))
+        {
+            return Ok(true);
+        }
     }
     Ok(false)
 }
@@ -1130,9 +1298,15 @@ mod tests {
         write_provider_card("controlled", "Controlled", &cfg).unwrap();
         let providers = read_providers().unwrap();
         let models = providers["controlled"]["models"].as_array().unwrap();
-        assert_eq!(models[0]["reasoningEfforts"], cfg["models"]["a"]["reasoningEfforts"]);
+        assert_eq!(
+            models[0]["reasoningEfforts"],
+            cfg["models"]["a"]["reasoningEfforts"]
+        );
         assert_eq!(models[0]["compat"], cfg["models"]["a"]["compat"]);
-        assert!(models[1].get("reasoningEfforts").is_none(), "a boolean is not a list of supported levels");
+        assert!(
+            models[1].get("reasoningEfforts").is_none(),
+            "a boolean is not a list of supported levels"
+        );
         assert_eq!(models[2]["reasoningEfforts"], json!(false));
     }
 
@@ -1144,17 +1318,41 @@ mod tests {
         let cfg = json!({"api": "openai-completions", "options": {"baseURL": "https://open.bigmodel.cn/api/coding/paas/v4", "apiKey": ""}, "models": {"glm-5.3": {"reasoning": true}}});
         write_provider_card("custom-id", "Renamable label", &cfg).unwrap();
         let providers = read_providers().unwrap();
-        assert_eq!(providers["custom-id"]["models"][0]["reasoningEfforts"], json!({"low":"low", "high":"high", "max":"max"}));
-        assert_eq!(providers["custom-id"]["models"][0]["compat"]["thinkingFormat"], json!("zai"));
+        assert_eq!(
+            providers["custom-id"]["models"][0]["reasoningEfforts"],
+            json!({"low":"low", "high":"high", "max":"max"})
+        );
+        assert_eq!(
+            providers["custom-id"]["models"][0]["compat"]["thinkingFormat"],
+            json!("zai")
+        );
     }
 
     #[test]
     fn responses_and_foreign_endpoint_capabilities_are_protocol_specific() {
         let model = json!({"reasoning":true});
-        let resolved = model_capability("https://api.deepseek.com", "openai-responses", "deepseek-flash", model.as_object().unwrap()).unwrap();
+        let resolved = model_capability(
+            "https://api.deepseek.com",
+            "openai-responses",
+            "deepseek-flash",
+            model.as_object().unwrap(),
+        )
+        .unwrap();
         assert_eq!(resolved["reasoningEfforts"]["off"], json!("none"));
-        assert!(resolved.get("compat").is_none(), "Responses must not receive Chat Completions switches");
-        assert_eq!(model_capability("https://foreign.invalid", "openai-completions", "glm-5.3", model.as_object().unwrap()).unwrap(), json!({}));
+        assert!(
+            resolved.get("compat").is_none(),
+            "Responses must not receive Chat Completions switches"
+        );
+        assert_eq!(
+            model_capability(
+                "https://foreign.invalid",
+                "openai-completions",
+                "glm-5.3",
+                model.as_object().unwrap()
+            )
+            .unwrap(),
+            json!({})
+        );
     }
 
     #[test]
@@ -1167,13 +1365,20 @@ mod tests {
         let other = dir.path().join("other.yml");
         std::fs::copy(guard.path(), &other).unwrap();
         let mut entries = read_patch_entries(&other).unwrap();
-        providers_mut(&mut entries).get_mut(serde_yaml::Value::from("stable-id")).unwrap()["apiKeyEnv"] = serde_yaml::Value::from("FOREIGN_REF");
+        providers_mut(&mut entries)
+            .get_mut(serde_yaml::Value::from("stable-id"))
+            .unwrap()["apiKeyEnv"] = serde_yaml::Value::from("FOREIGN_REF");
         write_yaml_value(&other, &serde_yaml::Value::Sequence(entries), "test").unwrap();
-        TEST_DSH_EXTRA_PATCH_PATHS.lock().unwrap().push(other.clone());
+        TEST_DSH_EXTRA_PATCH_PATHS
+            .lock()
+            .unwrap()
+            .push(other.clone());
         let before = std::fs::read(guard.path()).unwrap();
         assert!(remove_managed_provider_card("stable-id").is_err());
         assert_eq!(std::fs::read(guard.path()).unwrap(), before);
-        assert!(read_ownership().unwrap()["providers"].get("stable-id").is_some());
+        assert!(read_ownership().unwrap()["providers"]
+            .get("stable-id")
+            .is_some());
     }
 
     #[test]
@@ -1185,10 +1390,16 @@ mod tests {
         write_provider_card("stable", "Mixed", &cfg).unwrap();
         cfg["models"].as_object_mut().unwrap().remove("glm-5.3");
         write_provider_card("stable", "Claude only", &cfg).unwrap();
-        assert_eq!(read_providers().unwrap()["stable--anthropic-messages"]["models"][0]["id"], json!("claude-haiku-5-5"));
+        assert_eq!(
+            read_providers().unwrap()["stable--anthropic-messages"]["models"][0]["id"],
+            json!("claude-haiku-5-5")
+        );
         cfg["models"]["glm-5.3"] = json!({});
         write_provider_card("stable", "Mixed again", &cfg).unwrap();
-        assert_eq!(read_providers().unwrap()["stable--anthropic-messages"]["api"], json!("anthropic-messages"));
+        assert_eq!(
+            read_providers().unwrap()["stable--anthropic-messages"]["api"],
+            json!("anthropic-messages")
+        );
     }
 
     #[test]
@@ -1199,7 +1410,11 @@ mod tests {
         let mut cfg = json!({"api":"anthropic-messages","options":{"baseURL":"https://controlled.invalid","apiKey":""},"models":{"a":{}}});
         write_provider_card("stable", "Name", &cfg).unwrap();
         let before = std::fs::read(guard.path()).unwrap();
-        for invalid in [json!({"thinkingFormat":"deepseek"}), json!({"forceAdaptiveThinking":"yes"}), json!({"unknownField":true})] {
+        for invalid in [
+            json!({"thinkingFormat":"deepseek"}),
+            json!({"forceAdaptiveThinking":"yes"}),
+            json!({"unknownField":true}),
+        ] {
             cfg["models"]["a"]["compat"] = invalid;
             assert!(write_provider_card("stable", "Name", &cfg).is_err());
             assert_eq!(std::fs::read(guard.path()).unwrap(), before);
@@ -1218,7 +1433,10 @@ mod tests {
         let providers = read_providers().unwrap();
         assert_eq!(providers.len(), 2);
         assert_eq!(providers["stable-id"]["displayName"], json!("Renamed"));
-        assert_eq!(read_ownership().unwrap()["providers"]["stable-id"]["routes"], json!(["stable-id"]));
+        assert_eq!(
+            read_ownership().unwrap()["providers"]["stable-id"]["routes"],
+            json!(["stable-id"])
+        );
         // Test file-layer deletion without touching the real credential store.
         remove_provider("stable-id").unwrap();
         assert!(read_providers().unwrap().contains_key("old-label"));

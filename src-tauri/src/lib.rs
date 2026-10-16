@@ -13,11 +13,11 @@ mod commands;
 mod config;
 mod database;
 mod deeplink;
+pub mod dsh_config;
 mod error;
 mod gemini_config;
 mod gemini_mcp;
 mod grok_config;
-pub mod dsh_config;
 pub mod hermes_config;
 mod init_status;
 mod jsonc_document;
@@ -1485,6 +1485,7 @@ pub fn run() {
             commands::check_app_update_available,
             commands::check_for_updates,
             commands::upstream::check_upstream_status,
+            commands::open_portable_update_download,
             commands::is_portable_mode,
             commands::copy_text_to_clipboard,
             commands::get_claude_plugin_status,

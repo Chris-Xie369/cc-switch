@@ -227,6 +227,9 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           {updateInfo.notes && (
             <p className="line-clamp-3 text-fg-2">{updateInfo.notes}</p>
           )}
+          {isPortable && (
+            <p className="text-fg-2">{t("settings.portableUpdateHint")}</p>
+          )}
         </div>
       )}
 

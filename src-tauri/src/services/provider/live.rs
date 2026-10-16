@@ -400,8 +400,15 @@ pub(crate) fn write_live_for_state(
     if matches!(app_type, AppType::DeepSeekHarness) {
         // additive：卡的 settings_config 即 pi-ai provider 形状，直接落 cordis.patch + refs
         let route = crate::dsh_config::sanitize_route(&provider.id);
-        crate::dsh_config::write_managed_provider_card(&provider.id, &provider.name, &provider.settings_config)?;
-        log::debug!("DeepSeek Harness provider '{}' written to live config", route);
+        crate::dsh_config::write_managed_provider_card(
+            &provider.id,
+            &provider.name,
+            &provider.settings_config,
+        )?;
+        log::debug!(
+            "DeepSeek Harness provider '{}' written to live config",
+            route
+        );
         return Ok(());
     }
     if matches!(app_type, AppType::Claude) {
@@ -547,7 +554,11 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
             ));
         }
         AppType::DeepSeekHarness => {
-            crate::dsh_config::write_managed_provider_card(&provider.id, &provider.name, &provider.settings_config)?;
+            crate::dsh_config::write_managed_provider_card(
+                &provider.id,
+                &provider.name,
+                &provider.settings_config,
+            )?;
         }
         AppType::ClaudeDesktop => {
             return Err(AppError::localized(

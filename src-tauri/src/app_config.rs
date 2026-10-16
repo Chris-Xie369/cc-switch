@@ -419,7 +419,11 @@ pub enum AppType {
     OpenClaw,
     Hermes,
     Pi,
-    #[serde(rename = "deepseek-harness", alias = "deepseek_harness", alias = "deepseekHarness")]
+    #[serde(
+        rename = "deepseek-harness",
+        alias = "deepseek_harness",
+        alias = "deepseekHarness"
+    )]
     DeepSeekHarness,
     Mcode,
 }
@@ -463,6 +467,13 @@ impl AppType {
             self,
             AppType::Claude | AppType::Codex | AppType::Gemini | AppType::GrokBuild
         )
+    }
+
+    /// 有设备级的直连 / 路由模式（`live-state.json`，`mode::controller`）：本地路由的四个应用，
+    /// 加上 Claude Desktop。Desktop 经同一个路由服务转发，但没有 `proxy_config` 行、不做故障
+    /// 转移，所以不算 [`Self::supports_local_proxy`]。
+    pub fn has_route_mode(&self) -> bool {
+        self.supports_local_proxy() || matches!(self, AppType::ClaudeDesktop)
     }
 
     /// Return an iterator over all app types

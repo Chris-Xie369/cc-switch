@@ -2020,6 +2020,30 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   后经 4.0.12 会话查实其中含 dsh×5，见下条）。
 - 构建 4.0.11-local 部署（index-BCakWYoZ.js），abbf4623 推 origin。
 
+## 2026-10-16 跟进 v4.0.13（apply 层大重构适配 + 决策：跟随官方聚合）
+
+- **方向决策（用户拍板）**：上游 4.0.13 给 Claude Desktop 落地了 Stack 聚合
+  （route_profile 带 stack 参数、DesktopStackModel 带标签、StackSettingsSheet
+  UI、keeps_resolved_model 请求分流）——与补丁 E 能力面等价。**决策：跟随
+  官方、退役 E**，等 Stack 实测等价确认后执行（PR #7785/7786/7789 届时
+  主动撤回；#7779 不受影响）。
+- merge 7 文件冲突：版本号×3 + claude_desktop_config（4 处，apply 层大重构：
+  上游拆出 run/run_at_paths/direct_profile/route_profile/write_profile_at_paths
+  新架构）+ forwarder（else-if 链合并：Desktop 聚合 override 优先 → 上游
+  Stack → 普通映射；非 Desktop 保留 Codex 聚合分支）+ lib.rs（补丁 D 与
+  上游 portable 命令并存）+ AboutSection（保补丁 C）。
+- **E/picker/DSH 重挂**：apply_provider_to_paths 保持旧签名（30 处测试
+  零改动）内部改用上游原语；apply_provider 恢复 picker+DSH 编排；
+  needs_routing 加聚合判定；route_profile 补 max_effort 档位；B 注入移
+  入 write_profile_at_paths（唯一汇合点）。**删上游 4.0.13 测试模块的
+  () 返回同名 helper**（曾遮蔽生产版致 4 处测试编译错）。
+- 验证：tsc 0 / cargo check 0 / fmt 0 / cargo test 3825 过 4 败=既有
+  环境名单（10048 换了测试名：update_claude_desktop_route_provider…）/
+  vitest 4 文件慢机抖动单跑复验全过。
+- 构建 4.0.13-local（index-BweOncnZ.js、43884544）部署——首次安装再次
+  静默失败（老坑），脚本 retry 分支自愈装上；重启。9146f79d 推 origin。
+- 待办：Stack 等价实测（用户）→ E 退役 + 三 PR 撤回 + 本条目补记。
+
 ## 2026-10-14 跟进 v4.0.12（列对齐上游化 + dsh 测试隔离修复）
 
 - 应用页工具管理（多安装可选卸载、升级前 Node 版本检查、卸载入行尾

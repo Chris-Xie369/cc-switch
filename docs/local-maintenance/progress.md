@@ -2031,6 +2031,28 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   一律取上游侧**，让它随上游重构自然萎缩。
 - 聚合卡数据已由用户迁移至 Stack 配置（实测时完成）。
 
+## 2026-10-17 跟进 v4.0.14（4 冲突，含退役聚合卡清理）
+
+- **MoA 聚合卡删除**（用户操作受阻 → 根因定位）：删除被「无法删除当前正在使用的
+  供应商」拦住，实为 DB `providers.is_current` 僵尸指针仍指向退役的 MoA
+  （路由模式下 UI 显示 DeepSeek，直连指针残留）。手术：停应用 → 备份
+  db/-wal/-shm/live-state → 清 is_current → 删行 → 清 Stack `keys.moa` →
+  重启。卡片内容留档 workspace `moa-card.json`。上游 4.0.14 的
+  `122423ca` 正好改进了这条错误提示（解释路由中为何不能删直连供应商）。
+- merge 冲突 4 个：版本号×3 + `src/lib/version.test.ts`（上游 dev 构建
+  不误报更新 vs 我们的 `-local` 剥离断言——两侧测试全保留）。其余
+  config/forwarder/settings/i18n 等全部干净合并。
+- 4.0.14 亮点：用量页大更新（币种/列选择/侧栏 Today）、Gemini 4 定价、
+  技能下载 128MiB 上限解除并落盘、OpenClaw UA 同步、失败转移队列排序、
+  `e8880e6f` dev 版本不再误报更新（利好本地构建）。
+- 验证：tsc 0 / version 相关 144 过 / cargo check 0 / fmt 0 / cargo test
+  3840 过 4 败=既有环境名单 / vitest 全量 4 文件 23 败为慢机抖动特征
+  （重定向到文件会让 vitest 卡住，需 TTY 或 JSON 报告；单跑 App 21、
+  其余 7 文件 127 全过）。**教训：此机全量并行测试在 DSH/Codex 高负载
+  时不可信，验收以单文件复跑为准。**
+- 构建 4.0.14-local（index-vI7jg4Hs.js、43996672）部署——首次安装仍
+  静默失败（老坑），脚本 retry 自愈；手动重启。2d22593b 推 origin。
+
 ## 2026-10-16 跟进 v4.0.13（apply 层大重构适配 + 决策：跟随官方聚合）
 
 - **方向决策（用户拍板）**：上游 4.0.13 给 Claude Desktop 落地了 Stack 聚合

@@ -10,21 +10,23 @@
 
 **项目已完成并上线。** 本地构建的 CC Switch 修复了 3P profile 覆盖缺陷，并含两个自有功能补丁，已部署、已验收。
 
-| 项 | 值 |
-|---|---|
-| 分支 | `fix/profile-merge`（基线 tag `v3.20.3`），**已推送到自己的 fork** |
-| 最新提交 | `dd02ba8a`（文档快照入库）；`origin/fix/profile-merge` 已同步 |
-| 部署 | 3.20.3-local，`C:\Users\Jason\AppData\Local\Programs\CC Switch\`（构建于 09-21 14:50） |
-| 验收 | 连续 3 次供应商切换后 profile **22 键无一丢失**（修复前：单次切换 19→7、显示名回退） |
-| guard | 已卸载（2026-09-20 20:04）；overlay 备份在同目录，`--install` 可恢复 |
-| 上游 | PR #5417 **仍未合并**；最新 release 仍是 `v3.20.3`；已在 PR 下留实测验证评论 |
+| 项       | 值                                                                                     |
+| -------- | -------------------------------------------------------------------------------------- |
+| 分支     | `fix/profile-merge`（基线 tag `v3.20.3`），**已推送到自己的 fork**                     |
+| 最新提交 | `dd02ba8a`（文档快照入库）；`origin/fix/profile-merge` 已同步                          |
+| 部署     | 3.20.3-local，`C:\Users\Jason\AppData\Local\Programs\CC Switch\`（构建于 09-21 14:50） |
+| 验收     | 连续 3 次供应商切换后 profile **22 键无一丢失**（修复前：单次切换 19→7、显示名回退）   |
+| guard    | 已卸载（2026-09-20 20:04）；overlay 备份在同目录，`--install` 可恢复                   |
+| 上游     | PR #5417 **仍未合并**；最新 release 仍是 `v3.20.3`；已在 PR 下留实测验证评论           |
 
-**携带的补丁（同步上游时必须保留）**：A 合并语义 · B 显示名可配置 · C 本地构建 · D 上游状态检查。
-完整清单（含各自的上游化状态）与同步流程见工作区 [`UPSTREAM-SYNC.md`](../../../UPSTREAM-SYNC.md)。
+**携带的补丁（2026-10-20 起，同步上游时必须保留）**：B 显示名（含 `endUserAttribution=false`）· C 本地构建 · D 上游状态检查 · DSH · x-api-key 网关鉴权 · 厂商词守卫。
+A 已由上游 `81df5a08` 取代（PR #5417 只作历史对照）。E 已物理删除，Desktop 多模型走上游 Stack。F（settings.json 合并）已被上游关键字段写入吸收。
+完整清单见 [`UPSTREAM-SYNC.md`](./UPSTREAM-SYNC.md)。上面 2026-09-21 的表格是当时的收尾快照。
 
 **待办**：无阻塞项。可选项：
+
 1. 补一条守护「调用方必须剥离 `-local`/`v`」的测试（见「补丁 D 修复复审」节的 Minor）
-2. 推动 PR #5417 合并（合并后可丢弃补丁 A）
+2. 继续推 PR #7779（显示名）。x-api-key 与厂商词守卫是另外两块上游候选
 
 **接手顺序**：工作区 `CLAUDE.md`（导航）→ 工作区 `UPSTREAM-SYNC.md`（维护流程）→ 本文件下方流水账（决策依据与踩坑细节）。
 
@@ -33,43 +35,53 @@
 
 ---
 
+## 2026-10-20 补丁 E 物理删除
+
+- DSH 的 `cc-switch` 模型列表改为读 Desktop Stack 的 `DesktopStackModel`（与 `route_profile` 同一份发布结果）。路由还不存在时不创建。Stack 关掉时，手动同步不把列表清空。代理投影时按当前发布结果重写，发布列表为空就写成空。
+- CLI `modelPicker` 删除。Desktop 的 `claude-fable-ccs-*` id 在 Claude Code 代理上对不上，也没有档位可写成 `behavesAs`。`~/.claude/settings.json` 里旧的 `modelPicker` 不会自动清掉。
+- 删除聚合引擎、聚合编辑器、Codex 聚合编辑入口、`merge_profile`、`proxy_origin_from_parts`。`ProviderMeta` 不再有 `aggregateRoutes` / `codexAggregateRoutes`。旧库里的这两键反序列化时忽略，下次整份保存丢掉。不写迁移。
+- 保留 `claude_desktop_apply_preserves_non_gateway_profile_fields`。保留 `fetchModelsOrToast`、DSH、`gateway_token_from_headers`、`has_non_anthropic_vendor_token`。
+- 必须保留的清单改到 `docs/local-maintenance/UPSTREAM-SYNC.md` §2。
+
 ## 任务状态（原始计划的 Task 1–8）
+
 - Task 1: 工具链 — 完成（无代码变更，免审查；已核验 rustc/cargo 1.95.0 MSVC、pnpm 10.12.3、node_modules 就位）
   · 传递性注意事项：cargo 不在当前 shell PATH，后续 cargo 步骤需 `export PATH="/c/Users/Jason/.cargo/bin:$PATH"`
   · 环境事实：Windows SDK 装在 F:\Windows Kits（非默认盘）；仓库根有 rust-toolchain.toml
 - Task 2: 补丁 A 合并语义 (cherry-pick PR #5417) — 完成（commit d03bf0cb，审查 ✅ Approved）
   · 已核实：远端无 fix/profile-merge 分支（未推送）；作者保留为上游 bobby；无 cherry-pick 残留
   · Minor 待裁（留待最终审查triage，不现在修）：read-before-write 使 profile 文件损坏时由「自愈覆盖」变为「硬失败」。
-    不修的理由：本补丁刻意与上游 PR #5417 保持逐字节一致，本地分叉会变成需长期维护的差异。
-  · spec 修正：§3.2 测试名由 claude_desktop_apply_* 改为 inject_display_settings_*（避免测试写用户真实设置文件）
+  不修的理由：本补丁刻意与上游 PR #5417 保持逐字节一致，本地分叉会变成需长期维护的差异。
+  · spec 修正：§3.2 测试名由 claude*desktop_apply*_ 改为 inject*display_settings*_（避免测试写用户真实设置文件）
 - Task 3: 补丁 B 后端 (显示名三键 + TDD) — 完成（commit b0ba96de，审查 ✅ Approved，6/6 通过）
   · 注入点已核实：三键注入在 merge 之前的新 profile 上；None=不写（磁盘旧值由合并保留）
   · Default 字面量补 None 字段确属必需（settings.rs:535-584 为穷尽结构体字面量）
   · Minor 待最终审查 triage：
-    (a) 缺 end-to-end 接线测试（None→磁盘三键存活路径），plan-mandated，接线正确性由验收第二步覆盖
-    (b) 无 serde 序列化契约测试（claudeDesktopDisplay / omit-when-None），Task 4 前端消费该契约
-    (c) claude_desktop_apply_* 测试现隐式假设 ambient settings 的 claudeDesktopDisplay==None
+  (a) 缺 end-to-end 接线测试（None→磁盘三键存活路径），plan-mandated，接线正确性由验收第二步覆盖
+  (b) 无 serde 序列化契约测试（claudeDesktopDisplay / omit-when-None），Task 4 前端消费该契约
+  (c) claude*desktop_apply*\* 测试现隐式假设 ambient settings 的 claudeDesktopDisplay==None
 - Task 4: 补丁 B 前端 (设置项 UI) — 完成（commit f9874721，审查发现 Important 后修复闭合）
   · 审查 ❌→修复：空名字会写空串进 profile（plan-mandated）。用户裁定后端过滤空名字。
-    fix commit 2b13804b：inject_display_settings 在 name 为空时 return；新增 inject_display_settings_omits_keys_when_name_empty。
-    复审 ✅ Approved。剩余两处已知边界（非缺陷）：空白名字仍会写入；空名字无法表达「有意清空」。
+  fix commit 2b13804b：inject_display_settings 在 name 为空时 return；新增 inject_display_settings_omits_keys_when_name_empty。
+  复审 ✅ Approved。剩余两处已知边界（非缺陷）：空白名字仍会写入；空名字无法表达「有意清空」。
 - Task 5a: 补丁 C 禁用 updater + 版本号 + 全量测试 — 完成（commit e3695f0e + 418fa7e4，审查 ✅ Approved）
   · 配置正确：version→3.20.3-local 两处；updater/pubkey/endpoints/createUpdaterArtifacts 全移除；plugins.deep-link 保留；JSON 合法；Cargo.lock 同步
   · 测试：cargo test --no-fail-fast = 2950 过 / 12 失败 / 6 忽略；12 失败均预存环境性（symlink 1314、端口占用、真实用户配置断言），
-    已在干净 v3.20.3 上复现一致；审查者确认无任何 Rust 测试读版本号/updater 配置，故与本补丁无关
+  已在干净 v3.20.3 上复现一致；审查者确认无任何 Rust 测试读版本号/updater 配置，故与本补丁无关
   · 待办：Task 5b 构建 NSIS + pubkey 验证（控制器本会话执行）
 - Task 5b: 构建 NSIS 安装包 — 完成（安装包已产出，pubkey 已验证移除）
   · 产物: src-tauri/target/release/bundle/nsis/CC Switch_3.20.3-local_x64-setup.exe (10MB)
   · pubkey 验证: 产物二进制 grep 官方 pubkey = 0（官方版 = 1）→ 补丁 C 生效
   · 环境要点（本机重建必读）: tauri CLI 下载 NSIS 工具被 gh-proxy 拒 400；
-    须 `export TAURI_BUNDLER_TOOLS_GITHUB_MIRROR=https://gh-proxy.com/https://github.com/`
-    且 `unset HTTPS_PROXY HTTP_PROXY ALL_PROXY`（绕过 9674 代理直连 gh-proxy）
+  须 `export TAURI_BUNDLER_TOOLS_GITHUB_MIRROR=https://gh-proxy.com/https://github.com/`
+  且 `unset HTTPS_PROXY HTTP_PROXY ALL_PROXY`（绕过 9674 代理直连 gh-proxy）
 - Task 6: 部署 (退出/备份/覆盖安装) — 完成（2026-09-20 23:4x；后因补丁 D 于 09-21 再次部署）
 - Task 7: 验收一 持久化 — 完成（2026-09-21 13:16–13:19，连续 3 次供应商切换，profile 22 键无一丢失）
 - Task 8: 删除 guard + 验收二 可配置性 — 完成（guard 已于 09-20 20:04 被卸载，非本会话所为；可配置性随显示名功能上线并验收）
 - Task D: 上游状态检查（计划外新增，详见下方专节） — 完成（`74665082` 实现 + `f115b91d` 修复，已部署运行）
 
 ## 整分支最终审查（opus）与收尾修复
+
 - 结论：ready to deploy；序列化契约/注入顺序/空名字守卫/updater 移除/无附带损伤 全部核实通过
 - 发现 1（Important，已修）：启用显示名只填名字时，空副标题会把磁盘 "Gateway" 抹成空串
   → 用户裁定「后端过滤空副标题」；fix commit 42c9983c（含 serde(default) 修发现 2）；复审 ✅ Approved
@@ -79,6 +91,7 @@
 - 已知边界：空白则名字（含空格）仍会写入；空副标题/空名字无法表达「有意清空」
 
 ## Task 6 部署 — 完成（2026-09-20 23:4x）
+
 - 安装到 C:\Users\Jason\AppData\Local\Programs\CC Switch\（用户原安装路径），运行中 3.20.3-local
 - 校验：size 34326016（本地构建）、官方 pubkey=0（官方为 1）
 - 官方 exe 备份：cc-switch.exe.official-3.20.3（34299392 字节）
@@ -87,18 +100,22 @@
   HKLM\...\{1376663C-...} = 3.20.3（用户原 per-machine 安装记录，未动）
 
 ### 部署中踩到的坑（重要）
+
 本会话运行在 Claude Desktop 的 MSIX 容器内，%LOCALAPPDATA% 被重定向到
 ...\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\...：
-1) 首次静默安装（未指定目录）装到了默认的 %LOCALAPPDATA%\CC Switch（非现有安装目录），
+
+1. 首次静默安装（未指定目录）装到了默认的 %LOCALAPPDATA%\CC Switch（非现有安装目录），
    并创建了一个指向容器内副本的额外开始菜单快捷方式；
-2) Git Bash 会吞掉/转写 /S、/D= 参数 → 必须经 .bat 调用安装器才能正确传 /D=；
-3) 已清理：额外快捷方式、误装目录。现状已收敛干净。
+2. Git Bash 会吞掉/转写 /S、/D= 参数 → 必须经 .bat 调用安装器才能正确传 /D=；
+3. 已清理：额外快捷方式、误装目录。现状已收敛干净。
 
 ## 剩余：Task 7/8 验收（需用户操作）
+
 - Task 7 验收一（持久化）：需用户在 Claude Desktop Developer 面板改设置 + 在 CC Switch 切供应商
 - Task 8：卸载 guard + 验收二（可配置性）
 
 ## 意外发现：guard 已被卸载（非本会话所为）
+
 - 会话开始时 guard 为 HEALTHY（pid 17748、HKCU 自启项在）；现：进程消失、guard.pid 删除、自启项移除
 - guard 目录新增 overlay-preserved-20260920.json（创建于 20:04，含 3p-profile 的 overlay 字段）→ 可恢复
 - 本会话只调用过 guard.py --status（只读），未执行 --uninstall
@@ -106,6 +123,7 @@
 - 当前 profile 完好：19 键，deploymentDisplayName='Chris'、deploymentDisplaySubtitle='Gateway'、endUserAttribution=False
 
 ## 部署后追加：显示设置 UX 修复（用户在验收中发现）
+
 - 现象：关掉再打开「管理显示设置」后，已填的显示名/副标题在表单里变空（磁盘数据未损，因后端空值=不写入）
 - 用户裁定：保留上次输入 + 改提示文案
 - 实现：commit 0fb72b4a（组件内 lastValues 记忆 + zh/en 提示改为「留空=保持现有值」）；仅 3 个前端文件
@@ -113,6 +131,7 @@
 - 另观察：profile 中 inferenceGatewayAuthScheme 消失，系 Claude Desktop 自身面板写入所致（CC Switch 自 09-20 19:35 后未写 profile）；网关工作正常
 
 ## UX 修复的审查与打磨
+
 - 审查 commit 0fb72b4a：✅ Approved（无 Critical/Important）。核实了关/开往返路径、无渲染循环、
   关闭仍送 null、文件范围仅 3 个前端文件。
 - Minor 1（已修）：提示文案易被读成「只跳过留空的字段」，与实际语义（显示名为空→三键全不写）不符
@@ -122,6 +141,7 @@
 - 之后：重建（构建中）→ 部署 → 用户验收
 
 ## 二次部署（含 UX 修复）— 完成 2026-09-21 09:2x
+
 - 构建：vite dist 09:02 → exe 09:25；dist 校验含新文案、旧文案已消失（二进制内前端资源经压缩，不能用 grep 明文校验）
 - 安装：经 .bat 正确传入 /S 与 /D=，装入现有目录；exe size 34326016、pubkey=0
 - 运行：pid 25924，ProductVersion 3.20.3-local
@@ -129,6 +149,7 @@
 - 待办：用户在 CC Switch 切换供应商，验证非网关字段（含上列 3 键）全部存活 —— 决定性验收
 
 ## 磁盘清理（2026-09-21）
+
 - 现象：仓库合计 27 GiB，其中 src-tauri/target/debug = 24 G（cargo test 的 debug profile 产物：
   deps 16G + incremental 7.9G + build 882M），release 仅 2.5G
 - 单个大文件：debug/deps/cc_switch_lib.lib 1.94G、libcc_switch_lib.rlib 1.11G、多个 0.33-0.39G 的 .pdb
@@ -138,6 +159,7 @@
 - 操作坑：MSYS_NO_PATHCONV=1 时 cmd 要用 /c（单斜杠），用 //c 会进交互模式、命令不执行
 
 ## 验收 — 通过（2026-09-21 13:19）
+
 - 用户于 13:16-13:19 做了 3 次供应商切换（三个不同 provider ID）
 - 切换后 profile = 22 键（此前 21；第 4 个新键系用户在面板新增的设置，同样被保留）
 - Chris / Gateway / endUserAttribution=false、autoMode/chatTab/toolSearch、
@@ -146,6 +168,7 @@
 - Task 6/7/8 全部完成；项目目标达成
 
 ## 补丁 D：应用内上游状态检查（2026-09-21 起）
+
 - 背景：用户裁定「由 CC-Switch 自己完成检查和提醒」——它是开机自启的托盘应用，检查时机可靠，
   且提醒内聚在自包含产物里，不依赖外部会话/定时任务
 - 设计：后端 check_upstream_status（查 PR #5417 merged + 最新 release）；复用既有 UpdateContext
@@ -155,14 +178,15 @@
 - 简报：.superpowers/sdd/task-D-brief.md
 
 ## 补丁 D 实现与审查（2026-09-21）
+
 - 实现 commit 74665082（8 文件 +195/−70）；审查 ✅ Approved（无 Critical/Important）
   · 审查者核实：命令注册名与前端 invoke 匹配（tauri-macros 取路径最后一段）、User-Agent 已设、
-    两个请求独立容错、安装路径已移除、双语 i18n 逐字一致、仅动 8 个文件
+  两个请求独立容错、安装路径已移除、双语 i18n 逐字一致、仅动 8 个文件
   · 实现者对简报的三处偏离均属改进，其中一处修复了简报本身的陈旧值 bug（useCallback [] 依赖）
 - 复用性缺陷（简报导致，审查者与我均漏过）：lib/version.ts 早有 tested 的 compareVersions/
   isUpdateAvailable 且 AboutSection.tsx 在用，简报却让其另写两套比较逻辑
   · 关键陷阱：semver 中预发布 < 正式，故 isUpdateAvailable("3.20.3-local","3.20.3") = true →
-    同号基线被永久误报为「有新版」。必须剥掉 -local 与 v 前缀后再比
+  同号基线被永久误报为「有新版」。必须剥掉 -local 与 v 前缀后再比
 - 修复 commit f115b91d（4 文件 +28/−68，净减少）：
   · updater.ts 改用 isUpdateAvailable + 基线归一化；Rust 比较函数与测试整体删除（无生产调用方）
   · UpdateBadge 在「仅 PR 合并」态改显示 upstreamPrMerged，不再误报「检测到新版本：3.20.3-local」
@@ -172,74 +196,80 @@
 - 待办：复审 → 构建（进行中）→ 部署
 
 ## 补丁 D 修复复审（2026-09-21）
+
 - 复审 ✅ Approved（commit f115b91d）。逐值追踪确认误报路径消除、真实更新仍可检出、
   Rust 删除无悬挂引用、4 文件范围准确，未引入新缺陷
 - 审查者补充的关键发现（对称风险）：两处剥离都承重 ——
   · 不剥 -local → semver 判 3.20.3-local < 3.20.3 → 同号基线永久误报
-  · 不剥 v    → parseVersion 返回 null → compareVersions 返回 0 → 真实新版被静默漏报
+  · 不剥 v → parseVersion 返回 null → compareVersions 返回 0 → 真实新版被静默漏报
   两种漏法方向相反，但都是「永远不提醒」
 - Minor 待最终审查 triage：新增测试只钉住 version.ts 的语义，**不能**守护调用方
   「必须剥离 -local/v」的义务 —— 删掉 updater.ts 的 replace 该测试仍全绿。属未来维护风险，
   非当前缺陷；现在改动会作废正在进行的构建，故记录不修
 
 ## 补丁 D 部署与验证（2026-09-21 14:5x）
+
 - 构建 14:50（34349056 字节）→ 经 tools/install-local.bat 装入现有目录 → 大小匹配、pubkey=0
 - 运行：pid 32384，3.20.3-local
 - API 端到端实测（用与应用相同的网络条件，不带 shell 环境变量代理）：
-  · pulls/5417 → merged=false (bool)、state=open  ← 与代码读取字段一致
+  · pulls/5417 → merged=false (bool)、state=open ← 与代码读取字段一致
   · releases/latest → tag_name='v3.20.3'、非预发布/草稿
   · 按前端逻辑比较：基线 3.20.3 vs 上游 v3.20.3 → 无更新 ✓（正是修复要消除的误报场景）
 - 当前无提醒属正确行为（PR 未合并、无新版本）
 - 补丁 D 已加入 UPSTREAM-SYNC.md 补丁清单（永久携带，每次同步需保留）
 
 ## 收尾：磁盘清理（第二次）与文档备份（2026-09-21 21:xx）
+
 - 磁盘：`cargo test`（Task D 的验证跑了几轮）又生成 target/debug 15 G → 已删；仓库 18 G → 2.9 G，D 盘余量 39 G → 53 G
   · 已把两种应对写进 UPSTREAM-SYNC.md §5：跑完测试删 debug 树，或直接用 `cargo test --release` 不生成 debug 树
 - 文档备份：工作区文档原先只在本地磁盘（代码有 fork 备份而它们没有）
   · 快照进 `src/docs/local-maintenance/`（commit dd02ba8a）并推送到 fork
   · 工作区 CLAUDE.md 的 `CLAUDE.md` 在快照中改名为 `WORKSPACE-NOTES.md`——
-    上游 .gitignore 第 10 行忽略 CLAUDE.md，改名避免与上游约定冲突
+  上游 .gitignore 第 10 行忽略 CLAUDE.md，改名避免与上游约定冲突
   · 工作区 CLAUDE.md 资产表补一行，提醒「改原件后需刷新快照」
 - 顺手修了一处失效链接：两份分析报告已被移入工作区 `doc/`，CLAUDE.md 内的链接仍指旧路径
 
 ## 探针验证：自定义后缀模型 ID 是否被 Claude Desktop 接受（2026-09-22）
+
 背景：多供应商共存方案需要把供应商标识编进模型 ID（如 claude-sonnet-glm）。约束是 Claude Desktop
 1.12603.1+ 的 fail-all 校验器要求 ID 形如 claude-{sonnet|opus|haiku|fable}-{标识}；CC Switch 代码
 只对角色前缀做校验、后缀不管，但"角色前缀+自定义后缀"是否真被 Claude 接受**无人验证过**。
 决定：若能接受 → 槽位无上限，真正做到"全部模型上线"；若拒绝 → 退回官方 ID 的 9 槽方案。
 
 操作：向 profile 的 inferenceModels 追加探针条目（4 → 5 条）
-  {"labelOverride": "PROBE自定义ID", "name": "claude-sonnet-probe", "supports1m": true}
+{"labelOverride": "PROBE自定义ID", "name": "claude-sonnet-probe", "supports1m": true}
 备份：%LOCALAPPDATA%\Claude-3p\configLibrary\pre-probe-backup-20260922_102856.json
 回滚：tools\revert-probe.bat（双击即可，恢复后需再重启 Claude Desktop）
 
 判据：
-  · 模型列表显示 5 条（含 PROBE自定义ID）→ 自定义后缀被接受 → 走无上限方案
-  · 模型列表变空/异常 → fail-all 生效 → 回滚，走 9 槽方案
+· 模型列表显示 5 条（含 PROBE自定义ID）→ 自定义后缀被接受 → 走无上限方案
+· 模型列表变空/异常 → fail-all 生效 → 回滚，走 9 槽方案
 状态：探针已写入；等用户重启 Claude Desktop 后报告现象。
 
 ### 探针验证结果：通过 ✅（2026-09-22）
+
 现象：重启 Claude Desktop 后模型选择器显示 10 项；其中两项为 `PROBE自定义ID` 与 `PROBE自定义ID 1M`。
 结论：**自定义后缀模型 ID 被 Claude Desktop 完全接受**（无 fail-all 拒收）→ 槽位无上限，
-      可真正做到"全部已启用供应商的模型上线"。
+可真正做到"全部已启用供应商的模型上线"。
 
 附带发现（重要，影响设计）：**supports1m: true 会让每个模型在选择器里渲染成两行**
-  （本体 + "1M context window" 变体）。10 = 声明 5 条 × 2，与 profile 完全吻合。
-  → 设计含义：① 槽位比预期更充裕；② supports1m 需按需使用，否则列表条目翻倍。
+（本体 + "1M context window" 变体）。10 = 声明 5 条 × 2，与 profile 完全吻合。
+→ 设计含义：① 槽位比预期更充裕；② supports1m 需按需使用，否则列表条目翻倍。
 描述文字（如 "Most efficient for everyday tasks"）来自目录里对应角色的元数据，非我们控制。
 
 遗留：探针条目仍在 profile 与模型列表中（无害的测试残留），可在下次自然重启时清除。
 
 ## 新特性：Claude Desktop 多供应商共存（聚合供应商）— 设计+计划完成（2026-09-22）
+
 需求：一次配置多家 → 重启一次 → 在 Claude 模型列表里自由选任意一家的模型（选择权归用户）。
 调研：Desktop 侧无现成实现；上游 #5937（+5195 行，CI 全绿，等 review 近两月）覆盖的是
-      Claude Code CLI + Codex，其「聚合供应商」设计可直接借鉴。社区诉求极高（#3703 血书）。
+Claude Code CLI + Codex，其「聚合供应商」设计可直接借鉴。社区诉求极高（#3703 血书）。
 平台约束（实测）：模型 ID 须 claude-{角色}-{标识}；**自定义后缀被接受、无 fail-all**（探针验证）
-      → 槽位无上限；supports1m 会使每个模型在选择器里双行渲染；profile 只有单个 gateway 端点。
+→ 槽位无上限；supports1m 会使每个模型在选择器里双行渲染；profile 只有单个 gateway 端点。
 方案：聚合供应商（无端点无凭据，路由表挂 meta.aggregateRoutes）；按模型 ID 查表换成目标供应商 +
-      改写 body.model；未命中走默认目标。**不改「启用」的全局语义**（一个聚合供应商即等价于多家在线）。
+改写 body.model；未命中走默认目标。**不改「启用」的全局语义**（一个聚合供应商即等价于多家在线）。
 产物：spec `docs/superpowers/specs/2026-09-22-claude-desktop-multi-provider-design.md`（13 节）
-      plan `docs/superpowers/plans/2026-09-22-claude-desktop-multi-provider.md`（8 个任务）
+plan `docs/superpowers/plans/2026-09-22-claude-desktop-multi-provider.md`（8 个任务）
 计划自检修正两处：① 槽位 ID 改为生成后持久化（否则 slug 退化为 id）；② 默认目标按槽位 ID 而非下标引用。
 待办：执行计划（Task 1–8：数据模型 → ProviderMeta → 模型列表派生 → 请求路由 → 校验 → 前端类型 → UI → 构建部署验收）。
 
@@ -250,112 +280,113 @@
 计划: docs/superpowers/plans/2026-09-22-claude-desktop-multi-provider.md（8 个任务）
 Baseline: fa65a311（预检修正后）
 ⚠️ 注意：本节的 Task 1–8 与上方旧计划的 Task 1–8 **不是同一批**，勿混淆。
-   简报文件 .superpowers/sdd/task-N-brief.md 已被本计划覆盖。
-   报告文件用 task-agg-N-report.md 以区分旧计划的 task-N-report.md。
+简报文件 .superpowers/sdd/task-N-brief.md 已被本计划覆盖。
+报告文件用 task-agg-N-report.md 以区分旧计划的 task-N-report.md。
 
 ## 聚合供应商 任务状态
+
 - Task 1: 槽位数据模型与 ID 生成（aggregate.rs）— 完成（commit 750e1a34，审查 ✅ Approved）
   · 实现者发现并上报了一处**设计级错误**（未擅自绕过）：文档/测试称「中文名一律回落为 id 前缀」
-    并举例「智谱 GLM」，但 GLM 本身是 ASCII → 实际 slug 为 glm，回落分支不触发。
-    该错误同时存在于设计文档 §5、计划的 Rust 测试与 TS 实现（Task 6 会撞同一面墙）。
+  并举例「智谱 GLM」，但 GLM 本身是 ASCII → 实际 slug 为 glm，回落分支不触发。
+  该错误同时存在于设计文档 §5、计划的 Rust 测试与 TS 实现（Task 6 会撞同一面墙）。
   · 裁定方案 A：规则不变（混合名取 ASCII 部分是对的），修正文档示例与测试
-    → 计划 4 处 + 设计文档 1 处修正，commit fc787d8b
+  → 计划 4 处 + 设计文档 1 处修正，commit fc787d8b
   · 遗留：7 个 dead_code 警告（模块尚未被消费，预期过渡态，未用 allow 压制）
   · 审查结论：✅ Approved，逐值追踪了 5 个输入、领先分隔符守卫、截断/去尾顺序、
-    安全 ID 保证与去重确定性，全部核实通过
+  安全 ID 保证与去重确定性，全部核实通过
   · 审查发现 2 个 Important 覆盖缺口（代码正确、缺测试守护）→ **已补测闭合**（commit 576d8471，8/8 通过）：
-    ① 截断落在分隔符上（唯一能区分「先截断再清理」与「先清理再截断」的输入）
-    ② 去重跳过已存在的编号（taken=[base, base-2] → base-3）
+  ① 截断落在分隔符上（唯一能区分「先截断再清理」与「先清理再截断」的输入）
+  ② 去重跳过已存在的编号（taken=[base, base-2] → base-3）
   · Minor 记录备查：
-    (a) slugify 的 id 回落分支不对 provider_id 做净化 —— 空 provider_id 会产出
-        `claude-sonnet-`（不安全）。已核实：Task 5 的校验会先以「槽位必须同时指定
-        目标供应商与上游模型」拦下空 providerId，该缺口有清晰错误信息兜底，无需改
-    (b) 文档注释说「纯非 ASCII」才回落，实际是「不含任何 ASCII 字母数字」（纯标点也回落）——
-        措辞不精确，无行为差异
-    (c) 审查者指出：结尾带 '-' 的 ID 其实仍能通过 is_claude_safe_model_id（尾段非空即可），
-        故「先截断再去尾」是防御性而非必需 —— 记录以免后续任务过度解读
+  (a) slugify 的 id 回落分支不对 provider_id 做净化 —— 空 provider_id 会产出
+  `claude-sonnet-`（不安全）。已核实：Task 5 的校验会先以「槽位必须同时指定
+  目标供应商与上游模型」拦下空 providerId，该缺口有清晰错误信息兜底，无需改
+  (b) 文档注释说「纯非 ASCII」才回落，实际是「不含任何 ASCII 字母数字」（纯标点也回落）——
+  措辞不精确，无行为差异
+  (c) 审查者指出：结尾带 '-' 的 ID 其实仍能通过 is_claude_safe_model_id（尾段非空即可），
+  故「先截断再去尾」是防御性而非必需 —— 记录以免后续任务过度解读
 - Task 2: 挂到 ProviderMeta — 完成（commit f7d12f57，审查 ✅ Approved）
   · 接线信号已实测：把 provider.rs 回退到基线重编，dead_code 7 → 2；
-    消失的 5 个正是 AggregateTier/as_str/AggregateRouteSlot/DefaultTarget/AggregateRoutes
-    （剩余 2 个是 slugify/generate_slot_id，待保存路径调用时消除）→ 字段确实被引用
+  消失的 5 个正是 AggregateTier/as_str/AggregateRouteSlot/DefaultTarget/AggregateRoutes
+  （剩余 2 个是 slugify/generate_slot_id，待保存路径调用时消除）→ 字段确实被引用
   · 实现者第二次发现计划错误：Task 2 测试 JSON 漏了必填的 routeId → 反序列化报
-    missing field。裁定方案 A（route_id 设计上必填，错的是测试）→ 计划已修（b9b39b05）
+  missing field。裁定方案 A（route_id 设计上必填，错的是测试）→ 计划已修（b9b39b05）
   · 两个失败测试已由控制器实测确证为环境性：
-    ① update_current_claude_desktop_provider_syncs_profile_when_proxy_takeover_is_active
-       —— 报 os error 10048（地址已占用），因本机 CC Switch 在跑，端口被占
-    ② import_hermes_providers_from_live_updates_existing_provider_from_live —— 读真实 live 配置
-    两者均属旧计划 Task 5a 记录的 12 个预存失败之列，与新字段无关
+  ① update_current_claude_desktop_provider_syncs_profile_when_proxy_takeover_is_active
+  —— 报 os error 10048（地址已占用），因本机 CC Switch 在跑，端口被占
+  ② import_hermes_providers_from_live_updates_existing_provider_from_live —— 读真实 live 配置
+  两者均属旧计划 Task 5a 记录的 12 个预存失败之列，与新字段无关
   · 审查核实：字段 serde 形状与邻字段一致；None 遗漏断言会拒绝 `null`（强于仅查键不存在）；
-    DefaultTarget 的 tagged 表示被往返覆盖；抽样 100+ 个 ProviderMeta 字面量构造点，
-    全部用 ..Default::default()，加字段不破坏任何一处
+  DefaultTarget 的 tagged 表示被往返覆盖；抽样 100+ 个 ProviderMeta 字面量构造点，
+  全部用 ..Default::default()，加字段不破坏任何一处
   · Minor 待最终审查 triage（均为简报原文，非实现缺陷）：
-    (a) 测试名 round_trips 但未做反向序列化（序列化 Some 的一侧无断言）
-    (b) 输入 JSON 里的 label 未断言
+  (a) 测试名 round_trips 但未做反向序列化（序列化 Some 的一侧无断言）
+  (b) 输入 JSON 里的 label 未断言
 - Task 3: 模型列表派生（profile + /models）— 完成（commit b97368bd + a31ab52e，审查 ✅ Approved、修复复审 ✅ Approved）
   · 实现者查明：`model_list_response` 首行即委托 `proxy_model_routes`，**无独立路径**
-    → 未插入第二处分支（计划里「两处都插」属冗余描述，已避免重复）
+  → 未插入第二处分支（计划里「两处都插」属冗余描述，已避免重复）
   · 测试：aggregate 14 passed；claude_desktop 50 passed / 1 failed（已知环境性端口占用）
   · dead_code 2 → 2，无新增
   · 具名风险（控制器取证后交审查判定）：聚合路径不校验 route_id 的 claude-safe 性，
-    而普通路径有 repaired_route_id 修复逻辑（claude_desktop_config.rs:596）。
-    若触发，后果是 Claude Desktop **拒收整组模型**（已实测的 fail-all 行为）
+  而普通路径有 repaired_route_id 修复逻辑（claude_desktop_config.rs:596）。
+  若触发，后果是 Claude Desktop **拒收整组模型**（已实测的 fail-all 行为）
   · 审查判定：真实缺陷、Important（非 Critical，因当前写入方只产安全 ID）。审查者明确反驳了
-    「上游校验会拦」的豁免理由：可达性依赖「数据永远由本程序生成且永不被编辑」，而同目录其它
-    配置正是靠手工/导入流转。并指出应 **filter 而非 repair** —— route_id 是稳定路由键，
-    repair 会让选择器显示的 ID 与路由表的键错位、查表落空、行为不可预测
+  「上游校验会拦」的豁免理由：可达性依赖「数据永远由本程序生成且永不被编辑」，而同目录其它
+  配置正是靠手工/导入流转。并指出应 **filter 而非 repair** —— route_id 是稳定路由键，
+  repair 会让选择器显示的 ID 与路由表的键错位、查表落空、行为不可预测
   · 另 3 处 Minor 一并修：缺 dedup_by(route_id)；空结果返回 Ok(vec![]) 而非 Err（会安静写出空
-    inferenceModels → 模型选择器空白）；use 语句置于文件末尾不合项目惯例
+  inferenceModels → 模型选择器空白）；use 语句置于文件末尾不合项目惯例
   · ⚠️ 修复引入的新交互（须传给 Task 4）：filter 后槽位可能被丢弃 → 若 default_target 以
-    SlotId 引用被丢弃的槽位，该引用会悬空。Task 4 的 resolve_target 目前对此返回明确错误
-    （「默认目标指向了不存在的槽位」）——可诊断、不静默误路由，保持该行为即可
+  SlotId 引用被丢弃的槽位，该引用会悬空。Task 4 的 resolve_target 目前对此返回明确错误
+  （「默认目标指向了不存在的槽位」）——可诊断、不静默误路由，保持该行为即可
 - Task 4: 请求路由（按模型换供应商）— 完成（commit 5ce43e14 + c991e2d3，审查 Needs fixes → 修复 → 复审 ✅ Approved）
   · 测试：aggregate 18/18、proxy 1475/1475、claude_desktop 50+1（已知环境性端口占用）；dead_code 2→2
   · 计划缺陷 #A（严重）：计划称「在 map_proxy_request_model 之前改写 model」→ 会打断每个
-    Claude Desktop 请求：映射器会拿已改写的上游模型名去查目标供应商路由表 → route_unknown/
-    routes_missing。正确做法是**替换**该映射（聚合路由已知上游模型，无需再映射）
+  Claude Desktop 请求：映射器会拿已改写的上游模型名去查目标供应商路由表 → route_unknown/
+  routes_missing。正确做法是**替换**该映射（聚合路由已知上游模型，无需再映射）
   · 计划缺陷 #B：只替换 provider 不够 —— 转发器遍历 providers 列表，providers[0] 仍是
-    无端点的聚合供应商，必须一并换掉
+  无端点的聚合供应商，必须一并换掉
   · 计划缺陷 #C（语义问题，交审查判定）：成功后的故障转移同步会把「当前供应商」切成目标
-    供应商 → 聚合只生效一次。实现者用「把 current_provider_id 指向目标」压住，但主动要求
-    审查确认 identity-vs-routing 语义是否正确、有无副作用（该字段还有别的消费者）
+  供应商 → 聚合只生效一次。实现者用「把 current_provider_id 指向目标」压住，但主动要求
+  审查确认 identity-vs-routing 语义是否正确、有无副作用（该字段还有别的消费者）
   · 改写落点：RequestForwarder.aggregate_override 字段（经 with_aggregate_override 注入），
-    在 forward() 内生效；未改动任何 forward_with_retry 调用点；Claude Desktop 路径为 handlers.rs:206
+  在 forward() 内生效；未改动任何 forward_with_retry 调用点；Claude Desktop 路径为 handlers.rs:206
 - Task 5: 保存校验与删除保护 — 完成（commit 5847b834 + e907fbd7 + 1bb10d68 + 5a40787c，审查与两轮复审均 ✅ Approved）
   · 落点：删除保护在 ProviderService::delete（新增 reject_if_referenced_by_aggregate）；
-    禁嵌套在 DB 感知的保存层（add/update，新增 validate_aggregate_not_nested）
+  禁嵌套在 DB 感知的保存层（add/update，新增 validate_aggregate_not_nested）
   · 测试：aggregate 30/30、provider_service 43/43、provider:: 175 过 2 失败
-    （两个都属环境性/预存：10048 端口占用；hermes 那个已用 stash 干净树对照确认同样失败）
+  （两个都属环境性/预存：10048 端口占用；hermes 那个已用 stash 干净树对照确认同样失败）
   · 计划缺陷：① 测试用 settings_config:{} 构造供应商 → 会在聚合校验**之前**被直连校验拦下，
-    4 条断言里 3 条无法通过（实现者改用合法直连配置以保持非空洞）
-    ② validate_provider_settings 是关联函数（ProviderService::）而非裸函数
-    ③ db.get_providers 实为 db.get_all_providers
+  4 条断言里 3 条无法通过（实现者改用合法直连配置以保持非空洞）
+  ② validate_provider_settings 是关联函数（ProviderService::）而非裸函数
+  ③ db.get_providers 实为 db.get_all_providers
   · ⚠️ 死代码判定（审查者调查后定论 = **删除**）：全仓无生产调用点；mod aggregate 私有故 pub fn 不可达
-    （正是那 2 条警告）；**关键**：无任何导入路径需要后端生成 ID —— deeplink 走 ProviderService::add
-    （会校验并拒绝坏 ID）、import_config_from_file 是整库 SQL 还原（ID 原样带回）。导入要么带回原 ID、
-    要么是畸形数据，**明确报错优于静默编造 ID** → 控制器此前提的「导入体验」顾虑不成立
+  （正是那 2 条警告）；**关键**：无任何导入路径需要后端生成 ID —— deeplink 走 ProviderService::add
+  （会校验并拒绝坏 ID）、import_config_from_file 是整库 SQL 还原（ID 原样带回）。导入要么带回原 ID、
+  要么是畸形数据，**明确报错优于静默编造 ID** → 控制器此前提的「导入体验」顾虑不成立
   · Minor（判定为规格符合性缺口，已纳入修复）：**禁嵌套有单向漏洞** —— 检查只在保存聚合供应商时执行，
-    故「普通供应商先被引用、之后被改造成聚合」会放行 A→B 嵌套，而设计 §9 明确禁止该状态
+  故「普通供应商先被引用、之后被改造成聚合」会放行 A→B 嵌套，而设计 §9 明确禁止该状态
   · Minor（记录不修）：部分导入路径（import_claude_desktop_providers_from_claude、整库导入）不经
-    add/update 故不经聚合校验 —— 与仓库既有校验的生效面一致，属既有行为
+  add/update 故不经聚合校验 —— 与仓库既有校验的生效面一致，属既有行为
   · 实现者顾虑：保存时允许槽位目标供应商尚不存在（存在性延到运行时 resolve_target 兜底）
 - Task 6: 前端类型与 ID 生成 — 完成（commit 8a99b23c，审查 ✅ Approved）
   · 两条转移过来的不变式已重建且**经变异验证**（破坏版会失败）：
-    截断落在分隔符上、去重跳过已占用编号
+  截断落在分隔符上、去重跳过已占用编号
   · 计划缺陷 #6：简报的测试 import 漏了 assignSlotIds（照抄无法编译）
   · 实现者记录的工具链事实：`pnpm test:unit -- <file>` **不真正过滤**，须用 `npx vitest run <file>`
-    （此前多个任务的派发指令用了前者，实际是跑全量）
+  （此前多个任务的派发指令用了前者，实际是跑全量）
   · 已知非阻塞：全量套件有 3 个 PiProviderForm 超时（与本次无关）；空 providerId 会产出
-    `claude-{tier}-`（不合规），但 Task 5 的校验会先以「槽位必填目标供应商」拦下
+  `claude-{tier}-`（不合规），但 Task 5 的校验会先以「槽位必填目标供应商」拦下
 - Task 7: 配置界面 — 完成（df76af90 + 03267ced + 2b701481 + 543c90cb，三轮修复后复审 ✅ Approved）
   · 接入方式：在表单 !isOfficial 分支顶部加独立开关（未复用 direct/proxy 模式选择——那个值贯穿大量下游逻辑）
-    开启→初始化 {slots:[], defaultTarget}；关闭→**delete meta.aggregateRoutes**（含官方分支）
+  开启→初始化 {slots:[], defaultTarget}；关闭→**delete meta.aggregateRoutes**（含官方分支）
   · candidates = useProvidersQuery('claude-desktop') 过滤掉自身与聚合供应商
   · 输入组件：显示名用 **ImeSafeInput**（该字段预期填中文，沿用仓库惯例）；upstreamModel 用普通 Input
   · 验证：typecheck 干净、vitest 13/13、prettier 干净；全量 136/138 文件过（PiProviderForm/App 仅并行负载下超时，
-    隔离跑 53/53 通过，属预存 flaky）
+  隔离跑 53/53 通过，属预存 flaky）
   · ⚠️ **设计矛盾（Important，已派发修复）**：`validate_direct_provider`（claude_desktop_config.rs:338）只对
-    官方供应商短路，**无聚合短路** → 创建聚合供应商必须编造占位端点与密钥，与设计「无端点无凭据」直接矛盾。
-    实现者正确地**没有**只放宽前端（服务端仍会拒），故修法是后端补短路 + 前端相应放宽
+  官方供应商短路，**无聚合短路** → 创建聚合供应商必须编造占位端点与密钥，与设计「无端点无凭据」直接矛盾。
+  实现者正确地**没有**只放宽前端（服务端仍会拒），故修法是后端补短路 + 前端相应放宽
   · Minor（已纳入同一修复）：canSaveAggregateRoutes 是死导出；候选目标未排除官方供应商（其无网关凭据）
 - Task 8: 构建、部署与验收 — 未开始
 
@@ -364,9 +395,11 @@ Baseline: fa65a311（预检修正后）
 - Task 3 最终状态：完成。修复复审确认四项发现全解、三个新测试非空洞（撤销修复即失败）
 
 ## Task 4 审查结论（opus 审查者）与修复
+
 判定：**Needs fixes**（2 Important）。三处计划缺陷的判断经复核全部成立。
 
 ### Important 1：故障转移链未截断 → 模型名串台 + #C 抑制失效
+
 - 聚合分支只换 providers[0]，链上其余成员保留，而 aggregate_override 是**请求级**字段
 - 触发条件：故障转移开启 + 聚合在队列首位 + 队列还有别家 + 槽位目标失败
 - 后果：(a) 后续供应商收到**槽位的上游模型名**（如 glm-5.3）且绕过它自己的路由；
@@ -378,13 +411,15 @@ Baseline: fa65a311（预检修正后）
   若要保留「同模型多渠道故障转移」才需要它
 
 ### Important 2：核心正确性无测试兜底
+
 - 现有测试只断言 resolve_target 的命中/未命中；**无任何测试验证槽位上游模型名到达出站 body**，
   也未断言 providers[0]/current_provider_id 被换（恰是 #B/#C 最易回归处）
 - 实现者称「需要活动上游」→ 审查者指出辩解不成立：仓库已有现成端到端夹具
   （proxy/server.rs:620-740，TcpListener + axum mock 上游捕获 body）+ Database::memory()
-  + set_current_provider + 真 ProxyServer + reqwest
+  - set_current_provider + 真 ProxyServer + reqwest
 
 ### 审查确认可用的结论（供后续参考）
+
 - #A（改写代替映射）判断正确且必改：先改写会让映射器拿已改写的名字查目标路由表 → 必然失败
 - #B（必须同时换 providers[0]）判断与实现完整；请求期内「供应商」只存在于两处字段，均已替换
 - #C 的机制可接受（等价于聚合路由标志），但需配合链截断才完备
@@ -393,6 +428,7 @@ Baseline: fa65a311（预检修正后）
   那是「实际在服务的供应商」诊断位，**不是缺陷**，不要误判为「当前供应商被切走了」
 
 ### Minor（记录）
+
 1. 跳过 map_proxy_request_model 会丢掉其尾部的 Mimo 专用副作用
    （normalize_mimo_anthropic_thinking_history，全仓唯一调用点）→ 同一目标供应商在聚合/非聚合
    两种入口下行为不一致。窄（仅 Mimo），用户当前未用 Mimo，**记录不改**
@@ -402,6 +438,7 @@ Baseline: fa65a311（预检修正后）
 4. 未命中走默认目标时模型名仍交给目标自己的路由表 → brief 刻意要求，属预期行为
 
 ### Task 4 修复结果（commit c991e2d3）与一处定性纠正
+
 - **端到端测试已落地并断言了核心**：`aggregate_routes_rewrite_model_and_use_target_provider`
   驱动真 ProxyServer + axum mock 上游（经 /claude-desktop/v1/messages）：
   · 命中：mock 收到的 `body.model == "glm-5.3"`（槽位上游模型）+ `Authorization == "Bearer target-secret"`（目标凭据）
@@ -422,34 +459,36 @@ Baseline: fa65a311（预检修正后）
 - Task 5 最终状态：完成。复审确认禁嵌套反向扫描位于「自身有 aggregate_routes」分支内，
   四个合法场景（新建普通/被引用者仍为普通/聚合指向普通/重存无人引用）全部仍成功；新测试非空洞
   · 复审追加发现：`AggregateTier::as_str` 亦为死代码，但**逃过 dead_code 警告** —— rustc 不报告
-    未使用的固有方法（审查者实验证实）。故「警告 2→0」只说明 rustc 报了什么，不等于无死代码残留
+  未使用的固有方法（审查者实验证实）。故「警告 2→0」只说明 rustc 报了什么，不等于无死代码残留
   · 另两处注释（aggregate.rs:266/338）仍称「槽位 ID 在保存时由后端生成」，删生成器后失真 → 一并清理
 
 ### 工具链坑（记录备查）：task-brief 的 infence 守卫
+
 - `task-brief` 脚本用 awk 实现，含 `!infence` 守卫 —— **代码块内的 `### Task N` 标题会被忽略**。
 - 因此计划文件里只要有**一个未配对的 ``` **，其后所有任务都无法提取：
   · 表现为「task N not found」，或**简报过度提取到文件末尾**（Task 5 那次拿到 799 行，含 Task 6/7/8）
 - 本次成因：Task 5 段落内一处早先编辑遗留的孤立 ```（同时也会让 markdown 渲染错乱）
 - 排查手法（可复用）：逐 Task 标题统计 ``` 出现次数，奇偶不配对处即失衡点
-  ```python
+  ````python
   # 截至每个 "^### Task" 行统计以 ``` 开头的行数，奇数即未闭合
-  ```
+  ````
 - **教训**：编辑计划文件后，若 task-brief 行为异常（找不到/过度提取），先查围栏配对，别怀疑任务编号
 
 - Task 5 收尾清理：5a40787c 删除 AggregateTier::as_str（grep 证实无调用点）并修正两处失真注释。
   dead_code 0。**Task 5 完全闭合。**
   ⚠️ 传给 Task 6 的要点：随生成器一并删除的 Rust 测试里，有两条是 Task 1 审查时特意补的覆盖缺口
-     （① 截断落在分隔符上——唯一能区分「先截断再清理」与「先清理再截断」的输入；
-      ② 去重跳过已存在的编号 taken=[base, base-2] → base-3）。**必须在 TS 侧重建**，否则无守护。
-     另：TS 侧现为槽位 ID 生成的**唯一实现**（Rust 版已删），计划里「与 Rust 逐字等价」已无对象。
+  （① 截断落在分隔符上——唯一能区分「先截断再清理」与「先清理再截断」的输入；
+  ② 去重跳过已存在的编号 taken=[base, base-2] → base-3）。**必须在 TS 侧重建**，否则无守护。
+  另：TS 侧现为槽位 ID 生成的**唯一实现**（Rust 版已删），计划里「与 Rust 逐字等价」已无对象。
 
 - Task 6 审查核实：类型逐字段对齐后端 serde；算法轨迹经独立模拟复现；
   两条不变式经变异验证确认为非空洞（19 vs 20 字符截断、`-2` vs `-3` 去重）
   · Minor（记录，均已被其它层闭合）：空 providerId 产出不合规 ID（Task 5 校验先拦）；
-    回落路径不转小写（应用 ID 为小写十六进制，理论问题）；三个工具函数暂无测试（属 Task 7）
+  回落路径不转小写（应用 ID 为小写十六进制，理论问题）；三个工具函数暂无测试（属 Task 7）
   · **Task 6 闭合**
 
 ### Task 7 修复结果（03267ced）与两点重要发现
+
 - **Finding 1 实为三处后端改动**（实现者发现，比预估严重）：只改 validate_direct_provider 会留下
   仍在拒绝聚合的活路径 —— 还需 validate_proxy_provider 短路 + apply 钉死代理分支。
   单改一处 = 假修复。这正是派发时要求「先验证无路径依赖聚合自身端点/凭据」的价值
@@ -462,10 +501,12 @@ Baseline: fa65a311（预检修正后）
 - 未收口项（已派发补）：聚合与「直连」模式选择的互斥 —— 服务端已钉死代理，界面却仍可同选 → UI 与落盘不一致
 
 ### 值得单独立项的观察（记录）
+
 - 跨模块共享 CC_SWITCH_TEST_HOME 导致的测试竞态：全量 lib 测试有约 11 项因并行 home 竞态失败，
   与业务代码无关。**建议单独立项**（属测试基础设施，不应混在本特性里修）
 
 ### Task 7 全链审查结论（opus 审查者，3 个 Important）
+
 - **(A) 后端放宽经独立追证：安全且完整，三处缺一不可** —— 审查者逐条追踪了「无活路径消费聚合自身
   端点/凭据」，结论成立（替换点在 handler_context，抢在所有提取之前；models 端点只读槽位；
   map_proxy_request_model 仅在未命中时调用；direct_gateway_credentials 改动后仅剩两个调用点，
@@ -492,34 +533,36 @@ Baseline: fa65a311（预检修正后）
 
 - Task 7 最终状态：**完成**。第三轮复审逐项确认：
   · 后端 default_target 校验非空洞 —— 审查者验证「空 ProviderId」用例不会被任何既有检查顺手拦下
-    （故删掉新校验该测试必失败），并确认槽位本身合法、聚合走 validate_direct_provider 早退
+  （故删掉新校验该测试必失败），并确认槽位本身合法、聚合走 validate_direct_provider 早退
   · 重编号重映射**按槽位位置**跟随（对象引用定位 + 位置回退），槽位被删时留悬空（不静默改指），
-    providerId 型目标完全不受影响
+  providerId 型目标完全不受影响
   · !isAggregate 收口正确且不困住用户：被隐藏的块对聚合本就是派生数据；apiFormat 仍为可接受的默认值；
-    两个校验器都豁免聚合的端点要求
+  两个校验器都豁免聚合的端点要求
   · 新增代理短路测试是真对照（两例都直接调 validate_proxy_provider；删短路则正例失败、
-    删凭据检查则对照例失败）
+  删凭据检查则对照例失败）
   · 无回归：唯一共享的生产改动对非聚合供应商恒为惰性
 
 ## Task 8 步骤 1–2：全量测试与前端检查（2026-09-22）
+
 - `cargo test --lib --no-fail-fast` = **2853 passed / 11 failed / 6 ignored**
 - **11 项逐条归因（无一是本次改动引入）**：
-  · model_pricing × 5 —— 真实用户配置断言（left:4/right:1 类）
-  · import_hermes_... —— 读真实 live 配置（left:5/right:1）
-  · update_current_claude_desktop_provider_... —— os error 10048（端口被运行中的 CC Switch 占用）
-  · session_usage_grokbuild / codex_config 各一 —— Os code 1314（符号链接权限）
-  · commands::misc::build_tool_search_paths_... —— 路径相关
+  · model*pricing × 5 —— 真实用户配置断言（left:4/right:1 类）
+  · import_hermes*... —— 读真实 live 配置（left:5/right:1）
+  · update*current_claude_desktop_provider*... —— os error 10048（端口被运行中的 CC Switch 占用）
+  · session*usage_grokbuild / codex_config 各一 —— Os code 1314（符号链接权限）
+  · commands::misc::build_tool_search_paths*... —— 路径相关
   · **validate_aggregate_rejects_ordinary_provider_becoming_referenced_aggregate** —— 我们的测试！
 - ⚠️ 该测试的失败**不能只看「11 = 11」就放过**（数字相同不证明是同一批）。控制器实测：
   · 隔离单线程运行 → **ok**（1 passed）
   · 并行运行下的 panic = 「原子替换失败: …\.tmpKDMaFR\AppData\Local\Claude\claude_desktop_config.json」
-    —— 失败发生在测试**第一步**（保存普通供应商），**尚未走到聚合断言**
+  —— 失败发生在测试**第一步**（保存普通供应商），**尚未走到聚合断言**
   · 结论：被既有 CC_SWITCH_TEST_HOME 跨模块竞态带崩，非逻辑问题；隔离即过
 - **反证**：数字相同但成员可能被替换 —— 这次虽然确认是同一类问题，但排查动作本身是必要的
 - 教训（已记入前述「值得单独立项」）：该测试基础设施缺陷会让**新加的测试也变成 flaky**，
   从而在未来掩盖真实的逻辑回归
 
 ## Task 8 步骤 3–4：构建与部署（2026-09-22 14:30）
+
 - 构建：vite 18s + cargo release 14m50s → `CC Switch_3.20.3-local_x64-setup.exe`
 - 产物 exe 34438144 字节；**pubkey = 0**（补丁 C 仍生效）
 - 部署：经 tools/install-local.bat 装入现有目录 → 大小匹配、pubkey=0
@@ -537,12 +580,13 @@ Baseline: fa65a311（预检修正后）
 当前为 https://aggregate.example，应为 http://127.0.0.1:15721/claude-desktop」。
 
 **取证（不是推测）**：
+
 - 真实 profile 与 10:28 的已知良好备份逐键 diff：**只有 3 处差异**
   · `inferenceGatewayBaseUrl`: 应为 `http://127.0.0.1:15721/claude-desktop` → 实为 `https://aggregate.example`
   · `inferenceGatewayApiKey`: 应为 `ccs-b16dfe…1d0b`（DB 中的真 token，未变） → 实为 `agg-token`
   · `inferenceModels`: 4 项 → **整个键消失**
   · **其余 19 个共有键逐字节相同**（含 `deploymentDisplayName: "Chris"`）→ 补丁 A 的合并语义工作正常，
-    被覆盖的只有网关三键
+  被覆盖的只有网关三键
 - `aggregate.example` / `agg-token` 这两个串在**整个仓库里只出现一处**：
   `services/provider/mod.rs` 的测试夹具 `claude_desktop_direct_settings()`
 - DB 里 0 次出现（`grep -a` 全库）→ 不可能是应用或用户写进去的
@@ -560,6 +604,7 @@ Windows 上 `claude_desktop_config::windows_local_app_data_dir()` 直接读 `LOC
 `TempHome::new()` + `#[serial]`——是我选错了 helper。
 
 **修复**：
+
 1. `with_test_home` 补上 `LOCALAPPDATA` 隔离（设成 `<temp>/AppData/Local` 并在结束时还原）——
    一处改动关闭该 helper 全部 46 个调用点的同类隐患
 2. 新增的 4 个触及 Claude Desktop 的测试加 `#[serial]`——
@@ -575,16 +620,17 @@ Windows 上 `claude_desktop_config::windows_local_app_data_dir()` 直接读 `LOC
 但该组合仍是一颗雷（彻底解法：两族共用同一把锁）。
 
 **验证（同上，修复后全量 `cargo test --lib`）**
+
 - **真实 profile md5 前后完全一致**：`38ffcf39a045f6cde8bd73b83f57f763`，mtime 也没变（14:57:02）
   → 全量测试不再碰真机文件，隔离修复成立
 - 结果 2852 passed / 12 failed / 6 ignored；与修复前逐条对齐：
   · **`validate_aggregate_rejects_ordinary_provider_becoming_referenced_aggregate` 不再失败**
-    （原先在并行全量下被 TempHome 竞态带崩，`#[serial]` 一并治好了这个 flaky）
-  · 余下 10 项 = 修复前那 11 项去掉上面这一条（model_pricing × 5、import_hermes、
-    update_current_claude_desktop（端口 10048 被运行中的 CC Switch 占用）、
-    session_usage_grokbuild、codex_config、commands::misc）
-  · 多出 2 项 `coding_plan::tests::transient_*` —— 隔离单跑**全过**（3 passed），
-    是并行全量下的回环端口抖动，与本次改动无关
+  （原先在并行全量下被 TempHome 竞态带崩，`#[serial]` 一并治好了这个 flaky）
+  · 余下 10 项 = 修复前那 11 项去掉上面这一条（model*pricing × 5、import_hermes、
+  update_current_claude_desktop（端口 10048 被运行中的 CC Switch 占用）、
+  session_usage_grokbuild、codex_config、commands::misc）
+  · 多出 2 项 `coding_plan::tests::transient*\*` —— 隔离单跑**全过**（3 passed），
+  是并行全量下的回环端口抖动，与本次改动无关
 
 ## 增强：聚合槽位支持「获取模型列表」（2026-09-22 16:0x）
 
@@ -598,6 +644,7 @@ Windows 上 `claude_desktop_config::windows_local_app_data_dir()` 直接读 `LOC
 && !isAggregate` 已把聚合的模型映射段整个隐藏，所以聚合这边必须有自己的入口。
 
 **改动（两个前端文件，后端未动）**：
+
 - `ClaudeDesktopProviderForm.tsx`：新增 `aggregateModelsByProvider`（按**供应商 id** 缓存，
   同家的多个槽位共用一份）+ `fetchingAggregateProviderId`，以及
   `handleFetchModelsForProvider(provider)`——用既有的 `envString` 读该供应商的
@@ -653,13 +700,23 @@ Claude Desktop 把四个槽位全删了，选择器变空。**
 **校验器（从 app.asar 反解，逐字确认）**：
 
 ```js
-Ho  = ["sonnet","opus","haiku","fable","mythos"]           // 角色白名单
-Wo  = new RegExp(`^(${Ho.join("|")})(-[\d.]+)?$`)          // 裸档位别名
-Bxe = ["claude", ...Ho, "anthropic"]
-Vxe = /ark-code|astron|…|deepseek|doubao|gemini|gemma|glm|gpt|grok|…|kimi|…|qwen|…/  // 厂商词
-Go  = (name) => Vxe.test(name.toLowerCase()) ? false : (Wo.test(name) || Bxe.some(x => name.includes(x)))
-Yxe = (name) => Go(name) ? {ok:true}
-             : {ok:false, reason:"expected a gateway model route referencing an Anthropic model (…)"}
+Ho = ["sonnet", "opus", "haiku", "fable", "mythos"]; // 角色白名单
+Wo = new RegExp(`^(${Ho.join("|")})(-[\d.]+)?$`); // 裸档位别名
+Bxe = ["claude", ...Ho, "anthropic"];
+Vxe =
+  /ark-code|astron|…|deepseek|doubao|gemini|gemma|glm|gpt|grok|…|kimi|…|qwen|…/; // 厂商词
+Go = (name) =>
+  Vxe.test(name.toLowerCase())
+    ? false
+    : Wo.test(name) || Bxe.some((x) => name.includes(x));
+Yxe = (name) =>
+  Go(name)
+    ? { ok: true }
+    : {
+        ok: false,
+        reason:
+          "expected a gateway model route referencing an Anthropic model (…)",
+      };
 ```
 
 即 **厂商词优先否决**：名字里只要含 deepseek/glm/kimi/gpt… 就整条作废（`/claude-fable-deepseek`）。
@@ -670,6 +727,7 @@ Yxe = (name) => Go(name) ? {ok:true}
 以 `fable-` 开头、且其后非空 → 放行），所以**一路绿灯写进 profile，再被对面悄悄删光**。
 
 **修复**：
+
 1. `utils/aggregateRoutes.ts`：ID 改为 `claude-{档位}-{同档序号}`（`slotId`），
    供应商名不再进入 ID；可读性交给「显示名」（`labelOverride`，不受该校验约束）。
    随之删除已无调用方的 `slugify`/`generateSlotId`。`assignSlotIds` 改为
@@ -688,6 +746,7 @@ Yxe = (name) => Go(name) ? {ok:true}
 逐字一致（所以症状 B 不是 discovery 不匹配）。
 
 **验证（2026-09-22 22:1x）**
+
 - 前端：`npx vitest run` 全量 1116 passed / 4 failed，失败项全是并行负载下的
   5s/10s 超时（PiProviderForm ×3、App.test ×2、SettingsDialog ×1，且每次跑名单还会变）；
   单跑这 3 个文件 58/58 全过 → 判定为抖动，非回归。逐次跑的数字：3 → 4 → 6，
@@ -707,6 +766,7 @@ Yxe = (name) => Go(name) ? {ok:true}
 - 未被单测覆盖：表单「载入即迁移」的那 3 行接线（迁移逻辑本身有测试）。留待本机验收。
 
 **构建与部署（2026-09-22 22:46 构建 / 23:06 上线）**
+
 - 构建 15m44s → `CC Switch_3.20.3-local_x64-setup.exe`
 - 产物 `cc-switch.exe` md5 `d9d43a8f92e88b835bd2d5d8125d4883`、34438656 字节、
   内嵌前端资源 `index-DW7iqeCK.js`（与 dist/index.html 引用一致）
@@ -728,6 +788,7 @@ claude-desktop**；且它只能带 `endpoint/apiKey/usageScript` 等字段，**�
 /v1/messages…），**没有切换供应商的控制面**。故只能走 DB。
 
 **做法（全程可回滚，DB 与 profile 均已备份到 `%TEMP%\ccsw-verify-<ts>\`）**
+
 1. 停 CC Switch → 把「Test」的 4 个槽位 ID 按新方案重写（复刻 `assignSlotIds`
    的档位序号 + 默认目标按位置跟随）→ 写回 DB
 2. **踩到「当前供应商」有两处存储**：真正的权威是
@@ -737,12 +798,13 @@ claude-desktop**；且它只能带 `endpoint/apiKey/usageScript` 等字段，**�
 3. 改 settings.json 后重启 → 聚合供应商成为当前供应商
 
 **验证结果（全部来自 app 自身的接口与日志，非推测）**
+
 - `GET /claude-desktop/v1/models` → `[claude-fable-1, claude-fable-2, claude-opus-1, claude-opus-2]`
 - 四个槽位各发一条真实请求，`proxy_request_logs` 归属：
-  · claude-fable-1 → glm-5.3        → **Zhipu GLM**
+  · claude-fable-1 → glm-5.3 → **Zhipu GLM**
   · claude-fable-2 → deepseek-v4-pro → **DeepSeek**
-  · claude-opus-1  → glm-5.3-flash  → **Zhipu GLM**
-  · claude-opus-2  → deepseek-flash → **DeepSeek**（四条全 200）
+  · claude-opus-1 → glm-5.3-flash → **Zhipu GLM**
+  · claude-opus-2 → deepseek-flash → **DeepSeek**（四条全 200）
   → 一供应商内按模型分流到两家不同上游，且模型名改写正确 ✓
 - profile 中的模型 ID 已改为那四个（由控制器按 app 的 `inference_model_json` 语义写入）
 
@@ -774,23 +836,26 @@ profile 依旧纹丝不动）。故「改完配置没重启 Claude Desktop 却�
 按模型 ID 决定 UI**（app.asar 2.2553.1.0 逆向），不在 CC Switch 的代理逻辑。
 
 ### 根因一：显示名 = `labelOverride` 缺失
+
 - `inferenceModels[]` 支持 `labelOverride`（schema 文案："Shown in the model picker.
   Leave blank to auto-format from the ID."），我们的槽位没填显示名，CC Switch 便不写该键
   （`claude_desktop_config.rs:291` `inference_model_json`），app 退回按 ID 自动格式化。
 - `[1m]` 变体的名字由基础条目的显式名派生（`JFt`），基础条目没有显式名时它连自动
   格式化都拿不到 → **原样显示 ID**，即用户看到的 `claude-opus-2[1m]`。
 - 佐证：用户自己历史 profile（`bak-20260629`）就是 `{"name":"claude-opus-4-8",
-  "labelOverride":"glm-5.2"}`——**ID 用真模型名，labelOverride 写实际调用的模型**。
+"labelOverride":"glm-5.2"}`——**ID 用真模型名，labelOverride 写实际调用的模型**。
 
 ### 根因二：推理强度控件由 `lPt(id)` 决定
+
 ```js
 lPt = (id) => XNt[qAt(id)] ?? (ZNt.test(id) ? YNt : undefined)   // 都不中 → 没有强度控件
 XNt = { 精确表：claude-opus-4-6/4-7/4-8/5、claude-sonnet-4-5/4-6/5、claude-haiku-4-5 }
 ZNt = /^(?:claude-)?(?:fable|mythos)(?:-|$)/                     // 族正则 → YNt 通用阶梯
 YNt = { effortLevels:[low,medium,high,xhigh,max], recommended:high }
 ```
+
 - 我们上一版的 ID（`claude-opus-1/2`）**两处都不中** → 该条模型没有强度控件；
-  而 `claude-fable-1/2` 命中族正则**反而有**（截图里 "Claude Fable 1  Max" 就是它）。
+  而 `claude-fable-1/2` 命中族正则**反而有**（截图里 "Claude Fable 1 Max" 就是它）。
 - 佐证：main.log `[CCD] … thinking override on (effort max on claude-opus-5[1m])`
   ——用户改用自造 ID 之前，用的是真 ID `claude-opus-5`，强度是好的。
 - 池内顺序：`4-8`/`4-7` 有 low…max（含 xhigh），`4-6` 只有 extended 开关；
@@ -798,6 +863,7 @@ YNt = { effortLevels:[low,medium,high,xhigh,max], recommended:high }
 - 另：profile 还支持顶层 `defaultModelEffort`（3p scope），本次未做（用户没要求）。
 
 ### 修复
+
 - `aggregateRoutes.ts`：新增按档位的真 ID 池 `RECOGNIZED_IDS`，`slotId` 先取池、用尽
   退回首序号方案；`slotLabel` 空值回落「供应商 · 上游模型」。
 - 表单保存时把空显示名落定（`ClaudeDesktopProviderForm` 提交处），保证 profile 每条
@@ -813,6 +879,7 @@ YNt = { effortLevels:[low,medium,high,xhigh,max], recommended:high }
 `deepseek-v4-pro`**；`claude-fable-1` 本体却正确落到智谱 `glm-5.3`。可稳定复现。
 
 **根因**（两层叠加，第二层把第一层变成了静默错路由）：
+
 1. `aggregate::resolve_target` 用 `slot.route_id == request_model` **精确比较**，
    没有剥离 `[1m]` 标记 → 所有 1M 变体都「未命中槽位」→ 走默认目标。
 2. 未命中时 `aggregate_override = None`，转发层转而调用
@@ -836,11 +903,11 @@ YNt = { effortLevels:[low,medium,high,xhigh,max], recommended:high }
 - profile：22 键不变；`inferenceModels` 四条均带 `labelOverride`（"Zhipu GLM · glm-5.3" 等）
 - `GET /v1/models` → `claude-fable-1/2`、`claude-opus-4-7/4-8`
 - 逐槽位真实请求（`proxy_request_logs` 归属，全部 200）：
-  · claude-fable-1        → glm-5.3        → Zhipu GLM
-  · claude-fable-2        → deepseek-v4-pro→ DeepSeek
-  · claude-opus-4-8       → glm-5.3-flash  → Zhipu GLM
-  · claude-opus-4-7       → deepseek-flash → DeepSeek
-  · **claude-fable-1[1m]**→ glm-5.3        → Zhipu GLM   ← 修复前是 deepseek-v4-pro
+  · claude-fable-1 → glm-5.3 → Zhipu GLM
+  · claude-fable-2 → deepseek-v4-pro→ DeepSeek
+  · claude-opus-4-8 → glm-5.3-flash → Zhipu GLM
+  · claude-opus-4-7 → deepseek-flash → DeepSeek
+  · **claude-fable-1[1m]**→ glm-5.3 → Zhipu GLM ← 修复前是 deepseek-v4-pro
 - 当前会话仍在用旧 ID `claude-opus-2[1m]`：未命中槽位 → 走默认目标（claude-opus-4-7 槽位），
   由目标供应商路由表映射为 deepseek-flash，200 不中断（重启 Claude Desktop 后自然换成新 ID）
 - 程序集校验：已安装 exe 与构建产物 md5 一致（a200fbd65fc42dd4bc3acc5ef1d41e93）；
@@ -870,6 +937,7 @@ flattenProviderGroups（+6 单测：分组保序、重复归一取首、展平�
 typecheck ✓ / 26 单测 ✓ / prettier ✓。后端零改动。
 
 ### 2026-09-23 追加两轮 UI 微调（用户对照「模型映射」表格反馈）
+
 1. `de0051cf`：行尾槽位 ID 预览撤除（悬停 title 可查）；卡列表上方加共用列头。
 2. 列头挪进每张卡内（供应商行之下、档位行之上）——用户确认草图后实施；
    卡内共享内边距，列对齐由近似变精确。
@@ -884,6 +952,7 @@ typecheck ✓ / 26 单测 ✓ / prettier ✓。后端零改动。
 
 **冲突 4 处**（其余全部自动合并，含 `claude_desktop_config.rs`、`services/provider/mod.rs`、
 `proxy/*`、i18n、`types.ts`）：
+
 - `Cargo.toml` / `Cargo.lock` / `tauri.conf.json`：机械改 `3.20.4-local`（补丁 C）；
   updater 三处确认仍处于移除状态
 - `ProviderCard.tsx`：`onTest` 门控合并双方条件——上游加 `appId !== "mcode"`，
@@ -897,11 +966,12 @@ typecheck ✓ / 26 单测 ✓ / prettier ✓。后端零改动。
 
 **部署与验收**：安装包 `CC Switch_3.20.4-local_x64-setup.exe`（md5 与应用一致、
 前端资源 `index-CCsR0JnK.js` 已嵌入、无官方 pubkey）。验收全部通过：
+
 - profile 22 键、`deploymentDisplayName` 存活；DB 槽位与 profile `inferenceModels`
   **完全一致**（6 条：fable-1/2/3、opus-4-6/4-7/4-8）
 - 逐槽位真实请求 6/6 + `claude-fable-1[1m]` 全 200，归属正确
   （fable-1→智谱 glm-5.3、fable-2→DeepSeek v4-pro、fable-3→Ark auto、
-   opus-4-6→Ark kimi-k2-8-preview、opus-4-7→DeepSeek flash、opus-4-8→智谱 flash）
+  opus-4-6→Ark kimi-k2-8-preview、opus-4-7→DeepSeek flash、opus-4-8→智谱 flash）
 - main.log `picker = 6 (inferenceModels)` 零拒收警告
 
 ## 2026-09-24 「1M 行名字后缀」调查结案（结论：app 结构上不可达，接受现状）
@@ -910,6 +980,7 @@ typecheck ✓ / 26 单测 ✓ / prettier ✓。后端零改动。
 「1M context window」区分；Code 面的模型药丸则会显示 1M。
 
 **调查过程（三条路都试过）**：
+
 1. profile 里显式加 `X[1m]` 拼写 → 无效（app 在导入边界把 `X[1m]` 归一成
    `{name:X, supports1m:true}`，折叠后不产生 `variantOf`）
 2. 摘掉 `inferenceModels` 测「动态发现」通道 → 运行中不重跑发现（要重启才触发）；
@@ -917,10 +988,18 @@ typecheck ✓ / 26 单测 ✓ / prettier ✓。后端零改动。
 3. 逆向新版 asar 找到根因：**`[1m]` 拼写在名字层面被显式排除**
    ```js
    // 折叠 X + X[1m] → 一条，且不产生 variantOf（1M 拼写被丢弃）
-   n = e => { let n = eC(e.id), r = n === e.id ? void 0 : t.get(n); return r && _Lt(r) && _Lt(e) ? r : void 0 }
-   return t ? (i.has(t) ? [] : (i.add(t), [{...t, supports1m: !0}])) : [e]
+   n = (e) => {
+     let n = eC(e.id),
+       r = n === e.id ? void 0 : t.get(n);
+     return r && _Lt(r) && _Lt(e) ? r : void 0;
+   };
+   return t ? (i.has(t) ? [] : (i.add(t), [{ ...t, supports1m: !0 }])) : [e];
    // 产生 variantOf 的入组函数显式排除 [1m]
-   function gLt(e){ return qo(e.id) && !e.id.endsWith("[1m]") ? `${e.name}\n${hLt(e)}` : void 0 }
+   function gLt(e) {
+     return qo(e.id) && !e.id.endsWith("[1m]")
+       ? `${e.name}\n${hLt(e)}`
+       : void 0;
+   }
    ```
    → 名字后缀只为「同族版本拼写」服务，`[1m]` 永远拿不到 `variantOf`。
    即：**这是 Anthropic 的设计**（副标题即 1M 标记），非 CC Switch 缺陷。
@@ -946,6 +1025,7 @@ Claude Code / Codex 自带 Go 认得的原生会话头，Claude Desktop 没有�
 → 网关 400 `MissingSessionID`。
 
 **决定性实验**（直连 opencode.ai/zen/go/v1/messages）：
+
 - 不带会话头 → 400 MissingSessionID；**带 `x-opencode-session` → 200** ✓
 - 不带 UA（Python 默认）→ Cloudflare `403 Access denied`（Ray ID）；带
   `User-Agent: cc-switch/…` → 放行（拿到 app 自己的响应）→ **UA 是过关条件，不是客套**
@@ -954,6 +1034,7 @@ Claude Code / Codex 自带 Go 认得的原生会话头，Claude Desktop 没有�
 （proxy_request_logs 中每个 ID 只出现一次），不满足「每对话稳定」，故需自行推导。
 
 **修复**（`proxy/forwarder.rs`）：
+
 1. `is_opencode_upstream(host)`：上游 host 为 `opencode.ai`（含子域、容忍端口）才生效
 2. 补 `User-Agent: cc-switch/<版本>`（用户配置的自定义 UA 优先）
 3. 补 `x-opencode-session`：客户端已带则不动；客户端提供过会话 ID 则用之；否则用
@@ -966,6 +1047,7 @@ Claude Code / Codex 自带 Go 认得的原生会话头，Claude Desktop 没有�
 设的是 OpenAI Chat，会让只在 /messages 上的模型（Qwen/MiniMax 组）失效。
 
 **端到端验证（2026-09-24 11:53，经 CC Switch 代理的真实请求）**：
+
 - 临时在聚合供应商加一张 OpenCode Go 卡（`claude-fable-4` → glm-5.3），
   请求 **200**，日志归属 `claude-fable-4 -> glm-5.3 -> OpenCode Go` ✓
   （修复前同一路径是 Cloudflare 403 / 网关 400，该供应商历史零成功）
@@ -976,6 +1058,7 @@ Claude Code / Codex 自带 Go 认得的原生会话头，Claude Desktop 没有�
 ## 2026-09-24 OpenCode Go 全模型 × 端点实测（42 模型，矩阵见 doc/opencode-go-models.md）
 
 **结论：端点差异真实存在，且按模型而非按厂商分**（复测 74 个失败项零翻转 → 结构性）：
+
 - 全端点可用 5：deepseek-v4-pro / v4-flash / flash / v4.1-flash / v4-flash-vision-exp
 - Anthropic+Chat 9：minimax-m3/m2.5、kimi-k3、qwen3.6/3.7/3.8-plus、qwen3.7/3.8-max、qwen3.8-flash、space-bunny-free
 - 仅 Chat 14：glm-5.1/5.2/5.3/5.3-flash、kimi-k2.6/k2.7-code、longcat-2.0、
@@ -994,6 +1077,7 @@ Claude Code / Codex 自带 Go 认得的原生会话头，Claude Desktop 没有�
 等 14 个模型失效。此注释值得提 upstream 修正。
 
 **按 CC Switch 四种上游格式的分类（补测 Gemini 原生路径后）**：
+
 - ① Anthropic Messages（/v1/messages）→ 15 个模型
 - ② OpenAI Chat（/v1/chat/completions）→ **28 个**（覆盖最广）
 - ③ OpenAI Responses（/v1/responses）→ 9 个
@@ -1007,6 +1091,7 @@ Claude Code / Codex 自带 Go 认得的原生会话头，Claude Desktop 没有�
 实测 3 天消耗仅 $0.0002，额度充裕；选型避开 kimi 系即可。
 
 **最终 OpenCode Go 四档**（经用户确认采纳）：
+
 - fable → mimo-v2.6-flash（3万 req/5h 量大价低；**互换到 fable 档是为了拿强度控件**——
   fable 族正则让任意 claude-fable-N 都有五档控件，而 claude-opus-4 不在精确表里）
 - opus → qwen3.8-flash（$30 档；claude-opus-4 无控件，接受）
@@ -1018,7 +1103,7 @@ Claude Code / Codex 自带 Go 认得的原生会话头，Claude Desktop 没有�
 fable 自造 ID 永远有（族正则）。故"把需要控件的模型挪到 fable 档"是零成本解法。
 
 **验证**：互换后 10 槽位全 200（claude-fable-4→mimo、claude-opus-4→qwen 实测归属正确）。
-定价数据 → doc/opencode-go-models.md；DB/profile 互换均带 .bak-swap-* 备份。
+定价数据 → doc/opencode-go-models.md；DB/profile 互换均带 .bak-swap-\* 备份。
 
 ## 2026-09-24 三个问题的答案 + 排序改造
 
@@ -1036,6 +1121,7 @@ route_id）。`ResolvedModelRoute` 增 `tier: Option<String>`（普通供应商�
 （如 claude-sonnet-4-5）就没有。不可扩充。
 
 **③ 默认目标 vs 默认模型**（两个不同概念，易混）：
+
 - 默认模型 = inferenceModels 第一条 = claude-fable-1；profile 另有
   `alwaysStartWithDefaultModel` 控制「新会话是否从这里起步」（用户自己加的）
 - 默认目标 = 聚合路由的**兜底供应商**：请求模型未命中任何槽位时发给它、且不改模型名
@@ -1055,14 +1141,16 @@ route_id）。`ResolvedModelRoute` 增 `tier: Option<String>`（普通供应商�
 **代码**：`0608a231`（feat）+ `e84b9bbf`（spec），工作区干净。
 
 **四点全部落地**：
+
 1. `defaultModel` 置顶（Rust `Option<String>` + serde default 零迁移；命中槽 → profile
    首位；悬空 → 忽略；前端 assignSlotIds 跟随/置空；UI 独立下拉方案 B）
 2. 拖拽（@dnd-kit，本地简化 sensors，拖完走 commitCards）
 3. 折叠（expandedIds 集合，默认全折叠；全部展开/折叠按钮；「默认」徽标标生效卡）
 4. 按需档位行（+ 新增模型选未占用档、行尾 × 删除、满 4 档隐藏）
-「默认目标」→ UI 文案「兜底目标」（结构不动）。
+   「默认目标」→ UI 文案「兜底目标」（结构不动）。
 
 **测试**：
+
 - Rust aggregate 相关全绿，含 3 个新用例（pins_default_model_to_front /
   ignores_dangling_default_model / deserializes_without_default_model）
 - typecheck ✓；vitest aggregate 29 例 ✓
@@ -1076,11 +1164,13 @@ route_id）。`ResolvedModelRoute` 增 `tier: Option<String>`（普通供应商�
 ## 2026-09-26 根治：诊断面板误报「Gateway was unreachable」+ 默认模型
 
 ### 现象
+
 Claude Desktop 设置页「检测连通」报 `Can't reach 127.0.0.1:15721` /
 `Gateway was unreachable: timeout`，probedModel 多为 claude-haiku-4-5。
 重启后仍现。
 
 ### 根因（**不是网关故障，是诊断面板的预算不足**）
+
 1. 那个橙色框是**设置页「检测连通」的诊断**，不是会话报错。会话侧无硬编码超时
    （流式，代理侧首字节 60s / 非流式 600s 兜底，很宽松）。
 2. 逆向 Claude Desktop asar（**版本已自动更新到 2.9939.2.0**）找到探测函数：
@@ -1093,9 +1183,10 @@ Claude Desktop 设置页「检测连通」报 `Can't reach 127.0.0.1:15721` /
 3. 实测各上游延迟（诊断同款 max_tokens=1，**直连也慢 → 慢在网关本身**）：
    - DeepSeek / Zhipu / Ark：**0.8–1.9s**
    - **OpenCode Go：6.7–8.5s**（cloudflare + 多层转发）
-   → OpenCode Go 必然撞穿探测预算；实测同一时刻这些模型 24/24 全部 200。
+     → OpenCode Go 必然撞穿探测预算；实测同一时刻这些模型 24/24 全部 200。
 
 ### 根治
+
 - **haiku 档（子代理高频 + 诊断常探）从 OpenCode Go 换到 Zhipu GLM**：
   `deepseek-v4.1-flash` → `glm-5.3-flash`（claude-desktop 的 Zhipu id 4854557c）
   → 7.4s 降到 **1.2–1.6s**。OpenCode Go 保留 sonnet/fable 两个低频档。
@@ -1107,15 +1198,18 @@ Claude Desktop 设置页「检测连通」报 `Can't reach 127.0.0.1:15721` /
   删后各 tab 记住自己的选择；新会话仍从第一条（= defaultModel 置顶的 DeepSeek）起步。
 
 ### 验证
+
 12 槽全量（诊断同款请求）**12/12 全 200**，最慢 4.65s（原 OpenCode Go 槽 7–9s）。
 profile 21 键；默认模型 = 第一条 = claude-opus-4-7（DeepSeek · deepseek-flash）。
 
-备份：DB.bak-latency-* / DB.bak-slowfix-* / before-latency-prof-* / before-alwaysstart-*
+备份：DB.bak-latency-_ / DB.bak-slowfix-_ / before-latency-prof-_ / before-alwaysstart-_
 
 ## 2026-09-26 subagent 档位机制（官方文档证实）+ Zhipu 档位去重
 
 ### subagent 继承机制：**官方默认，完整继承父档位，不降级**
+
 官方文档（https://code.claude.com/docs/en/sub-agents）原文：
+
 > "A subagent is **not fixed to Haiku or Sonnet** by default. For custom subagents,
 > `general-purpose`, and `Plan`, the default is the **main conversation's model**"
 > 优先级：① per-invocation `model` 参数 ② 定义文件 `model` frontmatter（`inherit`=跟随）
@@ -1130,6 +1224,7 @@ profile 21 键；默认模型 = 第一条 = claude-opus-4-7（DeepSeek · deepse
   `agent({model:'sonnet'})` 或 agent 定义 frontmatter。
 
 ### 修复：Zhipu 档位重复 + 删除 Desktop 下失效的死配置
+
 - 起因：09-26 延迟根治时把 haiku 档也指向 `glm-5.3-flash`，与 sonnet 档重复
   （列表里出现两条同名）。Zhipu 账号实际有 **11 个**可用模型（/v1/models 实测：
   glm-4.5/4.5-air/4.6/4.7/5/5-turbo/5.1/5.2/5.3/5.3-flash/5.3-flashx）。
@@ -1138,15 +1233,17 @@ profile 21 键；默认模型 = 第一条 = claude-opus-4-7（DeepSeek · deepse
   （subagent 高频继承，最快 1.1s）。
 - 删除 `~/.claude/settings.json` 的 `env.CLAUDE_CODE_SUBAGENT_MODEL`
   （值为 glm-5.3-flashx[1M]）：**在 Claude Desktop 下不生效**——Desktop 启动
-  Claude Code 子进程不透传该 env（子进程 env 里 ANTHROPIC_DEFAULT_* 全空、
+  Claude Code 子进程不透传该 env（子进程 env 里 ANTHROPIC*DEFAULT*\* 全空、
   BASE_URL 指向本地代理），只有终端直接跑 CLI 才有效。留着会误导。
   需要固定 subagent 档位时用 agent 定义 frontmatter（优先级高于 env，不依赖透传）。
 - 结果：12 条目零重复，12/12 全 200，最慢 2.5s。
 
 ### 2026-09-26 修正：Zhipu 档位最终分配（用户指定）
+
 用户指出 `glm-5.2` 已下线（会静默路由到 glm-5.3，是僵尸 ID），并给出定位：
 **opus = glm-5.3（旗舰）、sonnet = glm-5.3-flashx（快速版）**。已照此修正——
 我先前把 sonnet 改成 glm-5.2 是错的（实测 200 但实为 glm-5.3 的路由结果）。
+
 - fable 档保持 `glm-5.3`（用户选 A：接受与 opus 同模型，列表里两条同名）。
 - Zhipu 账号 11 个模型中实际用了 3 个：glm-5.3（fable+opus）、
   glm-5.3-flashx（sonnet）、glm-5.3-flash（haiku，subagent 高频，1.1s）。
@@ -1246,47 +1343,48 @@ longcat（haiku）为免费冗余/备胎（space-bunny 是"限时"模型，下�
 
 Task 1: complete (commits c62b52be..74413855, review clean/approved；批次 F 流程偏离已由 controller 追认；账本 gitignore 实测确认，入库改走 docs/local-maintenance 快照，plan Task 9 已修正)
 Minor 留档（最终全分支审查 triage）：
+
 - 74413855 提交信息称「纯提取」但顺带去掉一处自排除检查（aggregate.rs 反向引用检查的 other.id==provider.id continue；实害≈0，语义由正向检查兜住）
 - 7937cc46 主题行未覆盖批内 UpdateContext.tsx 的 resetDismiss 删除（全仓零残留调用者）
 - 6ad40dad 主题行未提 fetchModelsOrToast 提取与错误提示布尔化
 - 01102048 守卫用 base_url_host、注入点用 upstream_host，来源不同（不变式已注释，回落旧行为非新故障）
 - 487138e9 含 AggregateProviderFields.tsx 去掉空值前置（routeId 恒非空不变式下纯视觉影响）
-Task 2: complete (commit 5b8e7b11, review approved)
-Minor 留档：
+  Task 2: complete (commit 5b8e7b11, review approved)
+  Minor 留档：
 - 池留空位机制现无实例用例（brief 要求删，与用尽同分支，非回归；后续可补合成池用例）
 - aggregateRoutes.ts:25「按强度齐全排序」叙事与新池实序有张力（brief 逐字指定文本，留整分支评审校准）
-Task 3: complete（本机迁移 + 重启回归；**无代码 diff**，产物是 DB `providers` rowid 57 的 meta 与 Claude Desktop profile）
+  Task 3: complete（本机迁移 + 重启回归；**无代码 diff**，产物是 DB `providers` rowid 57 的 meta 与 Claude Desktop profile）
 - 池连续化迁移为「Kimi 卡整组上移到 OC 卡前」：原脚本只改 OC 槽一处会造出两条 `claude-sonnet-5`（Kimi 槽已占该 ID）——Rust `dedup_by(route_id)` 只留首条（Kimi 模型从 profile 消失 → 15 断言失败），或 profile 未被重写时 `resolve_target` 首匹配把两条都打到 space-bunny（回归假绿）；controller 裁决改卡序后 Kimi 成第 3 个 sonnet，保住满配 `claude-sonnet-5`。
 - 迁移内容（DB + profile 同步；profile 备份 `…157210.json.bak-sonnet5-continuous`）：卡序 Zhipu→DeepSeek→Ark→**Kimi→OC**（原 OC→Kimi）；6 处 ID 轮换：k3 `fable-5→fable-4`、mimo-v2.6-pro `fable-4→fable-5`、space-bunny `sonnet-3→sonnet-4`、longcat `haiku-2→haiku-3`、k3-256k `haiku-3→haiku-2`、`defaultModel sonnet-3→sonnet-4`（仍指 space-bunny、仍置顶）；kimi-for-coding 保持 `claude-sonnet-5`。
 - 验收：重启 CC Switch（旧 PID 30004→新 15244）后 **15/15 全 200**；`/v1/models` 15 条唯一、含 sonnet-4 与 sonnet-5、无 sonnet-3；线上槽位 `assignSlotIds` 重算**不动点**（编辑器保存不再变更任何 ID）。
 - 选择记忆一次性回落（已知代价，此处留痕）：旧 `claude-sonnet-3` 失效回落默认；`fable-4/5`、`haiku-2/3` 是**跨卡对调**，若 Desktop 记住过这些 ID，重启后解析到的是对调后另一家的模型（profile 标签已随 ID 正确配对，重选即恢复）。
-Task 3: complete (无代码提交，迁移+回归全过；review approved；spec 级修正：Kimi 卡上移方案，plan 已更新 aec0284b)
-Minor 留档：
+  Task 3: complete (无代码提交，迁移+回归全过；review approved；spec 级修正：Kimi 卡上移方案，plan 已更新 aec0284b)
+  Minor 留档：
 - 报告「HEAD 仍为 5b8e7b11」陈述过时（中断恢复残留草稿；实际 HEAD=aec0284b 为 controller docs 提交，无实质影响）
 - 重启证据的旧 PID 30004 为散文断言（轮询+新 PID 已足够）
 - 报告引用账本用省略号摘录非逐字
 - 需用户动作：Claude Desktop 自身重启一次才会读到新 inferenceModels（CC Switch 重启不替代）
-Task 4: complete (commit 1e4435a0, review approved；转写字节级保真)
-Minor 留档（安排 Task 6 顺手补）：
-- `id in EXACT_LADDERS` 原型链泄漏（"constructor"/"__proto__" 误报 ladder）——输入域不可达；Task 6 替换 import 时顺手改 Object.hasOwn 或 Map
+  Task 4: complete (commit 1e4435a0, review approved；转写字节级保真)
+  Minor 留档（安排 Task 6 顺手补）：
+- `id in EXACT_LADDERS` 原型链泄漏（"constructor"/"**proto**" 误报 ladder）——输入域不可达；Task 6 替换 import 时顺手改 Object.hasOwn 或 Map
 - 测试强度空隙（变异体可存活）：/i 标志无判别性断言（补 CLAUDE-SONNET-5[1M]→ladder）、FAMILY_RE 锚点无负例（补 claude-fablex→none）、opus-4-7/4-8/5 阶梯值无断言、sonnet-5 用 toContain 弱于 toEqual
-Task 5: complete (commit 9e5fcb8e, review approved)
-Minor 留档：
+  Task 5: complete (commit 9e5fcb8e, review approved)
+  Minor 留档：
 - 列头 effortBadgeHeader 的 t() 无 defaultValue（brief 原文、与既有列头一致；收紧口径时的唯一漏点）
 - 空 routeId 新建行显示 ✗+「溢出 ID」tooltip（语义是「未填」非「溢出」，UX 观察）
-Task 6: complete (commits 2722d86e+d2e474b0, review approved；Step 0 asar 复核：Desktop 对未知 maxEffort 是 cap-at-low 非拒收)
-Minor 留档：
+  Task 6: complete (commits 2722d86e+d2e474b0, review approved；Step 0 asar 复核：Desktop 对未知 maxEffort 是 cap-at-low 非拒收)
+  Minor 留档：
 - aggregate.rs:9 注释「不让 Desktop 拒收整个字段」与 asar 实测（cap at low）矛盾——应改为「避免被静默压到 low」（最终审查处理）
 - maxEffort 过滤不做 trim（TS 类型卡死取值，实害有限；label_override 有 trim 不一致）
 - profile 断言按数组下标定位依赖槽位顺序（同测试已先断言 routes 顺序，脆性有限）
 - /v1/models 未透出 maxEffort（可选跟进，显式 inferenceModels 路径不受影响）
-Task 7: complete (commit 1a96a6bd, review approved；两披露偏离均判定合理：按行定位测试、增补归一化顺序判别用例)
-Minor 留档：
+  Task 7: complete (commit 1a96a6bd, review approved；两披露偏离均判定合理：按行定位测试、增补归一化顺序判别用例)
+  Minor 留档：
 - 列头 maxEffort 的 t() 无 defaultValue（brief 原文，与相邻列头一致）
 - 列头 text-right 与左对齐下拉视觉错位（纯外观）
 - disabled 触发器 title 在部分浏览器不弹原生 tooltip（可改外层 span）
 - scrollIntoView 全局 stub 无还原（仓库既有惯例）
-Task 8: BLOCKED —— 构建/部署/三重校验/不动点断言全过，但 **15/15 回归未达成（12 槽 200 + 3 槽被上游配额挡住）**，非本构建所致
+  Task 8: BLOCKED —— 构建/部署/三重校验/不动点断言全过，但 **15/15 回归未达成（12 槽 200 + 3 槽被上游配额挡住）**，非本构建所致
 - 构建：`pnpm tauri build --bundles nsis`（后台，22:50:44→23:07:32，约 16m48s，exit 0）；产物 `src-tauri/target/release/bundle/nsis/CC Switch_3.20.4-local_x64-setup.exe`（10,193,050 B，23:07:32）；release exe md5 `e7604190…`；前端新资源名 `index-IkOTZHR4.js`（旧 `index-aZR37TZO.js`）。
 - 部署：旧 PID 15244 轮询确认退出（1 轮）→ `tools/install-local.bat`（EXITCODE=0）→ **三重校验全过**：md5 双向一致 `e7604190…`（部署前旧 md5 `bcfd3cd5…` 可对照）、资源名 grep 安装 exe 命中 1、官方 pubkey 计数 0；启动后 PID 37188。
 - 回归（复用 Task 3 Step 3 脚本，23:26:54→23:27:25）：**12/15 全 200**；3 个 429 全属同一上游「Ark Agent Plan」（槽 kimi-k3 / kimi-k2.8-preview / ark-code-latest），上游响应体 `{"error":{"code":"AccountQuotaExceeded"…}}`：5 小时配额耗尽，**2026-09-30 02:47:47 +0800 重置**。重试 1/1（仅这 3 槽）同结果——确定性，非抖动。
@@ -1294,17 +1392,17 @@ Task 8: BLOCKED —— 构建/部署/三重校验/不动点断言全过，但 **
 - `/v1/models` 不动点断言**通过**：15 条唯一、含 `claude-sonnet-4` 与 `claude-sonnet-5`、无 `claude-sonnet-3`。
 - 闭环待办：02:47:47 后复跑该 3 槽即达 15/15；Step 4 GUI 验收 4 项（徽标抽查 / Kimi fable maxEffort 落库 / OC sonnet 下拉含 xhigh / Zhipu sonnet 下拉禁用）**留用户在界面操作**。
 - 四项交付状态：① sonnet 池连续化+本机迁移 complete（Task 2/3）② 三态思考档位徽标 complete（Task 4/5）③ maxEffort 入 UI complete（Task 6/7）④ fork README+推送 待 Task 9。
-Minor 留档：
+  Minor 留档：
 - 诊断时一条 DB 查询把 Ark 供应商 `settings_config.env.ANTHROPIC_AUTH_TOKEN` 的值打印到了终端（脚本只脱敏顶层 key，未处理 env 嵌套）——报告与账本均不复述该值；建议轮换该 token 消除暴露面。
 - 首轮回归脚本只记状态码、未捕获响应体（429 根因靠 CC Switch 日志定位）；重试脚本已补响应体捕获（截 200 字符）。
 - 构建日志含 `__TAURI_BUNDLE_TYPE variable not found` 警告（tauri bundler 打补丁阶段的提示，不影响 exit 0 与产物）。
-Task 8: complete (无代码提交；构建部署三重校验全过、/v1/models 不动点断言过；review approved)
+  Task 8: complete (无代码提交；构建部署三重校验全过、/v1/models 不动点断言过；review approved)
 - 回归 12/15：3 条 429 = Ark 上游 AccountQuotaExceeded（02:47:47 重置；旧版本时段已同款 429，与本构建无关；429 语义响应证明路由链路通）——遗留：配额重置后复跑 3 槽补齐 15/15
 - GUI 验收 4 项留用户（徽标一致性/maxEffort 设置/OC sonnet 可选/Zhipu sonnet 禁用）
 - 安全待办：Ark 的 ANTHROPIC_AUTH_TOKEN 曾在诊断时打到终端（报告/账本未复述值）——建议用户轮换
-Minor 留档：429 屡发归属表述（火山 Coding Plan 与 Ark Agent Plan 同平台不同名）；/v1/models 断言载体未点明（来自 retry 脚本）；账本 429 分布摘录省略 23 时 6 次
-Task 9: complete (commit a93986e8 + controller 收口 6e3fa866/后续，review approved；README 链接偏离判定正确；origin 双向确认)
-Minor 留档：README 死路径与三态表缺 opus-5 行已由 controller 顺手修；报告"50 行"记述滑误（实为新增行数）；快照含被取代的 Task 8 BLOCKED 条目（append-only 惯例）
+  Minor 留档：429 屡发归属表述（火山 Coding Plan 与 Ark Agent Plan 同平台不同名）；/v1/models 断言载体未点明（来自 retry 脚本）；账本 429 分布摘录省略 23 时 6 次
+  Task 9: complete (commit a93986e8 + controller 收口 6e3fa866/后续，review approved；README 链接偏离判定正确；origin 双向确认)
+  Minor 留档：README 死路径与三态表缺 opus-5 行已由 controller 顺手修；报告"50 行"记述滑误（实为新增行数）；快照含被取代的 Task 8 BLOCKED 条目（append-only 惯例）
 
 ## 2026-09-30 计划收尾：最终审查 + 修复
 
@@ -1332,20 +1430,21 @@ Minor 留档：README 死路径与三态表缺 opus-5 行已由 controller 顺�
 
 Task 1: complete (commit 0f00bf93, review approved；21/21 aggregate 测试、22 处字面量补齐经独立复核、5 次变异验证非空转)
 Minor 留档（最终修复波处理）：
+
 - alias_matching_is_case_insensitive 未覆盖**前缀侧**小写化（若误删 rule.prefix.to_lowercase() 测试全绿）——建议某条规则 prefix 写成 "Claude-Sonnet" 补判别
 - alias_request_with_1m_suffix_still_matches 不严格判别剥除层序（已由代码位置保证）
 - alias_empty_or_whitespace_prefix_skipped 未断言 prov.id（实现路径下无歧义）
 - 边界语义记录：悬空 slot_id 静默 / 悬空 provider_id 报错（与精确命中同路径一致）
 - 空规则时 requested.to_lowercase() 仍分配（开销可忽略，审查建议不动）
-Task 2: complete (commit 26f421ee, review approved；关键点 findIndex 查旧 routes.slots 已核对；两处自曝偏离经审查判定合理)
-Minor 留档：测试 3（旧数据仍 undefined）判别力弱（RED 阶段即通过，属防回归断言）；三处跟随不宜抽公共函数（失效处置各异，YAGNI 判断正确）
-Task 3: complete (commit 4fb16964, review approved；8 i18n 键双语齐、区块位置/UNSET/defaultValue/三 handler 走 commit 全部核对通过)
-Minor 留档（最终修复波处理）：
+  Task 2: complete (commit 26f421ee, review approved；关键点 findIndex 查旧 routes.slots 已核对；两处自曝偏离经审查判定合理)
+  Minor 留档：测试 3（旧数据仍 undefined）判别力弱（RED 阶段即通过，属防回归断言）；三处跟随不宜抽公共函数（失效处置各异，YAGNI 判断正确）
+  Task 3: complete (commit 4fb16964, review approved；8 i18n 键双语齐、区块位置/UNSET/defaultValue/三 handler 走 commit 全部核对通过)
+  Minor 留档（最终修复波处理）：
 - patch 路径（前缀输入 onChange）零测试覆盖——建议补一条「输入前缀→断言 onChange 收到新前缀」；key={index} 可留（列表只增不排序 + 受控组件）
 - 孤儿 i18n 键 aliasTarget 无消费方（brief 逐字要求；可用于 select aria-label 否则删）
 - 悬空槽位与「未设置」在 Select 上不可区分（与既有「默认模型」下拉同模式，非本任务引入）
 - 既有遗留：t("aggregate.defaultTargetHint") 裸调用无 defaultValue（未被本任务触及）
-Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5=71404fb9/资源名 1/pubkey 0；另有两次 harness API 中断由 controller 接手完成机械步骤)
+  Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5=71404fb9/资源名 1/pubkey 0；另有两次 harness API 中断由 controller 接手完成机械步骤)
 - 实机验收（落点归属为准）：claude-sonnet-5-5 → space-bunny-free ✓；CLAUDE-SONNET-5-5 → space-bunny-free ✓（大小写不敏感生效）；
   claude-haiku-4-5-20251001 → longcat-2.5-preview-free ✓（此前漂到 deepseek-flash，已修正）；claude-fable-2 → deepseek-v4-pro ✓（精确槽位不受影响）
 - **plan 预期修正**：`zzz-unmatched-name` 实测 **400**（非预期的兜底 space-bunny）——兜底路径会经目标供应商自己的映射表，未知 shape 的名字直接报错（既有设计：未知 route 显式报错，不默认兜底）。plan Step 4 该行预期有误，行为本身正确
@@ -1370,7 +1469,7 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - **重建部署**：终审的守卫修复动的是编辑器 TS，而已部署 bin 是 12:49 构建（含缺陷），
   故重建一次使交付物 = 已验证代码。
 - **清理**（用户要求，已记入记忆 plan-execution-cleanup）：删 18G target/debug、
-  34 个 review-*.diff、本会话 %TEMP% 的 task8-* 与 aliascheck/；保留账本/release/profile 备份。
+  34 个 review-_.diff、本会话 %TEMP% 的 task8-_ 与 aliascheck/；保留账本/release/profile 备份。
 - 测试策略调整：因 debug 树已清，Rust 侧改用 `cargo test --release` 避免重建 18G。
 - **重建部署完成**（md5 `121e7d25` 双向一致、前端资源 `index-BUFQXIKH.js` 命中 1、pubkey 0）：
   部署后别名落点复验通过（sonnet-5-5→space-bunny、haiku-4-5-20251001→longcat）。
@@ -1504,14 +1603,14 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 
 六份评审同到，四个 PR 有发现、两个无发现，全部处理完毕：
 
-| PR | 发现 | 修复提交 | 状态 |
-|---|---|---|---|
-| #7771 z-index | 无 | — | 无需动作 |
-| #7773 OpenCode | 无（11/11 夹具过） | — | 无需动作 |
-| #7779 显示名 | CI prettier 失败 + P2 输入被旧快照覆盖 | `6754bb51` | 已推+回复 |
-| #7789 编辑器 | P2 删默认槽位静默改绑 + P2 apiKey 回退 | `bc3d9e57` | 已推+回复 |
-| #7785 路由 | P2 SlotId 兜底丢 upstream | `b1e42c60` | 已推+回复 |
-| #7786 校验 | **P1 凭据阻断** + P2 默认目标未保护 + P2 trim | `92fd914a` | 已推+回复 |
+| PR             | 发现                                          | 修复提交   | 状态      |
+| -------------- | --------------------------------------------- | ---------- | --------- |
+| #7771 z-index  | 无                                            | —          | 无需动作  |
+| #7773 OpenCode | 无（11/11 夹具过）                            | —          | 无需动作  |
+| #7779 显示名   | CI prettier 失败 + P2 输入被旧快照覆盖        | `6754bb51` | 已推+回复 |
+| #7789 编辑器   | P2 删默认槽位静默改绑 + P2 apiKey 回退        | `bc3d9e57` | 已推+回复 |
+| #7785 路由     | P2 SlotId 兜底丢 upstream                     | `b1e42c60` | 已推+回复 |
+| #7786 校验     | **P1 凭据阻断** + P2 默认目标未保护 + P2 trim | `92fd914a` | 已推+回复 |
 
 - #7786 P1 是真实功能阻断（聚合供应商无法通过保存校验）——fork 早有豁免实现，移植 + 对照测试。
 - #7785 P2 与 #7789 P2a **fork 同样未修**（先前误判为已有修复）——都是重编号/兜底语义的真实缺陷，已按评审建议修掉。
@@ -1523,6 +1622,7 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 ## 2026-10-01 会话交接（Claude settings 修复完成，下一步 = B）
 
 **已完成**
+
 - settings.json 反向白名单合并 `d6b7719f`（已推）：write_live_snapshot + sync_claude_live 两处接入
   `merge_claude_settings_for_live`（live.rs）。三层规则：顶层只接管 env/apiKey；env 18 个 owned 键
   覆盖/删除；供应商显式提供的非 owned 键写入；仅文件里的键保留；sanitize 先于取值。
@@ -1532,6 +1632,7 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - 六 PR 评审批处理（同日早些时候）：#7779/#7785/#7786/#7789 四修复已推+回复，#7771/#7773 无发现。
 
 **待办（按优先级）**
+
 1. **B：CLI 侧聚合（modelPicker 方案）** —— 新会话的第一个任务。前置全齐：
    - settings 覆盖已修（`d6b7719f`）→ modelPicker 存得住
    - 机制已验证（见 `.superpowers/sdd/cli-model-discovery.md`）：CLI 认 `modelPicker` 键
@@ -1545,6 +1646,7 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 4. 四个修复 PR 等维护者复看（Auto-fix 会自动叫）
 
 **关键上下文指针**
+
 - CLI 模型发现分析：`src/.superpowers/sdd/cli-model-discovery.md`
 - settings 键清单分析：`src/.superpowers/sdd/settings-key-inventory.md`
 - 六 PR 分析：`src/.superpowers/sdd/pr5937-analysis.md`（上游 #5937 对比）
@@ -1567,8 +1669,10 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - Task 3: complete (全量 cargo test --release --lib --no-fail-fast：2956 passed / 10 failed / 10 ignored；失败名单与 2026-09-26 基线逐条同集——model_pricing×5 / import_hermes / update_current_claude_desktop(10048) / codex_config+session_usage_grokbuild(symlink) / commands::misc；真实 profile 与 settings.json md5 前后完全一致 c0f37101/922c11b3；cargo fmt --check 0)
 - Task 4: 构建部署完成（验收待用户）——构建 00:26 产物 10,221,033B；exe md5 8e098f9a 双向一致；pubkey 0；前端资源 index-BUFQXIKH.js 命中 1（前端零改动、同哈希属预期）；新代码标记 cli_model_picker_generated 在安装 exe 命中 1；网关 200（PID 28552）
   · ⚠️ modelPicker 尚未写入 settings.json 属**预期**：apply 时才写（启动不写，既有语义）。待用户在 CC Switch UI 里切一次/重存聚合供应商后比对槽位一致性（脚本口径见 plan Task 4）
-- 文档入库：docs/superpowers/{specs,plans}/2026-10-01-*（commit 79149bb8）——补上审查 Minor「spec/plan 未入版本控制」
+- 文档入库：docs/superpowers/{specs,plans}/2026-10-01-\*（commit 79149bb8）——补上审查 Minor「spec/plan 未入版本控制」
+
 ## 2026-10-02 B 终审（全分支 3eb2715e..79149bb8，fable）：With fixes
+
 - Important 1（挡板）：model_picker 删路径双读 TOCTOU——第二次读失败会把整份 settings.json 写成 {}（与 D5 修订针对的事故同类）；修复=删键复用已读文档、消除二次读（修复代理进行中）
 - Important 2（先于本分支，不挡合并）：services/proxy.rs:694-708 代理接管重投影 write_claude_live 整份覆盖丢 modelPicker/theme 等用户键（d6b7719f 只修了另两条路径）→ 已立独立任务卡 task_a6d080f9（chip）
 - Minor：plan Task 1 Step 3 样例为 D5 修订前旧形态（加注记）；Some(&[]) 空路由语义未定义但生产不可达（留档）；get_claude_settings_path legacy claude.json 回落（全仓惯例，留档）
@@ -1576,6 +1680,7 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - 终审核实的三条集成主张：sync_cli_model_picker 唯一调用点 apply_provider（claude_desktop_config.rs:141）、生产唯一 apply 入口 live.rs:860、反向白名单合并保留 modelPicker（live.rs:182/223 + 现成测试 3677）
 
 ## 2026-10-02 Codex 聚合（SDD 逐任务）
+
 - Task 1: complete (commit c7e70fc6，审查 Spec ✅ / Quality Approved)
   · CodexAggregateRoutes{slots,defaultTarget,defaultModel} + CodexAggregateSlot{model,providerId,upstreamModel,label}，serde 键 codexAggregateRoutes（避开上游 #5937 占用的 aggregateRoutes）；复用 DefaultTarget；is_codex_aggregate_provider + codex_routes_of
   · 实现者两处偏离经审查判定合理：测试 partial-move 用 as_ref()（E0382 必需）；label 往返断言为增强（其理由陈述有误但断言有效）
@@ -1591,11 +1696,11 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 
 **策略**：链式分支只解一次——先解 #7785（冲突深），#7786/#7789 依次 merge 各自前驱分支继承解法。
 
-| PR | 解法 | 提交 |
-|---|---|---|
-| #7785 | `handler_context.rs` 3 块：上游 match stack 结构为准 + 聚合注入嫁接进 `None` 分支（Stack 显式绑定优先，`Some` 分支不注入）；`forwarder.rs` 3 块：双 builder 都保留 | `8f14807b` |
+| PR    | 解法                                                                                                                                                                                                        | 提交       |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| #7785 | `handler_context.rs` 3 块：上游 match stack 结构为准 + 聚合注入嫁接进 `None` 分支（Stack 显式绑定优先，`Some` 分支不注入）；`forwarder.rs` 3 块：双 builder 都保留                                          | `8f14807b` |
 | #7786 | `aggregate.rs` 3 块全取前驱侧（本 PR 只改 provider/mod.rs）；手删两处 HEAD 残留（我的 del 顺序错误致块1重复doc行、块2 残留整个 `let fallback_id…Ok((target,None))`——注释掉的 doc 行不报错、代码行报 E0308） | `be5aa363` |
-| #7789 | **零冲突**（纯前端，与 Rust Stack 重构不重叠），直接 merge 前驱 + tsc/vitest | `3ac914ef` |
+| #7789 | **零冲突**（纯前端，与 Rust Stack 重构不重叠），直接 merge 前驱 + tsc/vitest                                                                                                                                | `3ac914ef` |
 
 - 三 PR 现均 **MERGEABLE**（BLOCKED = 等 review）
 - 挂实测出的 `resolve_target` 现返回 `Option<String>`（评审修复 B1 后），#7785 嫁接处 `aggregate_override = upstream`（直接赋值，勿再包 `Some`）
@@ -1620,7 +1725,7 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - #7789 CI 2 挂（windows-latest / ubuntu）：clippy dead-code `CodexKeychainLogin::{Found,Missing}`
   （`subscription.rs:657`，构造点只在 `#[cfg(test)]`）——**上游自身问题**：我 merge 的 main
   （`1bc68e29`）早于上游的自修提交；上游 `67d1daa1 fix(subscription): silence non-macOS
-  dead-code lint` 随后落地且 CI 绿
+dead-code lint` 随后落地且 CI 绿
 - 处理：链式 re-merge 最新 `upstream/main`（67d1daa1）——三分支**全部零冲突**：
   #7785 `7c570940`（clippy ✓）→ #7786 `72373ab8`（check ✓）→ #7789 `37a199a4`（tsc 0 + 23 测试 ✓）
 - 三 PR 均 **MERGEABLE**
@@ -1654,6 +1759,7 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   · 首次校验 ASSET 误用相对路径致空转（grep -c "" 报 144365）——已用正确路径重验命中 1，记录避免重蹈
 
 ## 2026-10-02 Codex 聚合终审（whole-feature，fable）：With fixes
+
 - 范围 c7e70fc6..07cd673f（8 提交）；越界 5 提交零有害交互（write_claude_live 改动全在 Claude 写路径、与 Codex live 写入不共享函数族）
 - 终审 Strengths：单合成漏斗结构性保证（四写入口共用、预检一致、DB 行保持空）；形状逐缝对齐（slot.model 三职合一、defaultTarget 三处逐字、label trim 同款）；删除保护/禁嵌套超 spec（双键∪兜底 ProviderId∪正反向）；NativeResponses 钉的是落盘键集
 - Important ×3（修复代理进行中）：① Chat 转换臂防二次改写守卫无测试（唯一变异存活缝，Chat 恰是最常见网关形态）→ 镜像 e2e ② 聚合卡开放普通配置面而合成静默吞（commonConfigEnabled 可点但丢弃；live.rs 辩解注释前提失实；软校验无聚合豁免）→ 表单收口+注释修正+豁免 ③ 出站模型名不 trim（贴尾空格整槽 400）→ 一行修 + load_codex_provider 入参同修
@@ -1668,6 +1774,7 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   · Codex 代码侧全部闭合。余留：Task 7 手动验收（Codex CLI /model 出槽位、逐槽归属、chat/anthropic 各验一槽）
 
 ## 2026-10-02 B 验收（自动部分）——通过
+
 - 用户重存 MoA（聚合卡，DB 确认 meta.aggregateRoutes 在、is_current=true）触发 apply
 - settings.json modelPicker：28 行（15 槽 + 13 个 [1m] 行）与 DB 派生**逐字一致**；replaceBuiltInOptions:false；defaultModel 置顶生效（首行 space-bunny）；存证与文件一致（ownership 证明）；邻键 11 个全保
 - 副作用核验：Desktop profile 21 键 / Chris / 15 inferenceModels 完好
@@ -1712,6 +1819,7 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 - 功能缺口实测确认（2026-10-03）：聚合路由不支持 OAuth 型目标（OpenAI Official/ChatGPT）——代理认证层拦截「已切换到官方供应商，请重启 Codex」。需 forwarder 在 aggregate_override 存在且目标为官方供应商时注入 OAuth Manager 令牌（代码改动，留待后续 spec/plan）
 
 ## 2026-10-03 聚合 OAuth 注入（GPT 模型入聚合）
+
 - Task 1: complete (commit be52d639，审查 Approved)
   · 三处注入：①跳过客户端 PROXY_MANAGED 校验 ②auth_headers 注入 Manager 令牌 ③passthrough 让位（实现者发现的计划外必要点）
   · 非 official / 非聚合路径逐字节不变（构造性保证：仅 2 行删除，其余全为守卫新增）
@@ -1729,16 +1837,16 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 
 ## 本会话总交付（2026-10-01 至 2026-10-03）
 
-| 交付项 | 状态 |
-|---|---|
+| 交付项                                                     | 状态        |
+| ---------------------------------------------------------- | ----------- |
 | B：CLI modelPicker（15/15 行全显 + 池固化避 CLI 目录撞名） | ✅ 验收通过 |
-| Codex 聚合（路由 + 合成 + 校验 + 编辑器 + 3/3 路由验证） | ✅ 验收通过 |
-| Codex 聚合 OAuth 注入（GPT 入聚合 + auth.json 回落） | ✅ 验收通过 |
-| created_at 容错读（防启动崩溃） | ✅ 部署运行 |
-| write_claude_live 合并语义（补丁 F） | ✅ 部署运行 |
-| 推理阶梯五档（catalog 模板） | ✅ 部署运行 |
-| LocalPool executor 修复 | ✅ 部署运行 |
-| 上游 PR #7771/#7773/#7779/#7785/#7786/#7789 | ✅ 已提交 |
+| Codex 聚合（路由 + 合成 + 校验 + 编辑器 + 3/3 路由验证）   | ✅ 验收通过 |
+| Codex 聚合 OAuth 注入（GPT 入聚合 + auth.json 回落）       | ✅ 验收通过 |
+| created_at 容错读（防启动崩溃）                            | ✅ 部署运行 |
+| write_claude_live 合并语义（补丁 F）                       | ✅ 部署运行 |
+| 推理阶梯五档（catalog 模板）                               | ✅ 部署运行 |
+| LocalPool executor 修复                                    | ✅ 部署运行 |
+| 上游 PR #7771/#7773/#7779/#7785/#7786/#7789                | ✅ 已提交   |
 
 ## 2026-10-04 #7771 合并冲突处理（修复被上游取代 → 收窄为测试 PR）
 
@@ -1864,7 +1972,7 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   Claude Desktop (MSIX 2.31226) 左下角**只显示 Chris·Gateway，Jason 消失**。
 - 修正此前结论："第一段恒为 OS 用户名不可配"只对 attribution=true 成立；
   false 时 principal 层整个不渲染（asar: `workspace.endUserAttribution===false
-  → null`，注释 "no identity shown"）。README 黑盒知识已更新。
+→ null`，注释 "no identity shown"）。README 黑盒知识已更新。
 - 设置卡「用户归属」开关即此键。UI 提示文案可补充"关闭可隐藏 OS 用户名"，
   留待下次构建顺带。
 - 21:19 状态覆盖事故复盘：用户在设置卡改值+切直连，把我关掉的开关又打开——
@@ -1910,7 +2018,7 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
 ## 2026-10-12 R2：DeepSeek Harness AppType 交付
 
 - SDD：spec `2026-10-12-dsh-apptype-design.md`（用户拍板 D1=B/D2=丢注释/D3=en-zh）
-  + plan `2026-10-12-dsh-apptype.md`，内联执行（worktree feat/dsh-apptype）。
+  - plan `2026-10-12-dsh-apptype.md`，内联执行（worktree feat/dsh-apptype）。
 - **Task1 dsh_config.rs**：路径参数化 YAML 适配器（providers 增删读、凭据 ref
   带值守护删除、聚合同步条目、sanitize_route/env 命名），8 单测。
 - **Task2 AppType 接线**：枚举/as_str/from_str/additive/可见性默认 true/

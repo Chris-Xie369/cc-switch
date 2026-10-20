@@ -126,71 +126,6 @@ export interface ClaudeDesktopModelRoute {
   supports1m?: boolean;
 }
 
-// 聚合供应商路由：按档位把请求分流到其他供应商的具体模型
-export type AggregateTier = "sonnet" | "opus" | "haiku" | "fable";
-
-/** 思考强度阶梯（与 Claude Desktop 的 low…max 五档一致）。 */
-export type AggregateMaxEffort = "low" | "medium" | "high" | "xhigh" | "max";
-
-export interface AggregateRouteSlot {
-  /** 生成的槽位 ID（持久化，稳定的路由键）。由 assignSlotIds 写入，后端只校验。 */
-  routeId: string;
-  tier: AggregateTier;
-  providerId: string;
-  upstreamModel: string;
-  label?: string;
-  supports1m?: boolean;
-  /** 思考强度上限（仅完整阶梯 ID 有意义；写入 profile 时透出为 maxEffort） */
-  maxEffort?: AggregateMaxEffort;
-}
-
-export interface AggregateAliasRule {
-  /** 请求名小写化后的前缀（运行时 trim + 小写化后按序匹配，先赢）。空前缀静默跳过。 */
-  prefix: string;
-  /** 目标槽位 routeId；assignSlotIds 重编号时跟随，悬空置空串（运行时跳过） */
-  slotId: string;
-}
-
-export type DefaultTarget =
-  | { kind: "slotId"; value: string }
-  | { kind: "providerId"; value: string };
-
-export interface AggregateRoutes {
-  slots: AggregateRouteSlot[];
-  defaultTarget: DefaultTarget;
-  /** 默认模型（槽位 routeId）：写 profile 时置顶（第一条 = Claude Desktop 的启动默认）。
-   *  未设置 = 跟随排序首位。旧数据无此字段。 */
-  defaultModel?: string;
-  /** 别名路由规则：槽位未命中时按前缀（小写化、按序先赢）转投。缺省 = 无规则。 */
-  aliasRules?: AggregateAliasRule[];
-  /** 已删除的路由 ID：跨保存保留，避免旧会话的名称被新模型复用。 */
-  retiredRouteIds?: string[];
-}
-
-// Codex 聚合路由（与上面的 Claude 侧表平行、形状互不兼容：独立 meta 键
-// `codexAggregateRoutes`）。没有档位 / 思考强度 / 别名层——那些是 Claude Desktop
-// 的协议概念；Codex 侧只有「客户端模型名 → 目标供应商 + 上游模型」。
-export interface CodexAggregateSlot {
-  /** 客户端模型名（Codex CLI 从模型目录里选的 slug，路由键）。
-   *  非空 + 全表唯一由后端保存校验兜底。 */
-  model: string;
-  /** 目标 Codex 供应商 id（被引用者受删除保护） */
-  providerId: string;
-  /** 发往该供应商的模型名 */
-  upstreamModel: string;
-  /** 模型目录显示名；留空则回落 slug（后端以 skip_serializing_if 省略空值） */
-  label?: string;
-}
-
-export interface CodexAggregateRoutes {
-  /** 有序（= 客户端模型目录的顺序） */
-  slots: CodexAggregateSlot[];
-  defaultTarget: DefaultTarget;
-  /** 默认模型（槽位 model）：写 modelCatalog 时置顶、seed TOML 顶层 model 取它。
-   *  未设置 = 跟随槽位首位。 */
-  defaultModel?: string;
-}
-
 export type CodexChatThinkingParam =
   | "none"
   | "thinking"
@@ -247,10 +182,6 @@ export interface ProviderMeta {
   claudeDesktopMode?: "direct" | "proxy";
   // Claude Desktop 本地路由模式：Claude-safe route -> upstream model
   claudeDesktopModelRoutes?: Record<string, ClaudeDesktopModelRoute>;
-  // 聚合供应商：无端点无凭据，按模型把请求分流到其他供应商
-  aggregateRoutes?: AggregateRoutes;
-  // Codex 聚合供应商：同上，按客户端模型名分流（形状与 aggregateRoutes 平行但不通用）
-  codexAggregateRoutes?: CodexAggregateRoutes;
   // 用量查询脚本配置
   usage_script?: UsageScript;
   // 请求地址管理：测速后自动选择最佳端点

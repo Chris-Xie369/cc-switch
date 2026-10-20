@@ -24,8 +24,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { AggregateProviderFields } from "./AggregateProviderFields";
 import { BasicFormFields } from "./BasicFormFields";
 import { CodexOAuthSection } from "./CodexOAuthSection";
 import { CopilotAuthSection } from "./CopilotAuthSection";
@@ -37,19 +35,11 @@ import { ProviderPresetSelector } from "./ProviderPresetSelector";
 import { useApiKeyLink } from "./hooks/useApiKeyLink";
 import { providerSchema, type ProviderFormData } from "@/lib/schemas/provider";
 import type {
-  AggregateRoutes,
   ClaudeApiFormat,
   ClaudeDesktopModelRoute,
-  Provider,
   ProviderCategory,
   ProviderMeta,
 } from "@/types";
-import { useProvidersQuery } from "@/lib/query/queries";
-import {
-  assignSlotIds,
-  isAggregateProvider,
-  slotLabel,
-} from "@/utils/aggregateRoutes";
 import type { OpenClawSuggestedDefaults } from "@/config/openclawProviderPresets";
 import {
   CLAUDE_DESKTOP_ROLE_ROUTE_IDS,
@@ -264,7 +254,6 @@ export function ClaudeDesktopProviderForm({
   onSubmit,
   onCancel,
   onSubmittingChange,
-  providerId,
   initialData,
   showButtons = true,
   onManageAuthAccounts,
@@ -300,18 +289,6 @@ export function ClaudeDesktopProviderForm({
   >(() => resolveManagedAccountId(initialData?.meta, "xai_oauth"));
   const [codexFastMode, setCodexFastMode] = useState<boolean>(
     () => initialData?.meta?.codexFastMode ?? false,
-  );
-  // 聚合路由表：仅在「聚合供应商」开关打开时存在；关闭时置 undefined，
-  // 提交时据此删除 meta.aggregateRoutes（普通供应商 JSON 不变）。
-  const [aggregateRoutes, setAggregateRoutes] = useState<
-    AggregateRoutes | undefined
-  >(() =>
-    // 载入即迁移槽位 ID：旧方案把供应商名 slug 进 ID（claude-fable-deepseek…），
-    // Claude Desktop 会判为「非 Anthropic 模型」把整组模型列表移除。迁移是纯
-    // 重编号（槽位顺序与目标引用都不变），未点保存不会落库。
-    initialData?.meta?.aggregateRoutes
-      ? assignSlotIds(initialData.meta.aggregateRoutes)
-      : undefined,
   );
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(
     "custom",
@@ -354,21 +331,6 @@ export function ClaudeDesktopProviderForm({
         envString(initialData?.settingsConfig, "ANTHROPIC_MODEL"),
       ),
     [defaultRoutes, initialData?.settingsConfig],
-  );
-
-  // 聚合槽位可指向的目标：同 app 下的常规供应商，排除聚合供应商（禁嵌套，
-  // 后端亦拒绝）、正在编辑的自身（后端禁止自引用）与官方供应商（1P 无网关凭据，
-  // 选作目标会在请求时失败）。
-  const { data: desktopProvidersData } = useProvidersQuery("claude-desktop");
-  const aggregateCandidates = useMemo<Provider[]>(
-    () =>
-      Object.values(desktopProvidersData?.providers ?? {}).filter(
-        (provider) =>
-          provider.id !== providerId &&
-          !isAggregateProvider(provider) &&
-          provider.category !== "official",
-      ),
-    [desktopProvidersData?.providers, providerId],
   );
 
   const defaultValues: ProviderFormData = useMemo(
@@ -443,12 +405,7 @@ export function ClaudeDesktopProviderForm({
   const usesManagedOAuth =
     activePreset?.requiresOAuth === true ||
     isOAuthProviderType(activeProviderType);
-  // 聚合供应商服务端被钉死为代理模式（apply 强制走 proxy 分支），前端同步锁定为
-  // proxy，避免界面显示「直连」而落盘 profile 为 proxy 的不一致。开关关闭时
-  // isAggregate 变回 false，effectiveMode 落回 mode，普通供应商行为完全不变。
-  const isAggregate = aggregateRoutes !== undefined;
-  const effectiveMode: "direct" | "proxy" =
-    usesManagedOAuth || isAggregate ? "proxy" : mode;
+  const effectiveMode: "direct" | "proxy" = usesManagedOAuth ? "proxy" : mode;
   const needsModelMapping = effectiveMode === "proxy";
   const routes = needsModelMapping ? proxyRoutes : directRoutes;
   const setRoutes = needsModelMapping ? setProxyRoutes : setDirectRoutes;
@@ -555,16 +512,8 @@ export function ClaudeDesktopProviderForm({
     );
   };
 
-  const handleAggregateToggle = (checked: boolean) => {
-    setAggregateRoutes(
-      checked
-        ? { slots: [], defaultTarget: { kind: "providerId", value: "" } }
-        : undefined,
-    );
-  };
-
   const handleModelMappingChange = (checked: boolean) => {
-    if (usesManagedOAuth || isAggregate) return;
+    if (usesManagedOAuth) return;
     setMode(checked ? "proxy" : "direct");
     if (checked) {
       // 切到 proxy：只恢复/初始化映射模式自己的固定四档，不复用直连模型列表。
@@ -731,39 +680,6 @@ export function ClaudeDesktopProviderForm({
     }
   };
 
-  // 聚合槽位按「目标供应商」拉取模型列表：凭据取自该供应商自身的 env。聚合供应商
-  // 自己没有端点，顶部的「获取模型列表」对它无从下手，故这一份是聚合专属的入口。
-  // 结果按供应商 id 缓存，多个槽位指向同一家时共用一份。
-  const [aggregateModelsByProvider, setAggregateModelsByProvider] = useState<
-    Record<string, FetchedModel[]>
-  >({});
-  const [fetchingAggregateProviderId, setFetchingAggregateProviderId] =
-    useState<string | null>(null);
-
-  const handleFetchModelsForProvider = async (provider: Provider) => {
-    const targetBaseUrl = envString(
-      provider.settingsConfig,
-      "ANTHROPIC_BASE_URL",
-    ).trim();
-    const targetApiKey = envString(
-      provider.settingsConfig,
-      "ANTHROPIC_AUTH_TOKEN",
-    ).trim();
-
-    setFetchingAggregateProviderId(provider.id);
-    try {
-      const models = await fetchModelsOrToast(targetBaseUrl, targetApiKey);
-      if (models) {
-        setAggregateModelsByProvider((current) => ({
-          ...current,
-          [provider.id]: models,
-        }));
-      }
-    } finally {
-      setFetchingAggregateProviderId(null);
-    }
-  };
-
   const handleSubmit = async (values: ProviderFormData) => {
     if (!values.name.trim()) {
       toast.error(
@@ -785,7 +701,7 @@ export function ClaudeDesktopProviderForm({
       delete meta.apiFormat;
       delete meta.endpointAutoSelect;
       delete meta.isFullUrl;
-      delete meta.aggregateRoutes;
+      delete (meta as { aggregateRoutes?: unknown }).aggregateRoutes;
       await onSubmit({
         ...values,
         name: values.name.trim(),
@@ -798,7 +714,7 @@ export function ClaudeDesktopProviderForm({
       });
       return;
     }
-    if (!baseUrl.trim() && !usesManagedOAuth && !isAggregate) {
+    if (!baseUrl.trim() && !usesManagedOAuth) {
       toast.error(
         t("providerForm.fetchModelsNeedEndpoint", {
           defaultValue: "请先填写接口地址",
@@ -883,7 +799,7 @@ export function ClaudeDesktopProviderForm({
       );
       return;
     }
-    if (!usesManagedOAuth && !apiKey.trim() && !isAggregate) {
+    if (!usesManagedOAuth && !apiKey.trim()) {
       toast.error(
         t("providerForm.fetchModelsNeedApiKey", {
           defaultValue: "请先填写 API Key",
@@ -901,10 +817,7 @@ export function ClaudeDesktopProviderForm({
       }))
       .filter((route) => route.route || route.model);
 
-    // 聚合供应商的模型规格由槽位派生（后端 aggregate_model_routes），不使用自身的
-    // claudeDesktopModelRoutes，故不在此做直连/映射的校验与回填——否则聚合会被
-    // 强迫填一份无意义的模型映射才能保存。
-    if (effectiveMode === "proxy" && !isAggregate) {
+    if (effectiveMode === "proxy") {
       // 固定四档（Sonnet / Opus / Fable / Haiku），route_id 由 UI 生成、恒合法，
       // 因此只要求至少填一个实际请求模型；留空档继承第一个已填档（Sonnet 优先），
       // 对齐 Claude Code 的兜底，保证落库四档齐全、子 agent 不会找不到模型。
@@ -949,19 +862,16 @@ export function ClaudeDesktopProviderForm({
     const env = clonePlainRecord(settingsConfig.env);
     delete env.ANTHROPIC_AUTH_TOKEN;
     delete env.ANTHROPIC_API_KEY;
-    settingsConfig.env = aggregateRoutes
-      ? // 聚合供应商无端点无凭据：不写 base_url / key（转发时用目标供应商的）
-        env
-      : usesManagedOAuth
-        ? {
-            ...env,
-            ANTHROPIC_BASE_URL: baseUrl.trim().replace(/\/+$/, ""),
-          }
-        : {
-            ...env,
-            ANTHROPIC_BASE_URL: baseUrl.trim().replace(/\/+$/, ""),
-            [apiKeyField]: apiKey.trim(),
-          };
+    settingsConfig.env = usesManagedOAuth
+      ? {
+          ...env,
+          ANTHROPIC_BASE_URL: baseUrl.trim().replace(/\/+$/, ""),
+        }
+      : {
+          ...env,
+          ANTHROPIC_BASE_URL: baseUrl.trim().replace(/\/+$/, ""),
+          [apiKeyField]: apiKey.trim(),
+        };
 
     const routeMap = routeEntries.reduce<
       Record<string, ClaudeDesktopModelRoute>
@@ -988,13 +898,7 @@ export function ClaudeDesktopProviderForm({
             : "anthropic",
     };
 
-    // 聚合供应商不使用自身的 claudeDesktopModelRoutes（模型规格由槽位派生），
-    // 不写入，避免 meta 里出现与聚合语义无关、易误导的四档映射。
-    if (isAggregate) {
-      delete meta.claudeDesktopModelRoutes;
-    } else {
-      meta.claudeDesktopModelRoutes = routeMap;
-    }
+    meta.claudeDesktopModelRoutes = routeMap;
     meta.providerType = activeProviderType;
     meta.authBinding =
       activeProviderType === "github_copilot"
@@ -1021,25 +925,7 @@ export function ClaudeDesktopProviderForm({
 
     delete meta.endpointAutoSelect;
     delete meta.isFullUrl;
-
-    // 开关打开时写入聚合路由表；关闭时彻底移除，保证普通供应商的 meta 不变。
-    if (isAggregate) {
-      // 空显示名在这里落成默认值「供应商 · 上游模型」：profile 里每条都要带上
-      // labelOverride，留空的话 Claude Desktop 会退回按 ID 自动格式化，
-      // 选择器里只剩 claude-opus-2[1m] 这种看不出实际调用哪家模型的名字。
-      const providerNameById = new Map(
-        aggregateCandidates.map((provider) => [provider.id, provider.name]),
-      );
-      meta.aggregateRoutes = {
-        ...aggregateRoutes,
-        slots: aggregateRoutes.slots.map((slot) => ({
-          ...slot,
-          label: slotLabel(slot, providerNameById.get(slot.providerId)),
-        })),
-      };
-    } else {
-      delete meta.aggregateRoutes;
-    }
+    delete (meta as { aggregateRoutes?: unknown }).aggregateRoutes;
 
     await onSubmit({
       ...values,
@@ -1115,33 +1001,6 @@ export function ClaudeDesktopProviderForm({
 
         {!isOfficial && (
           <>
-            <div className="flex items-center justify-between gap-4 rounded-lg border border-border-default p-3">
-              <Label
-                htmlFor="claude-desktop-aggregate"
-                className="text-sm font-medium"
-              >
-                {t("aggregate.enable", { defaultValue: "启用聚合路由" })}
-              </Label>
-              <Switch
-                id="claude-desktop-aggregate"
-                checked={isAggregate}
-                onCheckedChange={handleAggregateToggle}
-              />
-            </div>
-
-            {isAggregate && (
-              <AggregateProviderFields
-                value={aggregateRoutes}
-                onChange={setAggregateRoutes}
-                candidates={aggregateCandidates}
-                modelsForProvider={(providerId) =>
-                  aggregateModelsByProvider[providerId] ?? []
-                }
-                fetchingProviderId={fetchingAggregateProviderId}
-                onFetchModels={handleFetchModelsForProvider}
-              />
-            )}
-
             {usesManagedOAuth ? (
               <div className="rounded-lg border border-border bg-subtle p-3">
                 {activeProviderType === "github_copilot" ? (
@@ -1175,7 +1034,7 @@ export function ClaudeDesktopProviderForm({
                   />
                 )}
               </div>
-            ) : isAggregate ? null : (
+            ) : (
               <ApiKeySection
                 value={apiKey}
                 onChange={setApiKey}
@@ -1188,25 +1047,23 @@ export function ClaudeDesktopProviderForm({
               />
             )}
 
-            {!isAggregate && (
-              <EndpointField
-                id="baseUrl"
-                label={t("providerForm.apiEndpoint")}
-                value={baseUrl}
-                onChange={(v) => setBaseUrl(v)}
-                placeholder={t("providerForm.apiEndpointPlaceholder")}
-                hint={
-                  needsModelMapping && apiFormat === "openai_responses"
-                    ? t("providerForm.apiHintResponses")
-                    : needsModelMapping && apiFormat === "openai_chat"
-                      ? t("providerForm.apiHintOAI")
-                      : needsModelMapping && apiFormat === "gemini_native"
-                        ? t("providerForm.apiHintGeminiNative")
-                        : t("providerForm.apiHint")
-                }
-                showManageButton={false}
-              />
-            )}
+            <EndpointField
+              id="baseUrl"
+              label={t("providerForm.apiEndpoint")}
+              value={baseUrl}
+              onChange={(v) => setBaseUrl(v)}
+              placeholder={t("providerForm.apiEndpointPlaceholder")}
+              hint={
+                needsModelMapping && apiFormat === "openai_responses"
+                  ? t("providerForm.apiHintResponses")
+                  : needsModelMapping && apiFormat === "openai_chat"
+                    ? t("providerForm.apiHintOAI")
+                    : needsModelMapping && apiFormat === "gemini_native"
+                      ? t("providerForm.apiHintGeminiNative")
+                      : t("providerForm.apiHint")
+              }
+              showManageButton={false}
+            />
 
             <div className="space-y-4 border-l border-border pl-3">
               <div className="flex items-stretch justify-between gap-4">
@@ -1237,7 +1094,7 @@ export function ClaudeDesktopProviderForm({
                     onValueChange={(value) =>
                       handleModelMappingChange(value === "proxy")
                     }
-                    disabled={usesManagedOAuth || isAggregate}
+                    disabled={usesManagedOAuth}
                   >
                     <SelectTrigger
                       id="claude-desktop-model-mode"
@@ -1264,16 +1121,7 @@ export function ClaudeDesktopProviderForm({
                 </div>
               </div>
 
-              {isAggregate && (
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  {t("aggregate.modeLockedHint", {
-                    defaultValue:
-                      "聚合路由需要接管请求转发，接入方式已锁定为「模型映射」（代理）。",
-                  })}
-                </p>
-              )}
-
-              {needsModelMapping && !isAggregate && (
+              {needsModelMapping && (
                 <div className="space-y-4 border-t border-border pt-4">
                   {activeProviderType !== "xai_oauth" && (
                     <div className="space-y-2">

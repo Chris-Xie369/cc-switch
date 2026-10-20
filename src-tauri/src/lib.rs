@@ -1,4 +1,3 @@
-mod aggregate;
 mod app_config;
 mod app_store;
 mod auto_launch;
@@ -29,7 +28,6 @@ mod mcode_config;
 mod mcp;
 pub mod mode;
 mod model_capabilities;
-mod model_picker;
 mod openclaw_config;
 mod opencode_config;
 mod panic_hook;

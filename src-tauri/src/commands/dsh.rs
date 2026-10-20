@@ -4,9 +4,14 @@ use crate::dsh_config;
 use crate::store::AppState;
 use tauri::State;
 
-/// 把当前 Claude Desktop 聚合槽位立即同步进 `~/.dsh/settings.yaml`
-/// （用户从未配置过 cc-switch route 时为 no-op，避免惊扰未启用 DSH 的用户）。
+/// Refresh the existing CC Switch Aggregate route from the current Desktop Stack.
+/// Stack off, or a user who never created the route, leaves the files alone.
 #[tauri::command]
 pub fn sync_dsh_aggregate(state: State<'_, AppState>) -> Result<(), String> {
-    dsh_config::sync_dsh_aggregate_now(state.db.as_ref(), None).map_err(|e| e.to_string())
+    if !crate::mode::stack::stack_mode_now(&crate::app_config::AppType::ClaudeDesktop) {
+        return Ok(());
+    }
+    let models =
+        crate::mode::stack::desktop_published_now(state.db.as_ref()).map_err(|e| e.to_string())?;
+    dsh_config::sync_dsh_aggregate_now(state.db.as_ref(), &models).map_err(|e| e.to_string())
 }

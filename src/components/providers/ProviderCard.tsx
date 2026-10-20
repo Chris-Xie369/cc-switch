@@ -31,7 +31,6 @@ import { resolveManagedAccountId } from "@/lib/authBinding";
 import { resolveCodexOfficialIdentity } from "@/utils/providerCapabilities";
 import { useProviderHealth } from "@/lib/query/failover";
 import { useUsageQuery } from "@/lib/query/queries";
-import { isAggregateProvider } from "@/utils/aggregateRoutes";
 import { resolveProviderIcon } from "@/utils/providerIcon";
 import { isAdditiveAppId, isProxyAppId } from "@/config/appConfig";
 import { ProviderCardActions } from "./ProviderCardActions";
@@ -527,12 +526,7 @@ export function ProviderCard({
             onTest={
               // 连通检测对第三方/自定义/Copilot/Codex-OAuth 供应商开放。官方供应商一律不给：
               // 它们 base_url 故意留空、走客户端默认/OAuth 端点，没有可靠的探测目标。
-              // 聚合供应商同理隐藏：它按设计自身无端点无凭据，请求由代理按模型分流，
-              // 没有可探测的 base_url。
-              onTest &&
-              appId !== "mcode" &&
-              provider.category !== "official" &&
-              !isAggregateProvider(provider)
+              onTest && appId !== "mcode" && provider.category !== "official"
                 ? () => onTest(provider)
                 : undefined
             }

@@ -2031,6 +2031,47 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   一律取上游侧**，让它随上游重构自然萎缩。
 - 聚合卡数据已由用户迁移至 Stack 配置（实测时完成）。
 
+## 2026-10-20 跟进 v4.0.15+v4.0.16
+
+- 上游 `main` 与 tag `v4.0.16` 是同一提交 `f92ff0b0`（2026-10-19）。自上次合并的
+  `v4.0.14`（`5de6feb4`）起，上游 75 个提交，含 `v4.0.15`（`79e754ab`）。
+  本叉仍有 223 个上游没有的提交。一次 merge：`999752be`，
+  消息沿用「Merge tag 'v4.0.16' into fix/profile-merge」。
+- 版本：`Cargo.toml`、`tauri.conf.json`、`Cargo.lock` 里的包版本写成
+  `4.0.16-local`。`package.json` 仍只跟上游数字 `4.0.16`，不加 `-local`，
+  与 4.0.14 时一样。
+- 冲突 5 个。版本号 3 处取本地后缀。`claude_desktop_config.rs` 的
+  `proxy_model_routes`：保留聚合早退（`sync_dsh_aggregate_now` 从这里取
+  聚合槽位路由），并接上上游「空模型列表的原生直连卡用默认角色路由」。
+  默认路由补了 `max_effort: None`、`tier: None`，因为本叉的
+  `ResolvedModelRoute` 比上游多这两个字段。
+  `ClaudeDesktopProviderForm.tsx`：保留 `fetchModelsOrToast`（表单与聚合槽位
+  共用），并接上上游托管 OAuth 拉模型（Copilot / Codex / xAI）。
+- 行级核对（`docs/local-maintenance/check-owner-lines.py`）：两侧都改过的
+  文件 27 个，仅本叉改过的 117 个在合并后字节未动。丢掉的行只有旧的
+  `4.0.14-local` 三处，外加原来那句聚合注释（注释复查后整段删掉，
+  早退代码还在）。DSH 读路径
+  `TEST_DSH_PATCH_PATH`、`-local` 剥离、profile merge 历史都还在。
+- **待主人拍板**：2026-10-16 写过「下次迁移 E 触面冲突一律取上游侧」。
+  这次没有照做。早退和 `fetchModelsOrToast` 仍被 DSH 聚合同步和聚合槽位
+  UI 调用，删掉会改变仍在编译的行为，上游的新分支也没有取代它们。
+  若仍要让 E 萎缩，应另开一笔：删早退，并让 `sync_dsh_aggregate_now`
+  直接调 `aggregate_model_routes`。
+- 4.0.15 和 4.0.16 的要点见 `docs/release-notes/v4.0.15-zh.md` 与
+  `v4.0.16-zh.md`。
+- 验证（Linux 云主机，2026-10-20）：`pnpm typecheck` 0；`pnpm test:unit`
+  247 文件 3139 过；`pnpm build:renderer` 过；`cargo fmt --check` 0；
+  `cargo build` 0（`target/debug/cc-switch`）；`cargo test` 库 3959 过、0 败、9 ignored，其余集成测试包全过。
+  其中 `claude_desktop_apply_preserves_non_gateway_profile_fields` 与
+  `dsh_config` 读隔离相关用例过。第一次 `cargo test` 挂在
+  `wsl_auto_probe_and_removal_match_the_version_check_shell`：测试里的
+  `dash -lic` 抓了 tmux 的控制终端。`setsid` 脱离终端后重跑，该用例过。
+  `cargo test` 编译期有 8 条既有 dead_code 和未使用导入警告（聚合 Codex
+  辅助函数、`merge_profile`、`proxy_origin_from_parts`、DSH 测试锁导入），
+  合并前已是这样。
+- 未在这台机器上做：`pnpm tauri build` 安装包、Windows 托盘面板实机、
+  fnm PATH、NSIS、macOS 图标底色、需要 `wsl.exe` 的 Hermes 会话读取。
+
 ## 2026-10-17 跟进 v4.0.14（4 冲突，含退役聚合卡清理）
 
 - **MoA 聚合卡删除**（用户操作受阻 → 根因定位）：删除被「无法删除当前正在使用的

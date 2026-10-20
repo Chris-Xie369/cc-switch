@@ -736,8 +736,6 @@ fn uses_default_proxy_routes(provider: &Provider) -> bool {
 }
 
 pub fn proxy_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRoute>, AppError> {
-    // 聚合供应商：模型规格由路由表的槽位派生，而不是自身的 claudeDesktopModelRoutes。
-    // DSH 聚合同步（sync_dsh_aggregate_now）也从这里取路由。
     if crate::aggregate::is_aggregate_provider(provider) {
         return crate::aggregate::aggregate_model_routes(provider);
     }

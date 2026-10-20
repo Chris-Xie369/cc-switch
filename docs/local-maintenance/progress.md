@@ -2049,7 +2049,8 @@ Task 4: complete (无代码提交；构建 14m58s + 安装三重校验全过 md5
   共用），并接上上游托管 OAuth 拉模型（Copilot / Codex / xAI）。
 - 行级核对（`docs/local-maintenance/check-owner-lines.py`）：两侧都改过的
   文件 27 个，仅本叉改过的 117 个在合并后字节未动。丢掉的行只有旧的
-  `4.0.14-local` 三处，外加一句改过措辞的聚合注释。DSH 读路径
+  `4.0.14-local` 三处，外加原来那句聚合注释（注释复查后整段删掉，
+  早退代码还在）。DSH 读路径
   `TEST_DSH_PATCH_PATH`、`-local` 剥离、profile merge 历史都还在。
 - **待主人拍板**：2026-10-16 写过「下次迁移 E 触面冲突一律取上游侧」。
   这次没有照做。早退和 `fetchModelsOrToast` 仍被 DSH 聚合同步和聚合槽位

@@ -11,3 +11,4 @@ ts	phase	decision	why	evidence	result
 2026-10-20T03:01:31Z	verify	reran cargo test under setsid after dash -lic hung on the tmux tty	the first run's last test grabbed the controlling terminal and did not finish	/tmp/rust-test2.log	3959 lib passed, 0 failed, RUST_EXIT 0
 2026-10-20T03:01:31Z	verify	left the eight dead-code warnings in place	the same items were already unused or test-only on 6d37f460	/tmp/rust-test.log warnings	not introduced by this merge
 2026-10-20T03:03:33Z	verify	left four Prettier failures alone	the same four files already fail prettier on 6d37f460 and this merge does not change them	pnpm format:check	pre-existing, not a merge regression
+2026-10-20T03:05:16Z	review	deleted the two caption lines above the aggregate early return	comment review said they restate the call and the caller, and the decision already lives in the ledger	src-tauri/src/claude_desktop_config.rs proxy_model_routes	early return kept, comments gone

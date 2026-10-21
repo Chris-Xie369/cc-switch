@@ -1470,7 +1470,7 @@ fn parse_codex_file_with_index(
                 let last = info
                     .get("last_token_usage")
                     .and_then(parse_cumulative_tokens);
-                if let Some(pending) = pending_usage.take() {
+                if let Some(mut pending) = pending_usage.take() {
                     // 对得上的 last 已经由这条 token_count 入账。last 为 0 是远程压缩
                     // 把本次用量只写在 token_usage_record 里之后的空快照。其它对不上的
                     // 记录只用于耗时，不能再记一行。
@@ -1478,6 +1478,9 @@ fn parse_codex_file_with_index(
                         .as_ref()
                         .is_some_and(|last| usage_matches(last, &pending.usage));
                     if !covered && last.as_ref().is_some_and(usage_is_zero) {
+                        // 游标停在已读完的行上。用量行自己先到、确认用的 token_count
+                        // 后到时，事件若仍记用量行的偏移，下一轮会被当成已导入丢掉。
+                        pending.line_offset = line_offset;
                         push_unmatched_usage(
                             &mut usage_record_events,
                             pending,
@@ -2170,6 +2173,10 @@ fn sync_single_codex_file(
 
     let mut result = CodexFileSyncResult::default();
     let mut to_insert: Vec<(&ParsedTokenEvent, String)> = Vec::new();
+    let replayed_through = replay_prefix
+        .checked_sub(1)
+        .and_then(|index| parsed.token_events.get(index))
+        .map(|event| event.line_offset);
     for (token_offset, event) in parsed.token_events.iter().enumerate() {
         let Some(event_index) = event.event_index else {
             continue;
@@ -2189,6 +2196,13 @@ fn sync_single_codex_file(
         let Some(suffix) = event.request_suffix.as_deref() else {
             continue;
         };
+        // 确认这条用量的 token_count 落在父会话重放前缀里时，父文件已经记过。
+        if replayed_through.is_some_and(|cutoff| event.line_offset <= cutoff) {
+            if event.line_offset > last_offset {
+                result.skipped = result.skipped.saturating_add(1);
+            }
+            continue;
+        }
         if event.line_offset <= last_offset {
             continue;
         }
@@ -2793,6 +2807,96 @@ mod tests {
 
         assert_eq!(result.imported, 0);
         assert!(codex_usage_rows(&db)?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn sub_session_does_not_import_replayed_compaction_usage() -> Result<(), AppError> {
+        clear_codex_replay_caches();
+        let db = Database::memory()?;
+        let temp = tempdir().unwrap();
+        let parent = rollout_path(temp.path(), PARENT_ID);
+        let child = rollout_path(temp.path(), CHILD_A_ID);
+        let compaction =
+            token_usage_record_at("resp_compact", 26_705, 0, 491, "2026-07-10T03:00:02Z");
+        let zero_count =
+            token_count_with_last_at(0, 0, 0, 0, 0, 0, "default", "2026-07-10T03:00:02Z");
+        write_jsonl(
+            &parent,
+            &[
+                session_meta(PARENT_ID),
+                turn_context(),
+                compaction.clone(),
+                zero_count.clone(),
+                turn_context_at("2026-07-10T03:00:10Z"),
+            ],
+        );
+        write_jsonl(
+            &child,
+            &[
+                session_meta_at(CHILD_A_ID, None, Some(PARENT_ID), "2026-07-10T03:00:05Z"),
+                turn_context(),
+                compaction,
+                zero_count,
+                token_count_with_last_at(100, 0, 20, 100, 0, 20, "default", "2026-07-10T03:00:07Z"),
+            ],
+        );
+
+        let parent_result = sync_test_file(&db, &parent, &[&parent, &child])?;
+        assert_eq!(parent_result.imported, 1);
+        let child_result = sync_test_file(&db, &child, &[&parent, &child])?;
+        assert_eq!(child_result.imported, 1, "only the child's own turn is new");
+
+        let rows = codex_usage_rows(&db)?;
+        let compaction_rows = rows
+            .iter()
+            .filter(|row| row.0.ends_with(":usage:resp_compact"))
+            .count();
+        assert_eq!(
+            compaction_rows, 1,
+            "replayed compaction must stay on the parent"
+        );
+        assert!(rows
+            .iter()
+            .any(|row| row.0 == format!("{CODEX_THREAD_REQUEST_ID_PREFIX}:{CHILD_A_ID}:1")));
+        Ok(())
+    }
+
+    #[test]
+    fn compaction_usage_survives_when_the_confirming_token_count_arrives_later(
+    ) -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let temp = tempdir().unwrap();
+        let path = rollout_path(temp.path(), PARENT_ID);
+        write_jsonl(
+            &path,
+            &[
+                session_meta(PARENT_ID),
+                turn_context(),
+                token_usage_record_at("resp_compact", 26_705, 0, 491, "2026-07-10T03:00:02Z"),
+            ],
+        );
+
+        let early = sync_test_file(&db, &path, &[&path])?;
+        assert_eq!(early.imported, 0);
+        assert!(codex_usage_rows(&db)?.is_empty());
+
+        append_jsonl(
+            &path,
+            token_count_with_last_at(0, 0, 0, 0, 0, 0, "default", "2026-07-10T03:00:03Z"),
+        );
+        let late = sync_test_file(&db, &path, &[&path])?;
+
+        assert_eq!(
+            late.imported, 1,
+            "the confirming token_count makes the usage importable"
+        );
+        let rows = codex_usage_rows(&db)?;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].1, 26_705);
+        assert_eq!(rows[0].2, 491);
+        assert!(rows[0].0.ends_with(":usage:resp_compact"));
         Ok(())
     }
 

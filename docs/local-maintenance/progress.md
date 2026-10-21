@@ -20,6 +20,8 @@
 | 上游     | PR #5417 **仍未合并**；最新 release 仍是 `v3.20.3`；已在 PR 下留实测验证评论           |
 
 **携带的补丁（2026-10-20 起，同步上游时必须保留）**：B 显示名（含 `endUserAttribution=false`）· C 本地构建 · D 上游状态检查 · DSH · x-api-key 网关鉴权 · 厂商词守卫。
+
+**当前同步**：tag `v4.0.17`（2026-10-21）。细节见下方「2026-10-21 跟进 v4.0.17」。
 A 已由上游 `81df5a08` 取代（PR #5417 只作历史对照）。E 已物理删除，Desktop 多模型走上游 Stack。F（settings.json 合并）已被上游关键字段写入吸收。
 完整清单见 [`UPSTREAM-SYNC.md`](./UPSTREAM-SYNC.md)。上面 2026-09-21 的表格是当时的收尾快照。
 
@@ -2138,6 +2140,18 @@ dead-code lint` 随后落地且 CI 绿
   已不再依赖聚合卡。策略：不再演进、不再上游化；**下次迁移起 E 触面冲突
   一律取上游侧**，让它随上游重构自然萎缩。
 - 聚合卡数据已由用户迁移至 Stack 配置（实测时完成）。
+
+## 2026-10-21 跟进 v4.0.17
+
+- 工作分支起点是 `de8ae8d0`（PR #2，补丁 A 与聚合引擎 E 已退役）。上游 tag `v4.0.17` 指向 `19798e2f`。与本叉的 merge-base 是 `v4.0.16`（`f92ff0b0`）。自那个提交起上游有 18 个提交。merge 提交的消息是 `Merge tag 'v4.0.17' into fix/profile-merge`。
+- 冲突 3 个，都是版本号。`Cargo.toml`、`tauri.conf.json`、`Cargo.lock` 里的包版本写成 `4.0.17-local`。`package.json` 仍只跟上游数字 `4.0.17`，不加 `-local`，与 4.0.16 时一样。`tauri.conf.json` 里没有 updater。
+- 另外 6 个文件两侧都改过，git 自动合并。行级核对（`docs/local-maintenance/check-owner-lines.py`，基线改成 `v4.0.16`，对方改成 `v4.0.17`）里，丢掉的本叉行只有旧的 `4.0.16-local` 三处。上游新行也只在这三处被 `-local` 换掉。这 6 个文件是 `lib.rs`、`services/mcp.rs`、`tray.rs`、`ProviderForm.tsx`、`en.json`、`zh.json`。`ja.json` 和 `proxy/server.rs` 自 `v4.0.16` 起只有上游改过，整份取上游。本叉自 `v4.0.16` 起单独改过的 119 个文件，合并后字节未动。
+- 必须保留的补丁没有被改写。B 的 6 个 `claudeDesktopDisplay*` 键仍在 `en.json` 和 `zh.json`。`ja.json` 和 `zh-TW.json` 在合并前就没有这 6 个键，这次没有补。C 的 `-local` 和无 updater 还在。D、DSH、`gateway_token_from_headers` 认 `x-api-key`、`has_non_anthropic_vendor_token` 所在文件不在 4.0.17 的改动里。没有恢复 `aggregate.rs`，也没有把聚合路由表加回来。
+- 和 Windows 实机有关的三处都在这次合并里。左键点托盘图标打开主界面（`lib.rs` 里 Windows 左键走 `show_main_window`）。轻量模式下面板收起时 `tray_panel::release_if_lightweight` 销毁窗口，Windows 上的 WebView2 进程才能退出。监听 socket 不继承给子进程（`mio` 1.2.1，测试 `listener_socket_is_not_inheritable_on_windows`），退出后不应再因 os error 10048 占着路由端口。这三项要在 Windows 上看。
+- 4.0.17 的其余修复见 `docs/release-notes/v4.0.17-zh.md`。数据库结构没有变化，仍然是 20。
+- 验证（Linux 云主机，2026-10-21）。`pnpm typecheck` 0。`pnpm format:check` 0。`pnpm test:unit` 243 文件、3115 过。`cargo fmt --check` 0。`cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` 0。`cargo test` 0 败。库 3853 过、9 ignored。其余测试目标也过，合计 4042 过。
+- 第一次全量 `cargo test` 有 1 败，`test_parent_rollout_is_cached_once_across_fork_cutoffs`。它把整个进程里的父时间线缓存条数当成 1，并行的另一个测试又放进了别的路径。单跑这个测试是过的。断言改成只看这份父文件，两次 cutoff 仍须复用同一个时间线。另外两处同样按全表条数断言的检查一并改了。改完后按上面的数字重跑。
+- 未在这台机器上做 Windows 托盘左键、轻量模式退出后的 WebView2 进程、以及退出后路由端口是否还报 os error 10048。`pnpm tauri build` 安装包也没打。
 
 ## 2026-10-20 跟进 v4.0.15+v4.0.16
 

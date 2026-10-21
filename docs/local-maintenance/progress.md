@@ -2149,7 +2149,9 @@ dead-code lint` 随后落地且 CI 绿
 - 必须保留的补丁没有被改写。B 的 6 个 `claudeDesktopDisplay*` 键仍在 `en.json` 和 `zh.json`。`ja.json` 和 `zh-TW.json` 在合并前就没有这 6 个键，这次没有补。C 的 `-local` 和无 updater 还在。D、DSH、`gateway_token_from_headers` 认 `x-api-key`、`has_non_anthropic_vendor_token` 所在文件不在 4.0.17 的改动里。没有恢复 `aggregate.rs`，也没有把聚合路由表加回来。
 - 和 Windows 实机有关的三处都在这次合并里。左键点托盘图标打开主界面（`lib.rs` 里 Windows 左键走 `show_main_window`）。轻量模式下面板收起时 `tray_panel::release_if_lightweight` 销毁窗口，Windows 上的 WebView2 进程才能退出。监听 socket 不继承给子进程（`mio` 1.2.1，测试 `listener_socket_is_not_inheritable_on_windows`），退出后不应再因 os error 10048 占着路由端口。这三项要在 Windows 上看。
 - 4.0.17 的其余修复见 `docs/release-notes/v4.0.17-zh.md`。数据库结构没有变化，仍然是 20。
-- 验证：合并提交落地后补记 `cargo test`、`cargo clippy`、`pnpm typecheck`、`pnpm test:unit` 的结果。
+- 验证（Linux 云主机，2026-10-21）。`pnpm typecheck` 0。`pnpm format:check` 0。`pnpm test:unit` 243 文件、3115 过。`cargo fmt --check` 0。`cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` 0。`cargo test` 0 败。库 3853 过、9 ignored。其余测试目标也过，合计 4042 过。
+- 第一次全量 `cargo test` 有 1 败，`test_parent_rollout_is_cached_once_across_fork_cutoffs`。它把整个进程里的父时间线缓存条数当成 1，并行的另一个测试又放进了别的路径。单跑这个测试是过的。断言改成只看这份父文件，两次 cutoff 仍须复用同一个时间线。另外两处同样按全表条数断言的检查一并改了。改完后按上面的数字重跑。
+- 未在这台机器上做 Windows 托盘左键、轻量模式退出后的 WebView2 进程、以及退出后路由端口是否还报 os error 10048。`pnpm tauri build` 安装包也没打。
 
 ## 2026-10-20 跟进 v4.0.15+v4.0.16
 

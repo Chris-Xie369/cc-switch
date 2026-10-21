@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Report owner lines, since the v4.0.14 merge-base, missing from a merge result.
+"""Report owner lines, since the v4.0.16 merge-base, missing from a merge result.
 
 Default: HEAD is the merge of tag v4.0.17, the first parent is the fork tip,
 and the merge tree is the result. During an uncommitted merge, HEAD is still

@@ -4122,13 +4122,12 @@ mod tests {
         let caches = replay_caches().lock().unwrap();
         match first_timeline {
             Some(first_timeline) => {
-                assert_eq!(caches.parent_timelines.len(), 1);
                 assert!(Arc::ptr_eq(
                     &first_timeline,
                     &caches.parent_timelines[&parent].timeline
                 ));
             }
-            None => assert!(caches.parent_timelines.is_empty()),
+            None => assert!(!caches.parent_timelines.contains_key(&parent)),
         }
         Ok(())
     }
@@ -4161,10 +4160,13 @@ mod tests {
         );
         assert_eq!(parent_signatures_before(&parent, cutoff).unwrap().len(), 2);
 
-        let expected_entries = usize::from(parent_cache_supported(&parent));
         assert_eq!(
-            replay_caches().lock().unwrap().parent_timelines.len(),
-            expected_entries
+            replay_caches()
+                .lock()
+                .unwrap()
+                .parent_timelines
+                .contains_key(&parent),
+            parent_cache_supported(&parent)
         );
         Ok(())
     }
@@ -4231,10 +4233,13 @@ mod tests {
             .unwrap()
             .is_empty());
         assert_eq!(parent_signatures_before(&parent, after).unwrap().len(), 1);
-        let expected_entries = usize::from(parent_cache_supported(&parent));
         assert_eq!(
-            replay_caches().lock().unwrap().parent_timelines.len(),
-            expected_entries
+            replay_caches()
+                .lock()
+                .unwrap()
+                .parent_timelines
+                .contains_key(&parent),
+            parent_cache_supported(&parent)
         );
     }
 

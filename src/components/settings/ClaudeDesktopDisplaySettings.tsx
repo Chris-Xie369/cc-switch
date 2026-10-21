@@ -53,7 +53,11 @@ export function ClaudeDesktopDisplaySettings({
         <Label htmlFor="cdd-enable" className="text-sm">
           {t("settings.claudeDesktopDisplayEnable")}
         </Label>
-        <Switch id="cdd-enable" checked={enabled} onCheckedChange={setEnabled} />
+        <Switch
+          id="cdd-enable"
+          checked={enabled}
+          onCheckedChange={setEnabled}
+        />
       </div>
       {enabled && (
         <div className="space-y-3">

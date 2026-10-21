@@ -11,6 +11,7 @@ use crate::error::AppError;
 use serde_json::{json, Value};
 use serde_yaml::Mapping;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::sync::{LazyLock, Mutex};
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -397,7 +398,7 @@ pub fn remove_credential_ref(
         serde_yaml::Value::Mapping(m) => m,
         _ => return Ok(()),
     };
-    if let Some(serde_yaml::Value::Mapping(refs)) = root.get_mut(&serde_yaml::Value::from("refs")) {
+    if let Some(serde_yaml::Value::Mapping(refs)) = root.get_mut(serde_yaml::Value::from("refs")) {
         let name_key = serde_yaml::Value::from(name);
         let removable = match (only_if_matches, refs.get(&name_key)) {
             (Some(expected), Some(v)) => v.as_str() == Some(expected),
@@ -414,21 +415,18 @@ pub fn remove_credential_ref(
 
 pub fn sync_aggregate_entry(
     token: &str,
-    routes: &[crate::claude_desktop_config::ResolvedModelRoute],
+    models: &[crate::mode::stack::DesktopStackModel],
 ) -> Result<(), AppError> {
     let spec = DshProviderSpec {
         display_name: "CC Switch Aggregate".into(),
         api: "anthropic-messages".into(),
         base_url: "http://127.0.0.1:15721/claude-desktop".into(),
         api_key_env: AGGREGATE_TOKEN_ENV.into(),
-        models: routes
+        models: models
             .iter()
-            .map(|r| DshModelEntry {
-                id: r.route_id.clone(),
-                name: r
-                    .label_override
-                    .clone()
-                    .unwrap_or_else(|| r.upstream_model.clone()),
+            .map(|model| DshModelEntry {
+                id: model.id.clone(),
+                name: model.label.clone(),
                 ..DshModelEntry::metadata_none()
             })
             .collect(),
@@ -1014,8 +1012,6 @@ pub fn sanitize_route(id: &str) -> String {
     }
 }
 
-/// 聚合同步入口：routes=Some（聚合切换）直接写；None（手动/其他切换）时，
-/// 仅当用户已配置过 cc-switch route 才刷新（未启用 DSH 接入就不动文件）。
 impl DshModelEntry {
     /// 聚合条目不带容量元数据（路由表没有这些信息）。
     fn metadata_none() -> Self {
@@ -1029,35 +1025,18 @@ impl DshModelEntry {
     }
 }
 
+/// Refresh the existing `cc-switch` DSH route from the Desktop Stack models
+/// `route_profile` just published. A missing route stays missing, so a Desktop
+/// proxy user who never opted into DSH does not get a `~/.dsh` write.
 pub fn sync_dsh_aggregate_now(
     db: &crate::database::Database,
-    routes: Option<&[crate::claude_desktop_config::ResolvedModelRoute]>,
+    models: &[crate::mode::stack::DesktopStackModel],
 ) -> Result<(), AppError> {
-    let routes = match routes {
-        Some(routes) => routes,
-        None => {
-            if !aggregate_entry_exists()? {
-                return Ok(());
-            }
-            let current = crate::mode::current::provider_in_use(
-                db,
-                &crate::app_config::AppType::ClaudeDesktop,
-            )?;
-            let Some(provider) = current else {
-                return Ok(());
-            };
-            if !provider
-                .meta
-                .as_ref()
-                .is_some_and(|m| m.aggregate_routes.is_some())
-            {
-                return Ok(());
-            }
-            &crate::claude_desktop_config::proxy_model_routes(&provider)?
-        }
-    };
+    if !aggregate_entry_exists()? {
+        return Ok(());
+    }
     let token = crate::claude_desktop_config::get_or_create_gateway_token(db)?;
-    sync_aggregate_entry(&token, routes)
+    sync_aggregate_entry(&token, models)
 }
 
 #[cfg(test)]
@@ -1197,37 +1176,60 @@ mod tests {
         assert!(!text.contains("CC_SWITCH_DSH_FOO"));
     }
 
+    fn stack_member(
+        key: &str,
+        name: &str,
+        upstream: &str,
+        label: &str,
+    ) -> crate::mode::stack::Member {
+        let mut routes = std::collections::HashMap::new();
+        routes.insert(
+            "claude-sonnet-5".into(),
+            crate::provider::ClaudeDesktopModelRoute {
+                model: upstream.into(),
+                label_override: Some(label.into()),
+                supports_1m: Some(false),
+            },
+        );
+        let mut provider =
+            crate::provider::Provider::with_id(key.into(), name.into(), json!({}), None);
+        provider.meta = Some(crate::provider::ProviderMeta {
+            claude_desktop_model_routes: routes,
+            ..Default::default()
+        });
+        crate::mode::stack::Member {
+            provider,
+            key: key.into(),
+            route: false,
+            model_ids: Vec::new(),
+        }
+    }
+
     #[test]
     #[serial]
-    fn aggregate_entry_shape_matches_r1() {
+    fn dsh_aggregate_model_list_follows_desktop_stack_publication() {
         let dir = TempDir::new().unwrap();
         let _guard = PatchGuard::new(&dir);
-        let routes = vec![crate::claude_desktop_config::ResolvedModelRoute {
-            route_id: "claude-fable-1".into(),
-            upstream_model: "glm-5.3".into(),
-            label_override: Some("Zhipu · glm-5.3".into()),
-            supports_1m: true,
-            max_effort: None,
-            tier: None,
+        let db = crate::database::Database::memory().unwrap();
+        let stale = vec![crate::mode::stack::DesktopStackModel {
+            id: "claude-fable-1".into(),
+            upstream: "old-model".into(),
+            label: "Old slot".into(),
+            supports_1m: false,
         }];
-        // get_dsh_dir 在测试里仍指向真实家目录——凭据直接写入 tempdir 验证，
-        // patch 侧经 upsert_provider（PatchGuard 生效）验证。
-        let spec = DshProviderSpec {
-            display_name: "CC Switch Aggregate".into(),
-            api: "anthropic-messages".into(),
-            base_url: "http://127.0.0.1:15721/claude-desktop".into(),
-            api_key_env: AGGREGATE_TOKEN_ENV.into(),
-            models: routes
-                .iter()
-                .map(|r| DshModelEntry {
-                    id: r.route_id.clone(),
-                    name: r.label_override.clone().unwrap(),
-                    ..DshModelEntry::metadata_none()
-                })
-                .collect(),
-        };
-        upsert_provider(AGGREGATE_ROUTE, &spec).unwrap();
-        upsert_credential_ref(dir.path(), AGGREGATE_TOKEN_ENV, "tok").unwrap();
+        sync_aggregate_entry("seed-token", &stale).unwrap();
+
+        let published = crate::mode::stack::desktop_published(&[stack_member(
+            "zhipu", "Zhipu", "glm-5.3", "GLM 5.3",
+        )]);
+        assert_eq!(published.len(), 1);
+        assert!(published[0].id.starts_with("claude-fable-ccs-"));
+        assert_eq!(published[0].upstream, "glm-5.3");
+        assert_eq!(published[0].label, "Zhipu / GLM 5.3");
+        assert_ne!(published[0].id, published[0].upstream);
+
+        sync_dsh_aggregate_now(&db, &published).unwrap();
+
         let providers = read_providers().unwrap();
         let ccsw = providers.get(AGGREGATE_ROUTE).unwrap().as_object().unwrap();
         assert_eq!(ccsw["api"], json!("anthropic-messages"));
@@ -1237,8 +1239,18 @@ mod tests {
         );
         assert_eq!(ccsw["apiKeyEnv"], json!(AGGREGATE_TOKEN_ENV));
         assert_eq!(ccsw["displayName"], json!("CC Switch Aggregate"));
-        assert_eq!(ccsw["models"][0]["id"], json!("claude-fable-1"));
-        assert!(aggregate_entry_exists().unwrap());
+        assert_eq!(ccsw["models"].as_array().unwrap().len(), 1);
+        assert_eq!(ccsw["models"][0]["id"], json!(published[0].id));
+        assert_eq!(ccsw["models"][0]["name"], json!(published[0].label));
+        let text = std::fs::read_to_string(guard_patch(&dir)).unwrap();
+        assert!(!text.contains("claude-fable-1"));
+        assert!(!text.contains("old-model"));
+        let creds = std::fs::read_to_string(dir.path().join(CREDENTIALS_FILE)).unwrap();
+        assert!(creds.contains(AGGREGATE_TOKEN_ENV));
+    }
+
+    fn guard_patch(dir: &TempDir) -> PathBuf {
+        dir.path().join("cordis.patch.yml")
     }
 
     #[test]
@@ -1246,13 +1258,6 @@ mod tests {
     fn write_card_validates_and_writes_ref() {
         let dir = TempDir::new().unwrap();
         let _guard = PatchGuard::new(&dir);
-        let cfg = json!({
-            "displayName": "MyGW",
-            "api": "openai-responses",
-            "baseUrl": "https://gw.example/v1",
-            "apiKey": "sk-9",
-            "models": [{"id": "g1", "name": "G1"}]
-        });
         // write_provider_card 的凭据写真实家目录——测试仅验证 patch 侧与校验；
         // 直接构造等价 spec 验证文件形状：
         let spec = DshProviderSpec {

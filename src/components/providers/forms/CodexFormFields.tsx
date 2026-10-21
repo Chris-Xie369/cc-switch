@@ -89,13 +89,11 @@ import {
 } from "./modelMetadataFill";
 import type {
   ClaudeApiKeyField,
-  CodexAggregateRoutes,
   CodexApiFormat,
   CodexCopilotApiFormat,
   CodexCatalogModel,
   CodexChatReasoning,
   PromptCacheRoutingMode,
-  Provider,
   ProviderCategory,
 } from "@/types";
 import type { ManagedAuthProvider } from "@/lib/api";
@@ -218,24 +216,6 @@ interface CodexFormFieldsProps {
   // the catalog rows. Codex only; the Stack layout omits it (aggregation settings apply).
   autoReviewModel?: string;
   onAutoReviewModelChange?: (model: string) => void;
-
-  // Codex 聚合路由表（扁平槽位编辑器）。传 undefined 时不渲染任何聚合 UI，
-  // 普通 Codex 供应商与 Grok Build 的行为完全不变。
-  codexAggregateRoutes?: CodexAggregateRoutes;
-  /** 传 undefined = 关闭聚合（父组件据此 delete meta.codexAggregateRoutes） */
-  onCodexAggregateRoutesChange?: (
-    routes: CodexAggregateRoutes | undefined,
-  ) => void;
-  /** 聚合槽位可指向的目标：同 app 下的常规供应商，排除聚合供应商（禁嵌套）、
-   *  正在编辑的自身（禁自引用）与官方供应商（1P 无网关凭据） */
-  codexAggregateCandidates?: Provider[];
-  /** 目标供应商已拉取到的模型列表，按供应商 id 缓存 */
-  codexAggregateModelsByProvider?: Record<string, FetchedModel[]>;
-  onCodexAggregateFetchModels?: (provider: Provider) => void;
-  fetchingCodexAggregateProviderId?: string | null;
-  /** 聚合开关已打开：藏掉端点 / API Key（聚合卡片无端点无凭据，写 live 时由后端
-   *  合成），与 Claude Desktop 侧 `isAggregate` 对端点/Key 的处理同款。 */
-  isCodexAggregate?: boolean;
 
   // Speed Test Endpoints
   speedTestEndpoints: EndpointCandidate[];

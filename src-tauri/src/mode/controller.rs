@@ -490,13 +490,10 @@ async fn write_proxy(
         }
         AppType::ClaudeDesktop => {
             let members = published_members(state, app, &stack, route)?;
-            let profile = claude_desktop_config::route_profile(
-                &state.db,
-                route,
-                &proxy_url,
-                &stack::desktop_published(&members),
-            )
-            .map_err(err)?;
+            let published = stack::desktop_published(&members);
+            let profile =
+                claude_desktop_config::route_profile(&state.db, route, &proxy_url, &published)
+                    .map_err(err)?;
             let contract = contract::claude_desktop(&profile);
             let unchanged = !force && live_now.has_contract(&contract.key);
             target.contract = Some(contract);
@@ -507,6 +504,9 @@ async fn write_proxy(
                 pending(target),
             )
             .map_err(err)?;
+            if let Err(error) = crate::dsh_config::sync_dsh_aggregate_now(&state.db, &published) {
+                log::warn!("DeepSeek Harness stack sync failed (next projection retries): {error}");
+            }
             unchanged
         }
         _ => return Err(format!("{} 不支持本地路由", app.as_str())),

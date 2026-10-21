@@ -2,17 +2,17 @@
 
 本工作区维护一个本地构建的 CC Switch（修复 3P profile 覆盖缺陷 + 显示名可配置），同时跟踪上游 `farion1231/cc-switch`。
 
-**当前基线**：tag `v3.20.4`（上游最新 release，2026-09-24 同步）。上游 `main` 与 tag 一致。
+**当前基线**：tag `v4.0.16`（提交 `f92ff0b0`，2026-10-20 同步）。
 
 ---
 
 ## 1. 仓库布局
 
-| 名称 | 指向 | 说明 |
-|---|---|---|
-| `upstream` | `https://github.com/farion1231/cc-switch.git` | 官方仓库（存储规范地址；全局 `insteadOf` 会把 github.com 改写成 gh-proxy，拉取自动走代理） |
-| `origin` | `https://github.com/Chris-Xie369/cc-switch.git` | **你的 fork**，推自己的改动用。push 走独立 pushurl，见下 |
-| 分支 | `fix/profile-merge` | 工作分支，已推送到 fork；**绝不推送到 upstream** |
+| 名称       | 指向                                            | 说明                                                                                       |
+| ---------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `upstream` | `https://github.com/farion1231/cc-switch.git`   | 官方仓库（存储规范地址；全局 `insteadOf` 会把 github.com 改写成 gh-proxy，拉取自动走代理） |
+| `origin`   | `https://github.com/Chris-Xie369/cc-switch.git` | **你的 fork**，推自己的改动用。push 走独立 pushurl，见下                                   |
+| 分支       | `fix/profile-merge`                             | 工作分支，已推送到 fork；**绝不推送到 upstream**                                           |
 
 工作树在 `src/`（本目录下）。改动提交都落在这个分支上。
 
@@ -35,26 +35,29 @@ git push origin fix/profile-merge
 
 ## 2. 我们携带的补丁
 
-用 **merge** 方式同步（见 §3），所以这些提交会一直留在历史里——下面的清单是**理解与判断用**的，不是每次要重放的清单。
+用 **merge** 方式同步（见 §3）。下面是同步时必须保住的代码。历史提交还在 git 里，但不要再把已退役的补丁当冲突时的「我们这边」。
 
-| 补丁 | 提交 | 内容 | 上游化状态 |
-|---|---|---|---|
-| **A** 合并语义 | `d03bf0cb` | profile 写入改为读-合并-写（cherry-pick 自 PR #5417） | **已被上游以另一种方式取代（2026-09-30 核实）**：`81df5a08`（2026-09-26）引入 key-field write engine，profile 写入改为按键打补丁，`gateway_profile_patch` 的 `clear` 只覆盖 `DESKTOP_PROFILE_FLOOR` 的 5 个网关键（`live/floor.rs:180`），其余字段原位保留 → **同步到含该提交的版本后补丁 A 可删**（按 §7 复验确认）。PR #5417 本身仍 OPEN 且 CONFLICTING；我们已留言说明其代码被取代、测试仍有价值 |
-| **B** 显示名可配置 | `b0ba96de` `f9874721` `2b13804b` `42c9983c` `0fb72b4a` `20a63f49` | `ClaudeDesktopDisplaySettings`（后端 `settings.rs` + `claude_desktop_config.rs`）+ 前端设置项 + i18n | 上游无此功能；值得自己提 PR |
-| **C** 本地构建 | `e3695f0e` `418fa7e4` | 移除 `plugins.updater` / `createUpdaterArtifacts`；版本号 `<版本>-local` | **纯本地**，永不上游 |
-| **D** 上游状态检查 | `feat(upstream): 检查并提醒上游状态` | 应用内检查 PR #5417 是否合并 + 是否有新 release，有变化才提醒（`commands/upstream.rs` + `lib/updater.ts` + `UpdateContext` + `AboutSection`） | **纯本地**（上游不会接受"检测本 fork 是否落后"）；每次同步需保留 |
-| **E** Claude Desktop 多供应商共存（聚合供应商） | `750e1a34`…`543c90cb`（7 个任务的实现链） | 让多家供应商的模型**同时**出现在 Claude 的选择器里：虚拟「聚合供应商」自身无端点无凭据、只存路由表（`Provider.meta.aggregateRoutes`），代理按请求模型把请求分流到目标供应商并改写模型名；含保存校验、删除保护、配置界面 | 社区诉求极高（#3703 血书 / #5109 / #7146）但**上游 #5937 只覆盖 CLI+Codex**，Desktop 侧无实现；提 PR 有机会进主干 |
-| **F** Claude settings.json 合并语义 | `d6b7719f` `d79d91e3` `a65bffb0` | settings.json 反向白名单合并（顶层只接管 env/apiKey，其余顶层键与非 owned env 子键是用户领地）：普通切换两条路径（`write_live_snapshot` / `sync_claude_live`，d6b7719f）+ 代理接管重投影（`write_claude_live` 改合并，d79d91e3；同时拆出 `write_claude_live_verbatim` 保住备份恢复/占位符清理/接管字段 RMW 的整份写与删除语义）+ 热切换备份继承领地键（a65bffb0：`update_live_backup_from_provider` Claude 分支合并既有备份，关接管恢复不再回退用户键） | 上游无对应修复（#5417 仅覆盖 profile）；与 A 同属「写入不得丢用户键」类，值得提 PR；上游吸收前本地必须保留 |
+| 补丁               | 内容                                                                                                                                                                                                                         | 上游化状态                                                           |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| **B** 显示名可配置 | `ClaudeDesktopDisplaySettings`（`settings.rs` + `claude_desktop_config.rs` 的 `inject_display_settings`）+ GeneralSection + i18n。`endUserAttribution=false` 属于这一补丁：关掉后 Desktop 左下角只留显示名，不渲染 OS 用户名 | 上游无此功能（PR #7779）；值得继续推                                 |
+| **C** 本地构建     | 移除 `plugins.updater` / `createUpdaterArtifacts`；版本号 `<版本>-local`                                                                                                                                                     | **纯本地**，永不上游                                                 |
+| **D** 上游状态检查 | 「关于」页检查 fork 是否落后、是否有新 release（`commands/upstream.rs` + `lib/updater.ts` + `UpdateContext` + `AboutSection`）                                                                                               | **纯本地**                                                           |
+| **DSH**            | DeepSeek Harness 供应商与 `cordis.patch.yml` 里的 `cc-switch` 路由（`dsh_config.rs`、`commands/dsh.rs`、`DshProviderForm`、`dshProviderPresets`）                                                                            | 本地功能。已有的 `cc-switch` 路由在 Desktop Stack 投影后刷新模型列表 |
+| **x-api-key**      | `gateway_token_from_headers` 同时认 `Authorization` 与 `x-api-key`                                                                                                                                                           | DSH 需要。上游候选                                                   |
+| **厂商词守卫**     | `has_non_anthropic_vendor_token`：模型 id 含 deepseek / glm / kimi / gpt 等词时拒绝写入 Desktop profile                                                                                                                      | 上游候选。一个坏 id 会让 Desktop 整组模型消失                        |
 
-**补丁 E 的触及面（同步时注意）**：`src-tauri/src/aggregate.rs`(新)、`proxy/handler_context.rs`、`proxy/forwarder.rs`、`claude_desktop_config.rs`、`services/provider/mod.rs`、`src/types.ts`、`src/utils/aggregateRoutes.ts`(新)、`components/providers/forms/` 两个组件、i18n zh/en。
-> ⚠️ 其中 `claude_desktop_config.rs` 与 `services/provider/mod.rs` 是**修复过程中新增的触达**（原任务只声明前端文件）——因为设计规定聚合供应商无端点无凭据，后端不放宽校验则功能不可用。同步冲突排查时别遗漏这两处。
+**已退役，同步时不要捡回来：**
 
-**补丁 F 的触及面（同步时注意）**：`src-tauri/src/services/config.rs`、`src-tauri/src/services/provider/live.rs`（d6b7719f）、`src-tauri/src/services/provider/mod.rs`、`src-tauri/src/services/proxy.rs`（d79d91e3）。
-> ⚠️ Claude settings.json 有**三条**写入路径必须同语义（live.rs 的 `write_live_snapshot` / `sync_claude_live` + proxy 的接管重投影）；同步时若上游重构任何一条，三条一起核对——历史上第三条掉队过一次（接管重投影丢用户键，2026-10-02 修复）。备份恢复/占位符清理走 `write_claude_live_verbatim`，别误改成合并写。
+- **A** profile 读-合并-写。上游 `81df5a08` 的 `gateway_profile_patch` 只覆盖 `DESKTOP_PROFILE_FLOOR` 网关键，其余字段原位保留。PR #5417 只作历史对照。回归测试 `claude_desktop_apply_preserves_non_gateway_profile_fields` 仍要过。
+- **E** 聚合供应商。2026-10-20 物理删除。多家模型同时出现在 Desktop 选择器里，用上游 Stack（`DesktopStackModel` / `route_profile`）。不要恢复 `aggregate.rs`、聚合路由表、聚合编辑器、别名路由、1M 聚合路由、CLI `modelPicker` 镜像。
+- **F** settings.json 合并。上游关键字段写入已经覆盖。`services/config.rs` 与 Claude 的 live 写路径相对 `v4.0.16` 没有本叉专有的合并差异。
+- 「diagnostics Gateway unreachable」是当时的配置改动，不是要携带的代码。
+
+**DSH 的触及面（同步时注意）**：`dsh_config.rs`、`commands/dsh.rs`、`mode/controller.rs` 里 Desktop 投影之后的 `sync_dsh_aggregate_now`、`DshProviderForm.tsx`、`dshProviderPresets.ts`。模型 id 和显示名来自 `desktop_published`，不是旧的聚合槽位。
 
 > 还有若干 `docs(...)` 提交（设计/计划/账本），是本地决策记录，与上游无关。
 
-**核心原则：携带面越小，维护越省。** 每把 A 或 B 推上游，未来每次同步就少一份冲突。
+**核心原则：携带面越小，维护越省。** B、x-api-key、厂商词守卫推上去之后，本地长期只剩 C、D 和 DSH。
 
 ---
 
@@ -71,22 +74,18 @@ git push origin fix/profile-merge          # 把同步结果备份到 fork
 
 用 merge 而非 rebase 的理由：rebase 每次都要重放你所有自有提交，同样的冲突每次重演；merge 只解决一次，之后 merge base 前移，git 记住了。
 
-**上游有新 release 时**（推荐跟 tag，最稳）：先看 PR #5417 是否已合并——
-```bash
-git log --oneline upstream/main --grep="preserve non-gateway" | head -3
-```
-若已合并、**或行为已被上游以别的方式实现**（补丁 A 即属后者：见 §2 的 A 行），补丁 A 就可以丢弃。A 之外仍有 B（显示名）与 E（聚合）是上游没有的，所以官方版暂时还替代不了本地构建。
+**上游有新 release 时**（推荐跟 tag，最稳）：对照 §2。A、E、F 都已不在携带面里。官方版仍然替代不了本地构建，因为 B（显示名）、C、D、DSH，以及 x-api-key 和厂商词守卫还在。
 
 ---
 
 ## 4. 冲突热点（实测数据，2026-09 上游改动频次）
 
-| 文件 | 上游 9 月改动次数 | 冲突原因 | 处理 |
-|---|---|---|---|
-| `src/i18n/locales/*.json` | 各 11 次 | 补丁 B 也改它 | 我们只加 `settings` 下 6 个连续键；取上游版本后重加这 6 个即可 |
-| `src-tauri/tauri.conf.json` | — | 补丁 C 每次必冲突（版本号 + 删 updater） | 机械处理：版本号改成新 tag 的 `<版本>-local`，再删一次 updater 三处 |
-| `src-tauri/src/claude_desktop_config.rs` | — | 补丁 A/B 的主战场 | **最需要小心**：上游若重构 profile 写入路径，需人工判断合并逻辑是否仍成立 |
-| `README.md` | 上游高频 | 2026-09-29 我们自建 fork 门面 README | 上游改 README 时取上游版，再重放我们的门面内容（内容多为自有，冲突机械解） |
+| 文件                                     | 上游 9 月改动次数 | 冲突原因                                 | 处理                                                                                                                                                                      |
+| ---------------------------------------- | ----------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/i18n/locales/*.json`                | 各 11 次          | 补丁 B 也改它                            | 我们只加 `settings` 下 6 个连续键；取上游版本后重加这 6 个即可                                                                                                            |
+| `src-tauri/tauri.conf.json`              | —                 | 补丁 C 每次必冲突（版本号 + 删 updater） | 机械处理：版本号改成新 tag 的 `<版本>-local`，再删一次 updater 三处                                                                                                       |
+| `src-tauri/src/claude_desktop_config.rs` | —                 | 补丁 B 与厂商词守卫                      | 保住 `inject_display_settings`（含 `endUserAttribution`）和 `has_non_anthropic_vendor_token`。profile 非网关键由上游 `gateway_profile_patch` 保留，不要再加一套读-合并-写 |
+| `README.md`                              | 上游高频          | 2026-09-29 我们自建 fork 门面 README     | 上游改 README 时取上游版，再重放我们的门面内容（内容多为自有，冲突机械解）                                                                                                |
 
 ---
 
@@ -163,6 +162,7 @@ CC Switch 持有全部供应商 API 密钥并代理全部流量。分叉落后�
 
 ## 9. 降低长期成本的路径
 
-- **补丁 A** → 去 [#5417](https://github.com/farion1231/cc-switch/pull/5417) 留一条「本地已验证」的支持性评论，推动合并
-- **补丁 B**（显示名可配置）→ 对上游其他用户同样有价值（面板 144 项设置目前只有 7 项能被保留），提 PR 有机会进主干
-- 两者都上游化之后，本地只剩补丁 C（约 10 行配置），维护成本趋近于零
+- **补丁 A** 已由上游 `81df5a08` 取代。PR #5417 只留作历史对照，不要再把那套读-合并-写捡回来。
+- **补丁 B**（显示名，含 `endUserAttribution=false`）对上游其他用户同样有价值，继续推 PR #7779。
+- **x-api-key** 与**厂商词守卫**是小块上游候选。DSH 依赖前者。
+- B 与这两处都上游化之后，本地长期携带面是 C、D 和 DSH。

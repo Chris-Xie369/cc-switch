@@ -1,29 +1,31 @@
 # CC Switch（本地维护 fork）
 
-这是 `farion1231/cc-switch` 的本地 fork，基线 **v4.0.4**（2026-10-08 迁移）。
-上游 v4.0 的关键字段写入引擎已覆盖本 fork 原有的 profile / settings.json 合并
-补丁（A/F 退役），当前携带的自有改动：
+这是 `farion1231/cc-switch` 的本地 fork，基线 **v4.0.16**（2026-10-20 同步）。
+上游的关键字段写入已经覆盖本 fork 原来的 profile / settings.json 合并
+（A/F 退役）。多家模型同时出现在 Claude Desktop 选择器里，用上游 Stack，
+本叉的聚合供应商（E）已删除。当前携带的自有改动：
 
 1. **Claude Desktop 显示名可配置**（等 PR #7779 合并后退役）——接管左下角
    `deploymentDisplayName` 等三键，GeneralSection 里开关。副标题跟随配置：
-   留空即清除面板残留。
+   留空即清除面板残留。`endUserAttribution=false` 属于这一项。
    > **MSIX 版身份行布局（2.31226+ 实测，2026-10-10 定案）**：身份行 = 归属层
    > （principal）+ 显示名层。`endUserAttribution=true` 时归属层渲染 principal
-   > （static bearer key 下恒为 Windows 用户名）；**`endUserAttribution=false`
-   > 时归属层整个不渲染（asar 原文 "no identity shown"）→ 只剩显示名**。
+   > （static bearer key 下恒为 Windows 用户名）；`endUserAttribution=false`
+   > 时归属层整个不渲染（asar 原文 "no identity shown"），只剩显示名。
    > 实测：false + name=Chris + subtitle=Gateway → 左下角仅 `Chris·Gateway`。
    > 显示设置卡的「用户归属」开关即此键：要隐藏 OS 用户名就关掉它。
-2. **Claude Desktop 聚合供应商**（等 PR #7785 方向定论）——多家供应商的模型
-   同列 Claude 模型选择器，按请求模型分流；与上游 v4.0 的聚合（只覆盖
-   Claude Code / Codex）分域互补，互不解读对方的 meta。
+2. **DeepSeek Harness**——供应商卡，以及已存在的 `cc-switch` 路由。Desktop
+   Stack 投影之后，这条路由的模型列表跟 `DesktopStackModel` 走。
 3. **上游状态检查**——「关于」页检测 fork 落后与新 release 并提醒。
+4. **两处小守卫**——Desktop 网关同时认 `x-api-key`（DSH 需要）；模型 id 含
+   非 Anthropic 厂商词时拒绝写入 profile。
 
 > **仅限本机/知情者自用**：自构建版本会替换官方签名二进制，而 CC Switch 持有
 > 全部供应商密钥并代理其流量。不要分发给非知情者。
 
 ## 分支与远端
 
-- 工作分支 `fix/profile-merge`（基线 tag `v3.20.4`），推送到 `origin`（Chris-Xie369/cc-switch）
+- 工作分支 `fix/profile-merge`（基线 tag `v4.0.16`），推送到 `origin`（Chris-Xie369/cc-switch）
 - `upstream` = 官方仓库，**只拉不推**
 - 同步流程、补丁清单、冲突热点见 [UPSTREAM-SYNC.md](docs/local-maintenance/UPSTREAM-SYNC.md)
 
@@ -50,22 +52,13 @@ pnpm tauri build --bundles nsis
 
 ## 已知耦合：Claude Desktop 黑盒知识（升级后须重验）
 
-聚合槽位的**思考能力**由 Claude Desktop 对模型 ID 的判定决定（逆向自 2.9939.4.0）：
+写入 profile 的模型 id 要过 Desktop 的厂商词黑名单和 Anthropic 形状校验。
+名字里出现 deepseek / glm / kimi / gpt 等词时，Desktop 会把整组模型从选择器里拿掉。
+本叉在 `has_non_anthropic_vendor_token` 里挡下这种 id。Stack 发布出去的 id 是
+`claude-fable-ccs-` 加数字，不把供应商名写进 id。
 
-| 能力 | ID | 表现 |
-|---|---|---|
-| 完整强度阶梯（含 xhigh） | `claude-sonnet-5`、`claude-opus-4-7/4-8`、fable/mythos 族 | low…max 滑条 |
-| 完整强度阶梯（无 xhigh） | `claude-sonnet-4-6`、`claude-opus-4-6` | low/medium/high/max |
-| 完整强度阶梯（池不收，强制思考） | `claude-opus-5`（`disallowThinkingDisabled`） | low…max 滑条 |
-| 仅扩展思考开关 | `claude-sonnet-4-5`、`claude-haiku-4-5` | 只有开/关 |
-| 无 | 其余全部（自造溢出 ID） | 无任何控件 |
-
-- ID 另受「厂商词黑名单 + Anthropic 形状」校验：名字含 deepseek/glm/kimi/gpt 等
-  会被**整组**从模型列表剔除——槽位 ID 恒为 `claude-{tier}-*` 形状，与供应商名无关
-- 判定表镜像在 `src/utils/claudeDesktopCapability.ts`（含重验 grep 手册）；
-  Desktop 升级后跑一次手册、按需更新表
-- `supports1m` 是对 Desktop 的**能力声明**（选择器出 `[1m]` 变体并按 1M 管理上下文），
-  上游是否真支持须逐模型实证；代理转发上游时剥掉 `[1m]` 标记
+`supports1m` 是对 Desktop 的能力声明（选择器出 `[1m]` 变体并按 1M 管理上下文）。
+上游是否真支持须逐模型实证。代理把请求交给上游时剥掉 `[1m]` 标记。
 
 ## 已知供应商怪癖（按家硬编码在 forwarder）
 
@@ -75,13 +68,13 @@ pnpm tauri build --bundles nsis
 
 ## 验收口径
 
-改配置/升级后至少跑一轮：代理 `127.0.0.1:15721/claude-desktop` 的 `/v1/models`
-列出全部槽位 → 每槽一条真实请求全 200 → 切换供应商后 profile 键数不骤降、
-非网关字段（面板设置等）全部存活。
+改配置/升级后至少跑一轮：切换供应商后 profile 键数不骤降、非网关字段（面板设置等）全部存活。
+已有 DeepSeek Harness `cc-switch` 路由时，改 Desktop Stack 之后核对 `cordis.patch.yml` 里的模型 id 与名称。
 
 ---
 
 # 以下为上游 README
+
 <div align="center">
 
 # CC Switch
@@ -411,18 +404,18 @@ For detailed guides on every feature, check out the **[User Manual](docs/user-ma
 
 ### Supported Features by Tool
 
-| Tool | Providers | Local Routing | Aggregation | Tray Switching | MCP | Skills | Prompts | Sessions | Usage Stats |
-| --- | --- | :---: | :---: | :---: | :---: | :---: | --- | :---: | :---: |
-| Claude Code | Switch | ✓ | ✓ | ✓ | ✓ | ✓ | CLAUDE.md | ✓ | ✓ |
-| Claude Desktop | Switch | Model Mapping only | – | ✓ | – | – | – | – | Model Mapping only |
-| Codex | Switch | ✓ | ✓ | ✓ | ✓ | ✓ | AGENTS.md | ✓ | ✓ |
-| Gemini CLI | Switch | ✓ | – | ✓ | ✓ | ✓ | GEMINI.md | ✓ | ✓ |
-| Grok Build | Switch | ✓ | – | ✓ | ✓ | ✓ | AGENTS.md | ✓ | ✓ |
-| OpenCode | Coexist | – | – | – | ✓ | ✓ | AGENTS.md | ✓ | ✓ |
-| OpenClaw | Coexist | – | – | – | – | – | Workspace editor | ✓ | – |
-| Hermes | Coexist | – | – | – | ✓ | ✓ | Memory | ✓ | – |
-| Pi | Coexist | – | – | – | ✓ | ✓ | AGENTS.md, SYSTEM.md, prompt templates | ✓ | ✓ |
-| MiniMax Code | Coexist | – | – | – | ✓ | ✓ | AGENTS.md | ✓ | ✓ |
+| Tool           | Providers |   Local Routing    | Aggregation | Tray Switching | MCP | Skills | Prompts                                | Sessions |    Usage Stats     |
+| -------------- | --------- | :----------------: | :---------: | :------------: | :-: | :----: | -------------------------------------- | :------: | :----------------: |
+| Claude Code    | Switch    |         ✓          |      ✓      |       ✓        |  ✓  |   ✓    | CLAUDE.md                              |    ✓     |         ✓          |
+| Claude Desktop | Switch    | Model Mapping only |      –      |       ✓        |  –  |   –    | –                                      |    –     | Model Mapping only |
+| Codex          | Switch    |         ✓          |      ✓      |       ✓        |  ✓  |   ✓    | AGENTS.md                              |    ✓     |         ✓          |
+| Gemini CLI     | Switch    |         ✓          |      –      |       ✓        |  ✓  |   ✓    | GEMINI.md                              |    ✓     |         ✓          |
+| Grok Build     | Switch    |         ✓          |      –      |       ✓        |  ✓  |   ✓    | AGENTS.md                              |    ✓     |         ✓          |
+| OpenCode       | Coexist   |         –          |      –      |       –        |  ✓  |   ✓    | AGENTS.md                              |    ✓     |         ✓          |
+| OpenClaw       | Coexist   |         –          |      –      |       –        |  –  |   –    | Workspace editor                       |    ✓     |         –          |
+| Hermes         | Coexist   |         –          |      –      |       –        |  ✓  |   ✓    | Memory                                 |    ✓     |         –          |
+| Pi             | Coexist   |         –          |      –      |       –        |  ✓  |   ✓    | AGENTS.md, SYSTEM.md, prompt templates |    ✓     |         ✓          |
+| MiniMax Code   | Coexist   |         –          |      –      |       –        |  ✓  |   ✓    | AGENTS.md                              |    ✓     |         ✓          |
 
 - **Switch**: only one provider is active at a time; **Coexist**: multiple providers are written into the tool's own config at the same time, and you pick one inside the tool.
 - **Local Routing**: CC Switch forwards requests on your machine and converts API formats; see [Local Routing & Failover](#local-routing--failover) below. Claude Desktop providers can use "Direct" or "Model Mapping"; with "Model Mapping", requests go through local routing.

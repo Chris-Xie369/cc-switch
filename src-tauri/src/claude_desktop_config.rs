@@ -122,13 +122,6 @@ pub struct ResolvedModelRoute {
     pub upstream_model: String,
     pub label_override: Option<String>,
     pub supports_1m: bool,
-    /// 思考强度上限（profile 条目字段 `maxEffort`）。仅聚合槽位会带出，
-    /// 普通供应商路径恒为 `None`。
-    pub max_effort: Option<String>,
-    /// 聚合路由的档位（fable/opus/sonnet/haiku）。`Some` 时按
-    /// 「供应商分组 × 档位强弱」排序写 profile，避免不同供应商的模型在
-    /// Claude Desktop 的选择器里交错；普通供应商无档位概念，恒为 `None`。
-    pub tier: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,22 +129,13 @@ struct InferenceModelSpec {
     name: String,
     label_override: Option<String>,
     supports_1m: bool,
-    max_effort: Option<String>,
 }
 
 /// 直连模式下把 `provider` 写进 Desktop 的配置（同步、编辑当前那家）。模型映射卡要经路由，
 /// 直连写不进去（见 [`needs_routing`]）。
 pub fn apply_provider(db: &Database, provider: &Provider) -> Result<(), AppError> {
     let paths = current_platform_paths()?;
-    let routes = apply_provider_to_paths(db, provider, &paths)?;
-    // picker 与 DSH 聚合是衍生件：profile 已落盘，同步失败只告警不撤回（下次 apply 自愈）
-    if let Err(err) = crate::model_picker::sync_cli_model_picker(db, routes.as_deref()) {
-        log::warn!("modelPicker 同步失败（下次 apply 自愈）: {err}");
-    }
-    if let Err(err) = crate::dsh_config::sync_dsh_aggregate_now(db, routes.as_deref()) {
-        log::warn!("DeepSeek Harness 聚合同步失败（下次 apply 自愈）: {err}");
-    }
-    Ok(())
+    apply_provider_to_paths(db, provider, &paths)
 }
 
 /// 写进 Desktop 配置的内容。
@@ -329,8 +313,7 @@ pub fn is_official_provider(provider: &Provider) -> bool {
 /// （模式在 `live-state.json`，见 `mode::controller`）。
 pub fn needs_routing(provider: &Provider) -> bool {
     !is_official_provider(provider)
-        && (crate::aggregate::is_aggregate_provider(provider)
-            || matches!(provider_mode(provider), ClaudeDesktopMode::Proxy)
+        && (matches!(provider_mode(provider), ClaudeDesktopMode::Proxy)
             || is_managed_oauth_proxy_provider(provider))
 }
 
@@ -412,7 +395,7 @@ fn has_non_anthropic_vendor_token(model: &str) -> bool {
 }
 
 fn inference_model_json(spec: &InferenceModelSpec) -> Value {
-    if spec.supports_1m || spec.label_override.is_some() || spec.max_effort.is_some() {
+    if spec.supports_1m || spec.label_override.is_some() {
         let mut item = json!({ "name": spec.name });
         if let Some(label_override) = spec.label_override.as_deref() {
             item["labelOverride"] = json!(label_override);
@@ -422,9 +405,6 @@ fn inference_model_json(spec: &InferenceModelSpec) -> Value {
             // 只有 `supports1m` 时 Desktop 每个模型列两行（原名 + 「1M context window」）。
             // 加上 `prefer1m`（1.21459.0 起）只列原名，交给内嵌 CLI 时自动补 `[1m]`。
             item["prefer1m"] = json!(true);
-        }
-        if let Some(effort) = spec.max_effort.as_deref() {
-            item["maxEffort"] = json!(effort);
         }
         item
     } else {
@@ -493,11 +473,6 @@ pub fn direct_gateway_credentials(
 
 pub fn validate_direct_provider(provider: &Provider) -> Result<(), AppError> {
     if is_official_provider(provider) {
-        return Ok(());
-    }
-
-    // 聚合供应商自身无端点无凭据（转发时用目标供应商的），故不适用直连凭据校验。
-    if crate::aggregate::is_aggregate_provider(provider) {
         return Ok(());
     }
 
@@ -585,12 +560,6 @@ pub fn validate_proxy_provider(provider: &Provider) -> Result<(), AppError> {
     }
 
     proxy_model_routes(provider)?;
-
-    // 聚合供应商自身无端点无凭据（转发时用目标供应商的），故不检查它自己的凭据；
-    // 路由表本身已由上面的 proxy_model_routes 校验。
-    if crate::aggregate::is_aggregate_provider(provider) {
-        return Ok(());
-    }
 
     if !has_proxy_base_url_and_key(provider) {
         return Err(AppError::localized(
@@ -711,7 +680,6 @@ fn direct_inference_model_specs(provider: &Provider) -> Result<Vec<InferenceMode
                 .filter(|value| !value.is_empty())
                 .map(str::to_string),
             supports_1m,
-            max_effort: None,
         });
     }
 
@@ -736,10 +704,6 @@ fn uses_default_proxy_routes(provider: &Provider) -> bool {
 }
 
 pub fn proxy_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRoute>, AppError> {
-    if crate::aggregate::is_aggregate_provider(provider) {
-        return crate::aggregate::aggregate_model_routes(provider);
-    }
-
     // 原生直连卡允许留空模型列表。先用同名角色路由进入代理，之后才能保存模型映射，
     // 否则「先开路由」和「先存映射」会互相阻挡。显式映射卡仍须配置模型。
     if uses_default_proxy_routes(provider) {
@@ -751,8 +715,6 @@ pub fn proxy_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRoute>
                 upstream_model: route.route_id.to_string(),
                 label_override: None,
                 supports_1m: false,
-                max_effort: None,
-                tier: None,
             })
             .collect::<Vec<_>>();
         routes.sort_by(|a, b| a.route_id.cmp(&b.route_id));
@@ -762,7 +724,7 @@ pub fn proxy_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRoute>
     configured_proxy_model_routes(provider)
 }
 
-/// 聚合成员只能发布用户配置过的模型，不能把路由引导用的默认角色当成上游目录。
+/// Stack 成员只能发布用户配置过的模型，不能把路由引导用的默认角色当成上游目录。
 pub(crate) fn configured_proxy_model_routes(
     provider: &Provider,
 ) -> Result<Vec<ResolvedModelRoute>, AppError> {
@@ -812,8 +774,6 @@ pub(crate) fn configured_proxy_model_routes(
                     (!is_claude_safe_model_id(route_id)).then(|| upstream_model.to_string())
                 }),
             supports_1m,
-            max_effort: None,
-            tier: None,
         });
     }
 
@@ -995,8 +955,7 @@ pub fn normalize_upstream_request(mut body: Value, provider: &Provider) -> Value
 }
 
 /// 剥离模型名尾部的 `[1m]` 标记（大小写不敏感，容忍分隔空白），供路由查找使用。
-/// 聚合路由的槽位查找也复用它（见 `aggregate::resolve_target`）。
-pub(crate) fn strip_one_m_suffix_for_route_lookup(model: &str) -> &str {
+fn strip_one_m_suffix_for_route_lookup(model: &str) -> &str {
     let trimmed = model.trim();
     let marker = ONE_M_CONTEXT_MARKER.as_bytes();
     let bytes = trimmed.as_bytes();
@@ -1199,7 +1158,7 @@ pub fn gateway_base_url(proxy_url: &str) -> String {
 /// （模型映射卡的映射表，直连卡的模型列表）。换路由那家，模型列表跟着变，要重写文件、
 /// 重启 Desktop。
 ///
-/// 聚合模式下 `stack` 是其他几家发布的模型，排在路由那家后面（第一项是默认模型，仍是路由
+/// `stack` 是其他几家发布的模型，排在路由那家后面（第一项是默认模型，仍是路由
 /// 那家的），并关掉模型发现：列表完全由这里决定。Desktop 最多收 200 条，多出的不写。
 pub fn route_profile(
     db: &Database,
@@ -1221,18 +1180,16 @@ pub fn route_profile(
             name: route.route_id,
             label_override: route.label_override,
             supports_1m: route.supports_1m,
-            max_effort: route.max_effort,
         })
         .chain(stack.iter().map(|model| InferenceModelSpec {
             name: model.id.clone(),
             label_override: Some(model.label.clone()),
             supports_1m: model.supports_1m,
-            max_effort: None,
         }))
         .collect::<Vec<_>>();
     if model_specs.len() > MAX_INFERENCE_MODELS {
         log::warn!(
-            "Claude Desktop 最多 {MAX_INFERENCE_MODELS} 个模型，聚合的模型共 {} 个，多出的不写入",
+            "Claude Desktop 最多 {MAX_INFERENCE_MODELS} 个模型，发布的模型共 {} 个，多出的不写入",
             model_specs.len()
         );
         model_specs.truncate(MAX_INFERENCE_MODELS);
@@ -1248,29 +1205,22 @@ pub fn route_profile(
     Ok(profile)
 }
 
-/// 应用一张卡：官方恢复与 provider 应用同寿命（picker 等衍生件也被清掉）。返回聚合供应商
-/// 解出的槽位路由（picker / DeepSeek Harness 同步用），官方/直连卡为 `None`。
+/// 应用一张卡。官方卡恢复 1P，其余按直连或本地路由写 profile。
 ///
-/// 4.0.13 起内部走上游新原语（`direct_profile` / `route_profile` / `write_profile_at_paths`），
-/// 签名保持旧形态：测试与编排层（`apply_provider` 的 picker/DSH 同步）都依赖它。
+/// 4.0.13 起内部走 `direct_profile` / `route_profile` / `write_profile_at_paths`。
 fn apply_provider_to_paths(
     db: &Database,
     provider: &Provider,
     paths: &ClaudeDesktopPaths,
-) -> Result<Option<Vec<ResolvedModelRoute>>, AppError> {
+) -> Result<(), AppError> {
     if is_official_provider(provider) {
-        restore_official_at_paths(db, paths, state::op::APPLY, PendingTarget::default())?;
-        return Ok(None);
+        return restore_official_at_paths(db, paths, state::op::APPLY, PendingTarget::default());
     }
-    let mut cli_routes = None;
     let profile = if needs_routing(provider) {
         let gateway = proxy_gateway_base_url_from_db(db)?;
         let origin = gateway
             .strip_suffix(CLAUDE_DESKTOP_PROXY_PREFIX)
             .unwrap_or(&gateway);
-        if crate::aggregate::is_aggregate_provider(provider) {
-            cli_routes = Some(proxy_model_routes(provider)?);
-        }
         route_profile(db, provider, origin, &[])?
     } else {
         direct_profile(provider)?
@@ -1281,8 +1231,7 @@ fn apply_provider_to_paths(
         state::op::APPLY,
         profile,
         PendingTarget::default(),
-    )?;
-    Ok(cli_routes)
+    )
 }
 
 fn write_profile_at_paths(
@@ -1556,38 +1505,6 @@ fn build_gateway_profile(
     profile
 }
 
-/// Merge a freshly-built gateway profile with whatever is already on disk.
-///
-/// `build_gateway_profile` rebuilds only the gateway-related fields on every
-/// switch. Writing that object directly would discard non-gateway fields that
-/// Claude Desktop or the user relies on -- `managedMcpServers`,
-/// `chatTabEnabled`, `autoModeEnabled`, `inferenceCredentialKind`, and the
-/// like -- which can trigger a Claude Desktop UI/session reset that wipes
-/// plugin marketplaces, skills, and MCP state (issue #3329).
-///
-/// Strategy: start from the existing profile, overwrite every key the new
-/// profile carries (so gateway fields are always refreshed), and preserve any
-/// other key already on disk. `inferenceModels` is gateway-owned but
-/// conditionally written by `build_gateway_profile`; when the new profile
-/// omits it we drop any stale value so the previous provider's model mappings
-/// do not leak across a switch.
-fn merge_profile(existing: &Value, new_profile: &Value) -> Value {
-    let mut merged = existing.clone();
-    let Some(merged_obj) = merged.as_object_mut() else {
-        return new_profile.clone();
-    };
-    let Some(new_obj) = new_profile.as_object() else {
-        return new_profile.clone();
-    };
-    for (key, value) in new_obj {
-        merged_obj.insert(key.clone(), value.clone());
-    }
-    if !new_obj.contains_key("inferenceModels") {
-        merged_obj.remove("inferenceModels");
-    }
-    merged
-}
-
 fn read_json_or_empty(path: &Path) -> Result<Value, AppError> {
     let value = if path.exists() {
         read_json_file(path)?
@@ -1755,29 +1672,6 @@ fn paths_from_dirs(normal_dir: PathBuf, threep_dir: PathBuf) -> ClaudeDesktopPat
     }
 }
 
-/// 代理 origin 根（`http://host:port`），由运行期代理配置的监听地址/端口派生。
-/// 监听通配地址会被改写成回环地址——客户端无法连接 `0.0.0.0` / `::`；IPv6 字面量
-/// 需补方括号才能进 URL。Desktop 网关与 Codex 聚合 seed 两处调用方共享此派生，
-/// 避免各自手写 host 归一化后漂移。
-///
-/// 注意：`services/proxy.rs` 的 `build_proxy_urls` 里尚存一份**独立的同源推导**
-/// （通配地址归一化 + IPv6 方括号，逻辑等价且多了一段运行期端口回填），尚未迁移
-/// 到本函数——改动它不在本轮范围内。
-pub(crate) fn proxy_origin_from_parts(listen_address: &str, listen_port: u16) -> String {
-    let connect_host = match listen_address {
-        "0.0.0.0" => "127.0.0.1",
-        "::" => "::1",
-        value => value,
-    };
-    let connect_host_for_url = if connect_host.contains(':') && !connect_host.starts_with('[') {
-        format!("[{connect_host}]")
-    } else {
-        connect_host.to_string()
-    };
-
-    format!("http://{}:{}", connect_host_for_url, listen_port)
-}
-
 #[cfg(not(any(target_os = "macos", windows, target_os = "linux")))]
 fn unsupported_platform_error() -> AppError {
     AppError::localized(
@@ -1795,93 +1689,8 @@ mod tests {
     use crate::provider::{ClaudeDesktopModelRoute, ProviderMeta};
     use crate::settings::ClaudeDesktopDisplaySettings;
     use serde_json::json;
-    use serial_test::serial;
-    use std::env;
     use std::fs;
     use tempfile::TempDir;
-
-    /// 把 HOME/USERPROFILE/LOCALAPPDATA/CC_SWITCH_TEST_HOME 全部钉到临时目录：
-    /// `apply_provider` 走的是 `current_platform_paths()`，会写真实的 3P profile 与
-    /// `~/.claude/settings.json`，测试里必须整体搬家（2026-09-22 事故口径）。
-    struct TempHome {
-        #[allow(dead_code)]
-        dir: TempDir,
-        original_home: Option<String>,
-        #[cfg(windows)]
-        original_local_app_data: Option<String>,
-        original_userprofile: Option<String>,
-        original_test_home: Option<String>,
-        #[cfg(target_os = "linux")]
-        original_xdg_config_home: Option<std::ffi::OsString>,
-    }
-
-    impl TempHome {
-        fn new() -> Self {
-            let dir = TempDir::new().expect("failed to create temp home");
-            let original_home = env::var("HOME").ok();
-            #[cfg(windows)]
-            let original_local_app_data = env::var("LOCALAPPDATA").ok();
-            let original_userprofile = env::var("USERPROFILE").ok();
-            let original_test_home = env::var("CC_SWITCH_TEST_HOME").ok();
-            #[cfg(target_os = "linux")]
-            let original_xdg_config_home = env::var_os("XDG_CONFIG_HOME");
-
-            env::set_var("HOME", dir.path());
-            #[cfg(windows)]
-            env::set_var("LOCALAPPDATA", dir.path().join("AppData").join("Local"));
-            env::set_var("USERPROFILE", dir.path());
-            env::set_var("CC_SWITCH_TEST_HOME", dir.path());
-            // Claude Desktop Linux 路径跟随 XDG_CONFIG_HOME，必须一并钉住
-            #[cfg(target_os = "linux")]
-            env::remove_var("XDG_CONFIG_HOME");
-
-            Self {
-                dir,
-                original_home,
-                #[cfg(windows)]
-                original_local_app_data,
-                original_userprofile,
-                original_test_home,
-                #[cfg(target_os = "linux")]
-                original_xdg_config_home,
-            }
-        }
-    }
-
-    impl Drop for TempHome {
-        fn drop(&mut self) {
-            match &self.original_home {
-                Some(value) => env::set_var("HOME", value),
-                None => env::remove_var("HOME"),
-            }
-
-            #[cfg(windows)]
-            {
-                match &self.original_local_app_data {
-                    Some(value) => env::set_var("LOCALAPPDATA", value),
-                    None => env::remove_var("LOCALAPPDATA"),
-                }
-            }
-
-            match &self.original_userprofile {
-                Some(value) => env::set_var("USERPROFILE", value),
-                None => env::remove_var("USERPROFILE"),
-            }
-
-            match &self.original_test_home {
-                Some(value) => env::set_var("CC_SWITCH_TEST_HOME", value),
-                None => env::remove_var("CC_SWITCH_TEST_HOME"),
-            }
-
-            #[cfg(target_os = "linux")]
-            {
-                match &self.original_xdg_config_home {
-                    Some(value) => env::set_var("XDG_CONFIG_HOME", value),
-                    None => env::remove_var("XDG_CONFIG_HOME"),
-                }
-            }
-        }
-    }
 
     fn test_paths(home: &Path) -> ClaudeDesktopPaths {
         let mut paths = paths_from_dirs(
@@ -1895,10 +1704,6 @@ mod tests {
         paths.device = DeviceStore::at(home.join(".cc-switch"));
         paths
     }
-
-    // `apply_provider_to_paths` 不再需要测试版 helper：生产函数保持旧签名
-    // （返回 `Option<Vec<ResolvedModelRoute>>`，聚合卡时给 picker / DSH 同步用），
-    // 测试直接调用它——上游 4.0.13 的 () 返回 helper 曾在此遮蔽生产版。
 
     fn restore_official(paths: &ClaudeDesktopPaths) -> Result<(), AppError> {
         restore_official_at_paths(
@@ -3234,244 +3039,5 @@ mod tests {
         assert_eq!(v.name, "Chris");
         assert_eq!(v.subtitle, "");
         assert!(!v.attribution);
-    }
-
-    #[test]
-    fn aggregate_provider_derives_model_routes_from_slots() {
-        let mut provider = direct_provider("agg");
-        let meta = provider.meta.get_or_insert_with(Default::default);
-        meta.aggregate_routes = Some(crate::aggregate::AggregateRoutes {
-            slots: vec![
-                crate::aggregate::AggregateRouteSlot {
-                    route_id: "claude-sonnet-1".into(),
-                    tier: crate::aggregate::AggregateTier::Sonnet,
-                    provider_id: "p-glm".into(),
-                    upstream_model: "glm-5.3".into(),
-                    label: Some("智谱 GLM-5.3".into()),
-                    supports_1m: true,
-                    max_effort: None,
-                },
-                crate::aggregate::AggregateRouteSlot {
-                    route_id: "claude-haiku-1".into(),
-                    tier: crate::aggregate::AggregateTier::Haiku,
-                    provider_id: "p-ds".into(),
-                    upstream_model: "deepseek-flash".into(),
-                    label: None,
-                    supports_1m: false,
-                    max_effort: None,
-                },
-                crate::aggregate::AggregateRouteSlot {
-                    route_id: "claude-sonnet-2".into(),
-                    tier: crate::aggregate::AggregateTier::Sonnet,
-                    provider_id: "p-glm".into(),
-                    upstream_model: "glm-5.3-flash".into(),
-                    label: None,
-                    supports_1m: false,
-                    max_effort: Some("xhigh".into()),
-                },
-                crate::aggregate::AggregateRouteSlot {
-                    route_id: "claude-sonnet-3".into(),
-                    tier: crate::aggregate::AggregateTier::Sonnet,
-                    provider_id: "p-glm".into(),
-                    upstream_model: "glm-5.3-air".into(),
-                    label: None,
-                    supports_1m: false,
-                    max_effort: Some("ultra".into()),
-                },
-            ],
-            default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
-            default_model: None,
-            retired_route_ids: vec![],
-            alias_rules: vec![],
-        });
-
-        let routes = proxy_model_routes(&provider).expect("routes");
-        // 顺序保留 slots 的供应商分组序（2026-09-24 改造，不再按 route_id 字典序）
-        assert_eq!(routes.len(), 4);
-        assert_eq!(routes[0].route_id, "claude-sonnet-1");
-        assert_eq!(routes[0].upstream_model, "glm-5.3");
-        assert_eq!(routes[0].label_override.as_deref(), Some("智谱 GLM-5.3"));
-        assert!(routes[0].supports_1m);
-        assert_eq!(routes[1].route_id, "claude-haiku-1");
-        assert_eq!(routes[1].upstream_model, "deepseek-flash");
-        assert_eq!(routes[1].label_override, None);
-        assert!(!routes[1].supports_1m);
-        // maxEffort 白名单：合法值透出，非法值被过滤为 None（不写会让 Desktop 拒收的字段）
-        assert_eq!(routes[2].max_effort.as_deref(), Some("xhigh"));
-        assert_eq!(routes[3].max_effort, None);
-
-        // 端到端：条目按槽位顺序写入 profile，maxEffort 只随合法值出现在条目对象上
-        let temp = TempDir::new().expect("tempdir");
-        let paths = test_paths(temp.path());
-        apply_provider_to_paths(&test_db(), &provider, &paths).expect("apply aggregate provider");
-        let profile: Value = read_json_file(&paths.profile_path).expect("read profile");
-        assert_eq!(profile["inferenceModels"][2]["maxEffort"], json!("xhigh"));
-        assert!(profile["inferenceModels"][3].get("maxEffort").is_none());
-    }
-
-    /// 构造一个仅带聚合路由表、`settings_config` 为空对象的供应商（无端点无凭据）。
-    fn aggregate_provider_without_credentials(id: &str) -> Provider {
-        let mut provider =
-            Provider::with_id(id.to_string(), "Aggregate".to_string(), json!({}), None);
-        provider.meta = Some(ProviderMeta {
-            aggregate_routes: Some(crate::aggregate::AggregateRoutes {
-                slots: vec![crate::aggregate::AggregateRouteSlot {
-                    route_id: "claude-sonnet-1".into(),
-                    tier: crate::aggregate::AggregateTier::Sonnet,
-                    provider_id: "p-glm".into(),
-                    upstream_model: "glm-5.3".into(),
-                    label: None,
-                    supports_1m: false,
-                    max_effort: None,
-                }],
-                default_target: crate::aggregate::DefaultTarget::ProviderId("p-glm".into()),
-                default_model: None,
-                retired_route_ids: vec![],
-                alias_rules: vec![],
-            }),
-            ..Default::default()
-        });
-        provider
-    }
-
-    #[test]
-    fn validate_direct_provider_accepts_aggregate_without_endpoint_or_credentials() {
-        // 聚合供应商自身无端点无凭据（转发时用目标供应商的），故空 settings_config
-        // 也必须通过直连校验 —— 不得逼用户编造占位端点与密钥。
-        let aggregate = aggregate_provider_without_credentials("agg");
-        validate_direct_provider(&aggregate)
-            .expect("aggregate provider must validate without endpoint or credentials");
-    }
-
-    #[test]
-    fn validate_direct_provider_still_rejects_ordinary_provider_without_credentials() {
-        // 对照：普通供应商的空 settings_config 仍必须被拒（聚合短路不得顺手放宽它）。
-        let plain = Provider::with_id("plain".to_string(), "Plain".to_string(), json!({}), None);
-        validate_direct_provider(&plain)
-            .expect_err("ordinary provider without endpoint/credentials must still be rejected");
-    }
-
-    #[test]
-    fn validate_proxy_provider_accepts_aggregate_without_endpoint_or_credentials() {
-        // 聚合供应商走本地路由（代理）短路：自身无端点无凭据（转发时用目标供应商的），
-        // 故空 settings_config 也必须通过代理校验 —— 这正是 UI 持久化的主路径
-        // （meta.claudeDesktopMode = "proxy"）。
-        let mut aggregate = aggregate_provider_without_credentials("agg");
-        aggregate
-            .meta
-            .as_mut()
-            .expect("meta present")
-            .claude_desktop_mode = Some(ClaudeDesktopMode::Proxy);
-        validate_proxy_provider(&aggregate)
-            .expect("aggregate provider must validate as proxy without endpoint or credentials");
-    }
-
-    #[test]
-    fn validate_proxy_provider_still_rejects_ordinary_provider_without_credentials() {
-        // 对照：普通代理供应商的空 settings_config 仍必须被拒（聚合短路不得顺手放宽它）。
-        let mut plain =
-            Provider::with_id("plain".to_string(), "Plain".to_string(), json!({}), None);
-        plain.meta = Some(ProviderMeta {
-            claude_desktop_mode: Some(ClaudeDesktopMode::Proxy),
-            ..Default::default()
-        });
-        validate_proxy_provider(&plain).expect_err(
-            "ordinary proxy provider without endpoint/credentials must still be rejected",
-        );
-    }
-
-    #[test]
-    fn apply_aggregate_provider_without_credentials_writes_local_gateway_profile() {
-        // 聚合供应商保存后必须能真正启用：空 settings_config 也要走代理分支写 profile
-        // （模型列表由槽位派生，网关地址为本地代理），而不是去取聚合自己的端点/凭据。
-        let temp = TempDir::new().expect("tempdir");
-        let paths = test_paths(temp.path());
-        let db = test_db();
-        let aggregate = aggregate_provider_without_credentials("agg");
-
-        apply_provider_to_paths(&db, &aggregate, &paths).expect("apply aggregate provider");
-
-        let profile: Value = read_json_file(&paths.profile_path).expect("read profile");
-        assert_eq!(
-            profile["inferenceGatewayBaseUrl"],
-            json!("http://127.0.0.1:15721/claude-desktop")
-        );
-        assert_eq!(profile["inferenceModels"], json!(["claude-sonnet-1"]));
-    }
-
-    #[test]
-    fn apply_provider_to_paths_returns_routes_only_for_aggregate_provider() {
-        let db = test_db();
-
-        let temp = TempDir::new().expect("tempdir");
-        let aggregate = apply_provider_to_paths(
-            &db,
-            &aggregate_provider_without_credentials("agg"),
-            &test_paths(temp.path()),
-        )
-        .expect("apply aggregate provider");
-        // 聚合槽位即 picker 行来源：route_id 必须与槽位一致，否则 CLI 侧点不到目标
-        let aggregate_routes = aggregate.expect("aggregate must yield routes");
-        assert_eq!(aggregate_routes.len(), 1);
-        assert_eq!(aggregate_routes[0].route_id, "claude-sonnet-1");
-
-        let temp = TempDir::new().expect("tempdir");
-        // 普通代理供应商（模型映射行）不生成 picker 行：spec 范围只覆盖聚合
-        assert!(
-            apply_provider_to_paths(&db, &proxy_provider("proxy"), &test_paths(temp.path()))
-                .expect("apply proxy provider")
-                .is_none()
-        );
-
-        let temp = TempDir::new().expect("tempdir");
-        assert!(
-            apply_provider_to_paths(&db, &direct_provider("direct"), &test_paths(temp.path()))
-                .expect("apply direct provider")
-                .is_none()
-        );
-
-        let temp = TempDir::new().expect("tempdir");
-        assert!(
-            apply_provider_to_paths(&db, &official_provider(), &test_paths(temp.path()))
-                .expect("apply official provider")
-                .is_none()
-        );
-    }
-
-    #[test]
-    #[serial]
-    fn apply_provider_syncs_model_picker_and_removes_it_for_plain_provider() {
-        let _home = TempHome::new();
-        let db = test_db();
-        let settings_path = crate::config::get_claude_settings_path();
-        let aggregate = aggregate_provider_without_credentials("agg");
-        let plain = direct_provider("direct");
-
-        apply_provider(&db, &aggregate).expect("apply aggregate provider");
-        let saved: Value = read_json_file(&settings_path).expect("read settings");
-        assert_eq!(saved["modelPicker"]["replaceBuiltInOptions"], json!(false));
-        assert_eq!(
-            saved["modelPicker"]["options"][0]["model"],
-            json!("claude-sonnet-1")
-        );
-
-        // 切到非聚合：本应用写的 picker 键随 profile 一起消失，同批写入的邻键必须留着
-        let mut saved: Value = read_json_file(&settings_path).expect("read settings");
-        saved["theme"] = json!("dark");
-        write_json_file(&settings_path, &saved).expect("seed settings");
-        apply_provider(&db, &plain).expect("apply direct provider");
-        let saved: Value = read_json_file(&settings_path).expect("read settings");
-        assert!(saved.get("modelPicker").is_none(), "{saved}");
-        assert_eq!(saved["theme"], json!("dark"));
-
-        // 手写值不可证明是本应用写的 → 不删（D3）
-        let handwritten =
-            r#"{"theme":"dark","modelPicker":{"options":[{"model":"claude-opus-5"}]}}"#;
-        fs::write(&settings_path, handwritten).expect("seed handwritten settings");
-        apply_provider(&db, &plain).expect("apply direct provider");
-        assert_eq!(
-            fs::read_to_string(&settings_path).expect("read settings"),
-            handwritten
-        );
     }
 }

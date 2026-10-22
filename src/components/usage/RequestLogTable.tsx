@@ -103,6 +103,7 @@ const APP_SHORT_NAME: Record<AppId, string> = {
   pi: "Pi",
   mcode: "MiniMax",
   "deepseek-harness": "DSH",
+  agy: "Antigravity",
 };
 
 export function appShortName(appType: string): string {

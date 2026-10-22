@@ -21,7 +21,7 @@
 
 **携带的补丁（2026-10-20 起，同步上游时必须保留）**：B 显示名（含 `endUserAttribution=false`）· C 本地构建 · D 上游状态检查 · DSH · x-api-key 网关鉴权 · 厂商词守卫。
 
-**当前同步**：tag `v4.0.17`（2026-10-21）。细节见下方「2026-10-21 跟进 v4.0.17」。
+**当前同步**：tag `v4.0.18`（2026-10-22）。细节见下方「2026-10-22 跟进 v4.0.18」。
 A 已由上游 `81df5a08` 取代（PR #5417 只作历史对照）。E 已物理删除，Desktop 多模型走上游 Stack。F（settings.json 合并）已被上游关键字段写入吸收。
 完整清单见 [`UPSTREAM-SYNC.md`](./UPSTREAM-SYNC.md)。上面 2026-09-21 的表格是当时的收尾快照。
 
@@ -2140,6 +2140,18 @@ dead-code lint` 随后落地且 CI 绿
   已不再依赖聚合卡。策略：不再演进、不再上游化；**下次迁移起 E 触面冲突
   一律取上游侧**，让它随上游重构自然萎缩。
 - 聚合卡数据已由用户迁移至 Stack 配置（实测时完成）。
+
+## 2026-10-22 跟进 v4.0.18
+
+- 工作分支起点是 `803135c6`（PR #3）。那次把 v4.0.17 的内容收进树里，但是 squash，历史上没有 v4.0.17 这个父提交。上游 tag `v4.0.18` 指向 `cb90a244`。git 算出的 merge-base 因此仍是 `v4.0.16`（`f92ff0b0`）。合并提交的消息是 `Merge tag 'v4.0.18' into fix/profile-merge`。第二父提交是 `cb90a244`。
+- 直接按 v4.0.16 做三方合并会把已经在树上的 4.0.17 改动再套一次。实际做法是：只属于上游的文件整份取 v4.0.18，只属于本叉的文件保持 `803135c6`，两侧都改过的文件以 `19798e2f`（v4.0.17 的树）为基准重做。自 v4.0.17 起，只属于上游的 174 个文件与 v4.0.18 字节相同，例外是 `tests/components/UsageDashboard.test.tsx` 补了 `"deepseek-harness": false`。只属于本叉的 90 个文件与 `803135c6` 字节相同。两侧都改过的 39 个里，38 个是合出来的，`tests/components/NewLayoutDialog.test.tsx` 仍用 `APP_IDS.length`。
+- git 先报了 29 个冲突。按 v4.0.17 重做后，26 个文件还有冲突标记。这些冲突几乎都是本叉的 DeepSeek Harness 臂和上游的 Antigravity 臂写在同一处。两边都留。`Cargo.toml`、`Cargo.lock`、`tauri.conf.json` 的版本写成 `4.0.18-local`。`tauri.conf.json` 没有 `plugins.updater`，也没有 `createUpdaterArtifacts`。`package.json` 是 `4.0.18`，不加 `-local`。
+- 必须保留的补丁没有改行为。`en.json` 和 `zh.json` 里 6 个 `claudeDesktopDisplay*` 键与合并前逐字相同。`claude_desktop_config.rs`（含 `inject_display_settings`、`endUserAttribution`、`has_non_anthropic_vendor_token`）、`commands/upstream.rs`、`src/lib/updater.ts`、`dsh_config.rs`、`commands/dsh.rs`、`mode/controller.rs` 里的 `sync_dsh_aggregate_now`、`proxy/handlers.rs` 里认 `x-api-key` 的 `gateway_token_from_headers`，都与 `803135c6` 字节相同。没有 `aggregate.rs`。
+- `AppType::from_str` 的报错文案补上 `deepseek-harness`，和这个 id 已经能解析的事实一致。
+- 数据库从 20 到 21。`database/mod.rs` 和 `database/schema.rs` 与上游 v4.0.18 字节相同。v20 到 v21 的迁移给 `mcp_servers` 和 `skills` 加 `enabled_agy`。本叉没有另写迁移。升到 21 之后，旧版本会因数据库过新而打不开。
+- 4.0.18 的其余内容见 `docs/release-notes/v4.0.18-zh.md`。和 Windows 有关的三处是打开终端后不再等到窗口关掉才结束等待，MSI 安装可以不建桌面快捷方式，应用内更新不再因为文件被占用而重启电脑。本机构建没有官方 updater，最后一项在本地包上走不到。本叉的安装包仍是 NSIS，桌面快捷方式选项在上游 MSI 上。Antigravity 多账号在授权中心只支持 macOS。
+- 验证（Linux 云主机，2026-10-22）。`pnpm typecheck` 0。`pnpm format:check` 0。`pnpm test:unit` 249 文件、3166 过。改过的 `UsageDashboard.test.tsx` 单跑 25 过。`cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` 0。`cargo test` 0 败。18 个测试目标合计 4175 过、10 ignored。库测试 3938 过、10 ignored。第一次 `cargo test` 挂在 `wsl_auto_probe_and_removal_match_the_version_check_shell`，和 4.0.16 时一样，是 tmux 终端被 `dash -lic` 抓住。脱离终端后重跑，该用例在库测试里过了。
+- 未在这台机器上做 Windows 托盘、NSIS 安装包、打开终端后按钮是否还转圈，以及升到 schema 21 之后的实库。`pnpm tauri build` 没打。
 
 ## 2026-10-21 跟进 v4.0.17
 

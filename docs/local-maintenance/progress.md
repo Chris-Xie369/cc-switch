@@ -21,7 +21,7 @@
 
 **携带的补丁（2026-10-20 起，同步上游时必须保留）**：B 显示名（含 `endUserAttribution=false`）· C 本地构建 · D 上游状态检查 · DSH · x-api-key 网关鉴权 · 厂商词守卫。
 
-**当前同步**：tag `v4.0.18`（2026-10-22）。细节见下方「2026-10-22 跟进 v4.0.18」。
+**当前同步**：tag `v4.0.20`（2026-10-26）。细节见下方「2026-10-26 跟进 v4.0.20」。
 A 已由上游 `81df5a08` 取代（PR #5417 只作历史对照）。E 已物理删除，Desktop 多模型走上游 Stack。F（settings.json 合并）已被上游关键字段写入吸收。
 完整清单见 [`UPSTREAM-SYNC.md`](./UPSTREAM-SYNC.md)。上面 2026-09-21 的表格是当时的收尾快照。
 
@@ -2140,6 +2140,18 @@ dead-code lint` 随后落地且 CI 绿
   已不再依赖聚合卡。策略：不再演进、不再上游化；**下次迁移起 E 触面冲突
   一律取上游侧**，让它随上游重构自然萎缩。
 - 聚合卡数据已由用户迁移至 Stack 配置（实测时完成）。
+
+## 2026-10-26 跟进 v4.0.20
+
+- 工作分支起点是 `be4eb0a7`（PR #4 的 squash）。那次把 v4.0.18 收进树里，历史上没有 v4.0.18 这个父提交。git 算出的 merge-base 仍是 v4.0.16（`f92ff0b0`）。按那个基线做三方合并会把已经在树上的 4.0.17 和 4.0.18 再套一次。
+- 先用 `git merge -s ours v4.0.18` 记一笔空树提交，第二父是 `cb90a244`。树和 `be4eb0a7` 相同。之后 `git merge v4.0.20` 的 merge-base 是 `cb90a244`。v4.0.19（`d8983bb1`，Kimi Code）是 v4.0.20（`85ad4969`，Oh My Pi）的祖先，所以一次合并带上两版。合并提交是 `Merge tag 'v4.0.20' into fix/profile-merge`，第二父是 `85ad4969`。
+- 冲突 34 个文件。大多是本叉的 DeepSeek Harness 臂和上游的 Kimi、Oh My Pi 臂写在同一处。两边都留。`Cargo.toml`、`Cargo.lock`、`tauri.conf.json` 的版本写成 `4.0.20-local`。`tauri.conf.json` 没有 `plugins.updater`，也没有 `createUpdaterArtifacts`。`package.json` 是 `4.0.20`，不加 `-local`。
+- 必须保留的补丁没有改行为。`en.json` 和 `zh.json` 里 6 个 `claudeDesktopDisplay*` 键还在，`deepseekHarness` 与上游的 `kimi`、`omp` 文案并列。`claude_desktop_config.rs` 自动合并，留下 `inject_display_settings`（含 `endUserAttribution`）和 `has_non_anthropic_vendor_token`，并接上上游的 Desktop 安装探测（`installed`）。`commands/upstream.rs`、`src/lib/updater.ts`、`dsh_config.rs`、`commands/dsh.rs`、`mode/controller.rs`、`proxy/handlers.rs` 里认 `x-api-key` 的 `gateway_token_from_headers`，上游这次没改，合并后与合并前字节相同。没有 `aggregate.rs`。
+- 应用页用上游的已安装、未安装分组和拖动排序。DeepSeek Harness 仍是单独一行，算作已安装，显示「已接入」。它在 `APP_IDS` 里排在最后，这样 Kimi 的默认前一个仍是 `mcode`，上游的顺序测试不用改。
+- Codex 父时间线测试的计数断言取上游 `e88ff540`。那一笔把计数限制在本测试的目录里，盖过本叉早先按全表条数改过的断言。
+- 数据库从 21 到 23。`database/mod.rs` 和 `database/schema.rs` 与上游 v4.0.20 字节相同。v21 到 v22 给 `mcp_servers` 和 `skills` 加 `enabled_kimi`。v22 到 v23 给 `mcp_servers` 加 `enabled_omp`。升到 23 之后，旧版本会因数据库过新而打不开。
+- 4.0.19 和 4.0.20 的其余内容见 `docs/release-notes/v4.0.19-zh.md` 与 `v4.0.20-zh.md`。本机构建没有官方 updater。本叉的安装包仍是 NSIS。
+- 验证（Linux 云主机，2026-10-26）。`pnpm typecheck` 0。`pnpm format:check` 0。`pnpm test:unit` 257 个文件、3312 过。`cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` 0。`cargo test` 0 败。18 个测试目标合计 4267 过、10 ignored。库测试 4060 过、10 ignored。`cargo check --tests` 时库测试构建有 1 条既有警告，`agy_account/keychain.rs` 的 `named` 未使用。未在这台机器上做 Windows 托盘、NSIS 安装包，以及升到 schema 23 之后的实库。`pnpm tauri build` 没打。
 
 ## 2026-10-22 跟进 v4.0.18
 

@@ -15,3 +15,10 @@ ts	phase	decision	why	evidence	result
 2026-10-26T01:26:17Z	format	wrapped the additive app id union so Prettier accepts it	format:check failed only on that one line	src/config/appConfig.tsx	format:check 0
 2026-10-26T01:26:17Z	verify	cargo test, clippy, typecheck, and the unit suite passed	the checks are the same set as the v4.0.18 sync	/tmp/cargo-test.log /tmp/vitest2.log /tmp/clippy.log	4267 passed, 10 ignored, vitest 3312, clippy 0, typecheck 0
 2026-10-26T01:26:17Z	handback	opened the pull request into fix/profile-merge	the request asks for one PR against that branch	https://github.com/Chris-Xie369/cc-switch/pull/5	open
+2026-10-26T01:30:50Z	trail-review	Composer read the decision log and flagged eight gaps	opus, gemini, and gpt were rejected for weekly usage, so the different-family pass used composer	agent bc-54ee87ac-2214-54f4-bbde-ed1fefea5f88	flags listed in the handback
+2026-10-26T01:30:50Z	stitch-recount	reran merge-tree once from each base	the stitch row cited conflict counts that were not saved	docs/local-maintenance/sync-v4.0.20-conflicts.txt	naive 99 paths, stitch 34 paths
+2026-10-26T01:30:50Z	compile-wording	the dead_code warning is keychain.rs:74 named, and that file matches v4.0.20	the compile row called it upstream without a file pointer	/tmp/cargo-check.txt	warning is in the upstream file
+2026-10-26T01:30:50Z	verify-logs	re-summed the host logs and named the passing format log	the verify row omitted typecheck.log, and format.log is the earlier failure	docs/local-maintenance/sync-v4.0.20-verify.txt	4267 passed, vitest 3312, clippy 0, typecheck 0, format2 0
+2026-10-26T01:30:50Z	comments-gap	the comment pass left no saved file list or output	a reviewer cannot replay comment-sicko none from the repo	no artifact	unverified
+2026-10-26T01:30:50Z	frame-close	the done checklist holds on 1b3f3faf	the frame row stayed open after the work landed	https://github.com/Chris-Xie369/cc-switch/pull/5	met
+2026-10-26T01:31:26Z	format-now	reran pnpm format:check on the committed tree	format2.log is three minutes older than commit 1b3f3faf	pnpm format:check exit 0	format green on HEAD

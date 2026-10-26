@@ -1,0 +1,13 @@
+Host logs from the sync run. GitHub does not re-run these.
+cargo check --tests: EXIT:0 in /tmp/cargo-check.txt
+warning: src-tauri/src/services/agy_account/keychain.rs:74 associated function named is never used
+that file is byte-identical to tag v4.0.20 (git diff --stat empty)
+cargo test: 18 targets, 4267 passed, 0 failed, 10 ignored. lib target 4060 passed, 10 ignored. EXIT:0 in /tmp/cargo-test.log
+The 4267 is the sum of the 18 "test result" lines in that log, one per target.
+pnpm test:unit: 257 files, 3312 tests, VITEST:0 in /tmp/vitest2.log
+cargo clippy -D warnings: CLIPPY:0 in /tmp/clippy.log
+pnpm typecheck: TYPECHECK:0 in /tmp/typecheck.log
+pnpm format:check first run: FORMAT:1, only src/config/appConfig.tsx, in /tmp/format.log
+pnpm format:check after the wrap: FORMAT:0 in /tmp/format2.log
+
+format:check rerun on HEAD 1b3f3faf during the trail close: exit 0

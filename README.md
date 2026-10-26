@@ -1,6 +1,6 @@
 # CC Switch（本地维护 fork）
 
-这是 `farion1231/cc-switch` 的本地 fork，基线 **v4.0.18**（2026-10-22 同步）。
+这是 `farion1231/cc-switch` 的本地 fork，基线 **v4.0.20**（2026-10-26 同步）。
 上游的关键字段写入已经覆盖本 fork 原来的 profile / settings.json 合并
 （A/F 退役）。多家模型同时出现在 Claude Desktop 选择器里，用上游 Stack，
 本叉的聚合供应商（E）已删除。当前携带的自有改动：
@@ -25,7 +25,7 @@
 
 ## 分支与远端
 
-- 工作分支 `fix/profile-merge`（基线 tag `v4.0.18`），推送到 `origin`（Chris-Xie369/cc-switch）
+- 工作分支 `fix/profile-merge`（基线 tag `v4.0.20`），推送到 `origin`（Chris-Xie369/cc-switch）
 - `upstream` = 官方仓库，**只拉不推**
 - 同步流程、补丁清单、冲突热点见 [UPSTREAM-SYNC.md](docs/local-maintenance/UPSTREAM-SYNC.md)
 

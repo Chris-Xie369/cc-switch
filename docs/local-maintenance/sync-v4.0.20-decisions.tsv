@@ -11,3 +11,7 @@ ts	phase	decision	why	evidence	result
 2026-10-26T01:15:14Z	schema	took upstream database/mod.rs and schema.rs unchanged	v21 to v22 adds enabled_kimi and v22 to v23 adds enabled_omp	git diff --quiet v4.0.20 -- those two files	schema 23
 2026-10-26T01:15:14Z	compile	cargo check --tests passed after installing the CI GTK packages	the first check failed because gdk-3.0 was missing	/tmp/cargo-check.txt EXIT:0	check green, 1 upstream dead_code warning on lib test
 2026-10-26T01:15:14Z	comments	comment review found no new comments in the resolution	the opus reviewer was unavailable, so this pass used grok	comment-sicko none	none
+2026-10-26T01:26:17Z	order	moved deepseek-harness to the end of APP_IDS	the upstream order test requires kimi to follow mcode, and the old apps page kept DeepSeek Harness last	tests/config/appConfig.test.tsx	15 passed
+2026-10-26T01:26:17Z	format	wrapped the additive app id union so Prettier accepts it	format:check failed only on that one line	src/config/appConfig.tsx	format:check 0
+2026-10-26T01:26:17Z	verify	cargo test, clippy, typecheck, and the unit suite passed	the checks are the same set as the v4.0.18 sync	/tmp/cargo-test.log /tmp/vitest2.log /tmp/clippy.log	4267 passed, 10 ignored, vitest 3312, clippy 0, typecheck 0
+2026-10-26T01:26:17Z	handback	opened the pull request into fix/profile-merge	the request asks for one PR against that branch	https://github.com/Chris-Xie369/cc-switch/pull/5	open

@@ -29,10 +29,10 @@ export const APP_IDS: AppId[] = [
   "hermes",
   "pi",
   "mcode",
-  "deepseek-harness",
   "kimi",
   "agy",
   "omp",
+  "deepseek-harness",
 ];
 
 export const DEFAULT_VISIBLE_APPS: VisibleApps = {
@@ -46,10 +46,10 @@ export const DEFAULT_VISIBLE_APPS: VisibleApps = {
   hermes: true,
   pi: true,
   mcode: true,
-  "deepseek-harness": true,
   kimi: true,
   agy: true,
   omp: true,
+  "deepseek-harness": true,
 };
 
 /**
@@ -137,7 +137,14 @@ export function isStackAppId(appId: string): appId is StackAppId {
 
 export type AdditiveAppId = Extract<
   AppId,
-  "opencode" | "openclaw" | "hermes" | "pi" | "mcode" | "deepseek-harness" | "kimi" | "omp"
+  | "opencode"
+  | "openclaw"
+  | "hermes"
+  | "pi"
+  | "mcode"
+  | "deepseek-harness"
+  | "kimi"
+  | "omp"
 >;
 
 export const ADDITIVE_APP_IDS: AdditiveAppId[] = [

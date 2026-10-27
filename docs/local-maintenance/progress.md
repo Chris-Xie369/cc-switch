@@ -21,7 +21,7 @@
 
 **携带的补丁（2026-10-20 起，同步上游时必须保留）**：B 显示名（含 `endUserAttribution=false`）· C 本地构建 · D 上游状态检查 · DSH · x-api-key 网关鉴权 · 厂商词守卫。
 
-**当前同步**：tag `v4.0.20`（2026-10-26）。细节见下方「2026-10-26 跟进 v4.0.20」。
+**当前同步**：tag `v4.0.21`（2026-10-27）。细节见下方「2026-10-27 跟进 v4.0.21」。
 A 已由上游 `81df5a08` 取代（PR #5417 只作历史对照）。E 已物理删除，Desktop 多模型走上游 Stack。F（settings.json 合并）已被上游关键字段写入吸收。
 完整清单见 [`UPSTREAM-SYNC.md`](./UPSTREAM-SYNC.md)。上面 2026-09-21 的表格是当时的收尾快照。
 
@@ -2294,3 +2294,12 @@ dead-code lint` 随后落地且 CI 绿
 - 构建 4.0.12-local 部署（index-SrHit2KC.js、大小 43807232 三重一致；
   首次安装静默失败为旧进程复活占用，直接重跑 setup 成功），
   1e1730e7 + fd6a5f5e 推 origin。
+
+## 2026-10-27 跟进 v4.0.21
+
+- 工作分支起点是 PR #5 的 merge commit `548f468f`。`git merge-base` 等于 tag `v4.0.20`（`85ad4969`）。直接 `git merge v4.0.21`。自 v4.0.20 起上游 54 个提交。合并提交第二父是 `c4db63c6`。
+- 冲突 3 个，都是版本字符串。`Cargo.toml`、`Cargo.lock`、`tauri.conf.json` 写成 `4.0.21-local`。`package.json` 自动合并为 `4.0.21`。`tauri.conf.json` 没有 `plugins.updater`，也没有 `createUpdaterArtifacts`。
+- 自 v4.0.20 起两侧都改过的文件 18 个。行级核对里，丢掉的行只有旧的 `4.0.20-local` 三处，以及上游不带后缀的 `4.0.21` 三处。其余本叉行和上游新行都在结果里。行还在不等于能编译。上游删了 `PendingUsageRecord.line_offset`，改由 `push_unmatched_usage` 的参数记下 token_count 行。自动合并把本叉原先写这个字段的赋值留了下来。赋值已删，调用仍把当前行传进去。DeepSeek 官方预设改成 Flash 之后，`DshProviderForm.test.tsx` 仍断言 `deepseek-v4-pro`。断言改成 `deepseek-flash` 和目录里的名字 `DeepSeek V4.1 Flash`，上下文与输出上限的检查不动。
+- `docs/local-maintenance/check-must-preserve.py --npm 4.0.21 --rust 4.0.21-local` 通过。没有 `aggregate.rs`。`gateway_profile_patch` 还在。`SCHEMA_VERSION` 仍是 23，与 v4.0.20 和 v4.0.21 相同。已装的 4.0.20-local 数据库不用为这次升级做迁移。
+- 4.0.21 的内容见 `docs/release-notes/v4.0.21-zh.md`。要点是多个 Claude 官方订阅账号切换、Codex 模型列表拖动排序、轻量模式重启后保持，以及 Codex 路由地址、MCP 的 `timeout` 与 `autoApprove`、npm 12 下 OpenCode 与 Grok Build 等修复。本机构建没有官方 updater。本叉的安装包仍是 NSIS。这台 Linux 云主机没有打 Windows 安装包。
+- 验证（Linux 云主机，2026-10-27）。`pnpm typecheck` 0。`pnpm format:check` 0。`pnpm test:unit` 第一次 264 个文件里 1 个失败，就是上面的 DeepSeek 断言。改完后重跑 264 个文件、3370 过。`cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` 0。`cargo test` 第一次在 tmux 里退出 149，库测试还没跑完。脱离终端后再跑，退出 0。18 个测试目标合计 4365 过、10 ignored。库测试 4155 过、10 ignored。库测试构建仍有 1 条警告，`agy_account/keychain.rs` 的 `named` 未使用，该文件与 tag v4.0.21 相同，4.0.20 同步时已经记过。未打 Windows NSIS。数字见 `docs/local-maintenance/v4.0.21-verify.md`。

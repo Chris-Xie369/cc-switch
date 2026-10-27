@@ -1475,7 +1475,7 @@ fn parse_codex_file_with_index(
                 let last = info
                     .get("last_token_usage")
                     .and_then(parse_cumulative_tokens);
-                if let Some(mut pending) = pending_usage.take() {
+                if let Some(pending) = pending_usage.take() {
                     // 对得上的 last 已经由这条 token_count 入账。last 为 0 是远程压缩
                     // 把本次用量只写在 token_usage_record 里之后的空快照。其它对不上的
                     // 记录只用于耗时，不能再记一行。
@@ -1483,9 +1483,6 @@ fn parse_codex_file_with_index(
                         .as_ref()
                         .is_some_and(|last| usage_matches(last, &pending.usage));
                     if !covered && last.as_ref().is_some_and(usage_is_zero) {
-                        // 游标停在已读完的行上。用量行自己先到、确认用的 token_count
-                        // 后到时，事件若仍记用量行的偏移，下一轮会被当成已导入丢掉。
-                        pending.line_offset = line_offset;
                         push_unmatched_usage(
                             &mut usage_record_events,
                             pending,

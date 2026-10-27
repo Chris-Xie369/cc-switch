@@ -6,8 +6,8 @@ describe("dsh preset derivation (Mcode-format)", () => {
     const ds = dshProviderPresets.find((p) => p.name === "DeepSeek");
     expect(ds).toBeTruthy();
     const models = ds!.settingsConfig.models;
-    expect(Object.keys(models)).toContain("deepseek-v4-pro");
-    const m = models["deepseek-v4-pro"];
+    expect(Object.keys(models)).toContain("deepseek-flash");
+    const m = models["deepseek-flash"];
     expect(m).toBeTruthy();
     expect(m!.limit?.context).toBe(1000000);
     expect(m!.limit?.output).toBe(384000);
@@ -18,7 +18,7 @@ describe("dsh preset derivation (Mcode-format)", () => {
     expect((m!.modalities as Record<string, string[]>)?.output).toContain(
       "text",
     );
-    expect(m!.name).toBe("DeepSeek V4 Pro");
+    expect(m!.name).toBe("DeepSeek V4.1 Flash");
   });
 
   it("config structure matches Mcode (options.baseURL + models map)", () => {
